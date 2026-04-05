@@ -1,0 +1,35 @@
+{
+  "name": "friendgroup",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Friendgroup monorepo",
+  "scripts": {
+    "dev": "npm-run-all -p dev:api dev:web",
+    "dev:api": "npm --workspace apps/api run dev",
+    "dev:web": "npm --workspace apps/web run dev",
+    "build": "npm-run-all build:api build:web",
+    "build:api": "npm --workspace apps/api run build",
+    "build:web": "npm --workspace apps/web run build",
+    "lint": "npm run -ws --if-present lint",
+    "typecheck": "npm run -ws --if-present typecheck",
+    "test": "npm run -ws --if-present test"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/aidanlenahan/friendgroup.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/aidanlenahan/friendgroup/issues"
+  },
+  "homepage": "https://github.com/aidanlenahan/friendgroup#readme",
+  "devDependencies": {
+    "npm-run-all": "^4.1.5"
+  }
+}

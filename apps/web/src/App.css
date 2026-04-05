@@ -1,0 +1,157 @@
+.app-shell {
+  display: grid;
+  gap: 1rem;
+  padding: 1.25rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.hero {
+  padding: 1.25rem;
+  border-radius: 1rem;
+  border: 1px solid var(--border);
+  background:
+    radial-gradient(circle at 85% 15%, rgba(244, 162, 97, 0.3), transparent 35%),
+    radial-gradient(circle at 5% 95%, rgba(42, 157, 143, 0.28), transparent 40%),
+    linear-gradient(145deg, #f6efe2, #f7f4ea 55%, #edf3ef);
+}
+
+.home-hero {
+  min-height: 190px;
+  align-content: center;
+}
+
+.eyebrow {
+  margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  font-size: 0.78rem;
+  color: #264653;
+}
+
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  padding: 1rem;
+  background: #fffdf7;
+  min-width: 0;
+}
+
+.row {
+  display: flex;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  margin-top: 0.75rem;
+}
+
+label {
+  display: block;
+  margin-top: 0.6rem;
+  font-size: 0.9rem;
+  color: #4f5d5b;
+}
+
+input {
+  min-width: min(320px, 100%);
+  padding: 0.65rem 0.7rem;
+  border-radius: 0.65rem;
+  border: 1px solid #9db2ad;
+  background: #fff;
+}
+
+button {
+  border: 1px solid #264653;
+  border-radius: 999px;
+  background: #264653;
+  color: #f7f4ea;
+  padding: 0.62rem 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button-link {
+  border: 1px solid #264653;
+  border-radius: 999px;
+  background: #264653;
+  color: #f7f4ea;
+  padding: 0.62rem 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.top-nav-panel {
+  background: #eff4ef;
+}
+
+.launch-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.launch-card {
+  display: grid;
+  gap: 0.8rem;
+  align-content: start;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.facts {
+  margin: 0.9rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.status {
+  margin-top: 0.7rem;
+  font-weight: 600;
+}
+
+.hint {
+  margin-top: 0.7rem;
+  color: #1f6b61;
+}
+
+pre {
+  margin: 0.7rem 0 0;
+  border-radius: 0.8rem;
+  border: 1px dashed #92a8a3;
+  background: #f6f9f6;
+  padding: 0.85rem;
+  width: 100%;
+  max-width: 100%;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+h3 {
+  margin: 1rem 0 0;
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    padding: 0.8rem;
+  }
+
+  .panel,
+  .hero {
+    padding: 0.85rem;
+  }
+
+  .row > button,
+  .row > input {
+    width: 100%;
+  }
+
+  button {
+    border-radius: 0.8rem;
+  }
+}

@@ -1,0 +1,275 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ============================================================================
+// Core User and Group Models
+// ============================================================================
+
+model User {
+  id                         String                      @id @default(cuid())
+  email                      String                      @unique
+  name                       String
+  createdAt                  DateTime                    @default(now())
+  updatedAt                  DateTime                    @updatedAt
+
+  // Relations
+  memberships                Membership[]
+  eventsCreated              Event[]
+  rsvps                      RSVP[]
+  eventInvitesSent           EventInvite[]               @relation("invitedBy")
+  eventInvitesReceived       EventInvite[]               @relation("invitedUser")
+  messagesCreated            Message[]
+  channelSubscriptions       ChannelSubscription[]
+  userTagPrefs               UserTagPreference[]
+  mediaAssets                MediaAsset[]
+  notificationSubscriptions  NotificationSubscription[]
+  notificationEvents         NotificationEvent[]
+
+  @@index([email])
+}
+
+model Group {
+  id        String        @id @default(cuid())
+  name      String
+  ownerId   String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  // Relations
+  memberships Membership[]
+  events     Event[]
+  channels   Channel[]
+  tags       Tag[]
+
+  @@index([ownerId])
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  userId    String
+  groupId   String
+  role      String   @default("member")  // owner, admin, member
+  createdAt DateTime @default(now())
+
+  // Relations
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, groupId])
+  @@index([groupId])
+}
+
+// ============================================================================
+// Event Models
+// ============================================================================
+
+model Event {
+  id              String         @id @default(cuid())
+  groupId         String
+  createdById     String
+  title           String
+  details         String?
+  dateTime        DateTime
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  rating          Int?           // 1-10
+  isLegendary     Boolean        @default(false)
+
+  // Relations
+  group           Group          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdBy       User           @relation(fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  rsvps           RSVP[]
+  invites         EventInvite[]
+  messages        Message[]
+  mediaAssets     MediaAsset[]
+  tags            Tag[]          @relation("EventTags")
+  notificationEvents NotificationEvent[] @relation("eventNotifications")
+
+  @@index([groupId])
+  @@index([createdById])
+  @@index([dateTime])
+}
+
+model RSVP {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String
+  status    String   @default("no")  // yes, no, maybe
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+  @@index([userId])
+}
+
+model EventInvite {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String
+  invitedById String
+  createdAt DateTime @default(now())
+
+  // Relations
+  event        Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  invitedUser  User  @relation("invitedUser", fields: [userId], references: [id], onDelete: Cascade)
+  invitedBy    User  @relation("invitedBy", fields: [invitedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+  @@index([userId])
+}
+
+// ============================================================================
+// Channel and Messaging Models
+// ============================================================================
+
+model Channel {
+  id            String   @id @default(cuid())
+  groupId       String
+  name          String
+  isInviteOnly  Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  group         Group    @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  subscriptions ChannelSubscription[]
+  messages      Message[]
+
+  @@index([groupId])
+  @@unique([groupId, name])
+}
+
+model ChannelSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  channelId String
+  createdAt DateTime @default(now())
+
+  // Relations
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channelId])
+  @@index([channelId])
+}
+
+model Message {
+  id        String   @id @default(cuid())
+  eventId   String?
+  channelId String?
+  userId    String
+  content   String
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  event   Event?   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([eventId])
+  @@index([channelId])
+  @@index([userId])
+  @@index([createdAt])
+}
+
+// ============================================================================
+// Tag and Notification Preference Models
+// ============================================================================
+
+model Tag {
+  id               String              @id @default(cuid())
+  groupId          String
+  name             String
+  createdAt        DateTime            @default(now())
+
+  // Relations
+  group            Group               @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  events           Event[]              @relation("EventTags")
+  userPreferences  UserTagPreference[]
+
+  @@unique([groupId, name])
+  @@index([groupId])
+}
+
+model UserTagPreference {
+  id         String   @id @default(cuid())
+  userId     String
+  tagId      String
+  subscribed Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tagId])
+  @@index([userId])
+}
+
+// ============================================================================
+// Media and Push Notification Models
+// ============================================================================
+
+model MediaAsset {
+  id        String   @id @default(cuid())
+  eventId   String
+  uploaderId String
+  url       String
+  filename  String
+  sizeBytes Int
+  mimeType  String
+  createdAt DateTime @default(now())
+
+  // Relations
+  event     Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  uploader  User  @relation(fields: [uploaderId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([eventId])
+  @@index([uploaderId])
+}
+
+model NotificationSubscription {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  endpoint  String
+  authSecret String
+  p256dh    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model NotificationEvent {
+  id          String   @id @default(cuid())
+  type        String   // chat_message, event_created, event_changed, invite, rsvp_update
+  recipientId String
+  eventId     String?
+  title       String
+  body        String
+  createdAt   DateTime @default(now())
+  sentAt      DateTime?
+
+  // Relations
+  recipient User    @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+  event     Event?  @relation("eventNotifications", fields: [eventId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([recipientId])
+  @@index([type])
+  @@index([createdAt])
+}

@@ -1,0 +1,14 @@
+[Unit]
+Description=Friendgroup Web (Vite dev server)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/friendgroup
+ExecStart=/usr/bin/npm run dev:web
+Restart=always
+RestartSec=3
+Environment=NODE_ENV=development
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,42 @@
+# Local scratch files
+tmp/
+
+# Dependencies
+node_modules/
+vendor/
+
+# Build output
+dist/
+build/
+.next/
+.nuxt/
+.svelte-kit/
+.cache/
+
+# Test and coverage
+coverage/
+.nyc_output/
+
+# Runtime files
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment files (keep templates committed)
+.env
+.env.*
+!.env.example
+
+# OS/editor metadata
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Archives
+*.zip
+*.tar
+*.tar.gz

@@ -1,0 +1,77 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=Work+Sans:wght@400;500;700&display=swap');
+
+:root {
+  --text: #243838;
+  --text-h: #132625;
+  --bg: #f7f4ea;
+  --border: #d4d8ce;
+  --sans: 'Work Sans', 'Segoe UI', sans-serif;
+  --heading: 'Fraunces', Georgia, serif;
+  --mono: 'IBM Plex Mono', ui-monospace, monospace;
+
+  font: 16px/1.45 var(--sans);
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  width: 100%;
+  overflow-x: hidden;
+  background:
+    radial-gradient(circle at top left, rgba(42, 157, 143, 0.2), transparent 35%),
+    radial-gradient(circle at 90% 20%, rgba(233, 196, 106, 0.28), transparent 35%),
+    #f7f4ea;
+}
+
+#root {
+  width: 100%;
+  max-width: 920px;
+  margin: 0 auto;
+  min-height: 100svh;
+}
+
+h1,
+h2,
+h3 {
+  color: var(--text-h);
+  margin: 0;
+}
+
+h1 {
+  font-family: var(--heading);
+  font-size: clamp(1.9rem, 5.6vw, 3rem);
+  margin-top: 0.4rem;
+}
+
+h2 {
+  font-family: var(--heading);
+  font-size: clamp(1.2rem, 3.5vw, 1.6rem);
+}
+
+h3 {
+  font-size: 1rem;
+}
+
+p,
+li,
+label,
+button,
+input,
+pre {
+  font-family: var(--sans);
+}
+
+code,
+pre {
+  font-family: var(--mono);
+}

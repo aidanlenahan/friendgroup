@@ -1,0 +1,109 @@
+Friendgroup Implementation Roadmap
+Updated: 2026-04-03
+Status: Phase 4 chat and realtime implemented
+
+=== Phase 1: Foundation (In Progress) ===
+[x] Setup guide creation and documentation
+[x] Local infrastructure (Postgres, Redis, MinIO) deployed
+[x] Root monorepo workspace configured
+[x] API and web app scaffolds created
+[x] Environment configuration (ENV, VAPID, AUTH_SECRET)
+[x] Prisma MVP schema defined (14 models, all relations + indexes)
+[x] Initial migration applied
+[x] Seed data bootstrap script for demo users/group/tags
+[x] API health check endpoints (/health, /health/db, /health/redis, /health/storage)
+[x] Zod request/response validation middleware
+[x] Global error handler with proper HTTP codes
+
+=== Phase 2: Event Vertical Slice (Next) ===
+[x] Event CRUD endpoints (POST /events, GET /events, PATCH /events/:id, DELETE /events/:id)
+[x] Event attendance model (Event.rsvps)
+[x] RSVP endpoints (POST /events/:id/rsvps, PATCH /events/:id/rsvps/:userId)
+[x] Attendance list response with yes/no/maybe counts
+[x] Tag assignment on event creation
+[x] Event list filtering by group and date range
+[x] Authorization: only group members can create events
+
+=== Phase 3: Authentication and Authorization ===
+[x] Choose Auth.js path (JWT/session baseline now, provider UI integration next)
+[x] Session/JWT middleware
+[x] Group membership check on all group-scoped endpoints
+[x] Role-based access: owner/admin/member permissions
+[x] User lookup in requests (req.user)
+[x] Invite-only event permission model
+
+=== Phase 4: Chat and Realtime ===
+[x] Socket.IO connection handler
+[x] Event chat room join/leave
+[x] Message persistence to DB
+[x] Pinned message flag
+[x] Message list endpoint with cursor pagination
+[x] Broadcast message to all subscribers in event room
+[x] Typing indicator (optional enhancement)
+
+=== Phase 5: Notifications ===
+[x] Push subscription endpoint (POST /notifications/subscribe)
+[x] VAPID server-side sending logic
+[x] Push send test endpoint
+[x] BullMQ connection to Redis
+[x] Notification fanout job (tag-based dispatch)
+[x] Email transactional template setup
+[x] Email send test endpoint (once RESEND_API_KEY populated)
+[x] User notification preference per tag
+
+=== Phase 6: Media Upload ===
+[x] Signed upload URL endpoint (POST /media/upload-url)
+[x] S3 put_object_acl + signature helpers
+[x] Media metadata save to DB after client upload
+[x] File size and per-event quota enforcement
+[x] Media list endpoint per event
+
+=== Phase 7: PWA and Service Worker ===
+[x] vite-plugin-pwa registration in web app
+[x] Service worker fetch event handler
+[x] Notification permission request flow
+[x] Push event listener in service worker
+[x] Install promotion UI in app
+[x] Phase 7 server/runtime exit validation pass completed (see tmp/chat/4-7-phase7-exit-validation.txt)
+[ ] Phase 7 manual device matrix (iOS/Android browser + installed PWA deep-link/permission checks)
+
+=== Phase 8: Calendar Integration ===
+[x] ICS export endpoint
+[x] Google Calendar deep-link builder
+[x] Webhook/job for keeping ICS feeds in sync
+
+=== Phase 9: Testing ===
+[x] Initial API integration tests added for Phase 8 calendar endpoints (see apps/api/src/__tests__/calendar.integration.test.ts)
+[x] Frontend QA route surface: homepage launcher + Phase 7 debug + Phase 9 diagnostics pages
+[ ] Unit tests for core domain services
+[ ] API integration tests (event CRUD, RSVP, chat)
+[ ] Frontend unit tests for PWA/service worker registration and API base URL fallbacks
+[ ] Frontend integration tests for auth + notification capability flows (success + error states)
+[ ] E2E smoke tests (create event -> RSVP -> chat -> notification pref)
+[ ] E2E test on PWA push flow
+[ ] Frontend E2E mobile viewport smoke test for primary user journey
+
+=== Phase 10: Polish and Edge Cases ===
+[ ] Event rating and legendary classification
+[ ] Conflict resolution for concurrent RSVP updates
+[ ] Rate limiting on auth, chat, and notification endpoints
+[ ] Sentry error tracking setup
+[ ] Observability: logs and metrics baseline
+[ ] Frontend loading/error/retry states for rate-limited, offline, and degraded API scenarios
+
+=== Phase 11: Frontend UX + Accessibility Hardening ===
+[ ] Mobile-first responsive layouts for events, RSVP, chat, media, and settings screens
+[ ] Group tag/topic channel UI with open vs invite-only channel affordances
+[ ] Notification settings UI by type (chat/event created/event changed/invites) and channel (push/email)
+[ ] Accessibility pass: semantic landmarks, keyboard nav, focus states, and contrast checks
+[ ] PWA offline-first UX pass (cache-aware states + reconnect indicators)
+[ ] Cross-browser installability and push UX validation (iOS Safari, Android Chrome, desktop)
+
+=== Everything Else (Non-MVP) ===
+[ ] Event invites with specific user list
+[ ] Group-level tag channels (subscription-based)
+[ ] Message reactions/emoji
+[ ] Event media ratings
+[ ] Recurring events
+[ ] Admin event deletion and user removal
+[ ] Audit logs for membership and event changes
