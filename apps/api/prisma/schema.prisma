@@ -15,6 +15,7 @@ model User {
   id                         String                      @id @default(cuid())
   email                      String                      @unique
   name                       String
+  avatarUrl                  String?
   createdAt                  DateTime                    @default(now())
   updatedAt                  DateTime                    @updatedAt
 
@@ -30,16 +31,20 @@ model User {
   mediaAssets                MediaAsset[]
   notificationSubscriptions  NotificationSubscription[]
   notificationEvents         NotificationEvent[]
+  reactions                  MessageReaction[]
+  notificationPreferences    UserNotificationPreference[]
 
   @@index([email])
 }
 
 model Group {
-  id        String        @id @default(cuid())
-  name      String
-  ownerId   String
-  createdAt DateTime      @default(now())
-  updatedAt DateTime      @updatedAt
+  id          String        @id @default(cuid())
+  name        String
+  ownerId     String
+  description String?
+  avatarUrl   String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
   // Relations
   memberships Membership[]
@@ -76,6 +81,10 @@ model Event {
   title           String
   details         String?
   dateTime        DateTime
+  endsAt          DateTime?
+  isPrivate       Boolean        @default(false)
+  maxAttendees    Int?
+  location        String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   rating          Int?           // 1-10
@@ -176,14 +185,30 @@ model Message {
   updatedAt DateTime @updatedAt
 
   // Relations
-  event   Event?   @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  channel Channel? @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event     Event?            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  channel   Channel?          @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  reactions MessageReaction[]
 
   @@index([eventId])
   @@index([channelId])
   @@index([userId])
   @@index([createdAt])
+}
+
+model MessageReaction {
+  id        String   @id @default(cuid())
+  messageId String
+  userId    String
+  emoji     String
+  createdAt DateTime @default(now())
+
+  // Relations
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
 }
 
 // ============================================================================
@@ -194,6 +219,7 @@ model Tag {
   id               String              @id @default(cuid())
   groupId          String
   name             String
+  color            String?
   createdAt        DateTime            @default(now())
 
   // Relations
@@ -217,6 +243,26 @@ model UserTagPreference {
   tag  Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@unique([userId, tagId])
+  @@index([userId])
+}
+
+// ============================================================================
+// User Notification Preference Model
+// ============================================================================
+
+model UserNotificationPreference {
+  id         String   @id @default(cuid())
+  userId     String
+  type       String   // chat_message, event_created, event_changed, invite, rsvp_update
+  channel    String   // push, email
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, channel])
   @@index([userId])
 }
 
