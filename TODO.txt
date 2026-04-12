@@ -75,13 +75,13 @@ Status: Phase 4 chat and realtime implemented
 === Phase 9: Testing ===
 [x] Initial API integration tests added for Phase 8 calendar endpoints (see apps/api/src/__tests__/calendar.integration.test.ts)
 [x] Frontend QA route surface: homepage launcher + Phase 7 debug + Phase 9 diagnostics pages
-[ ] Unit tests for core domain services
-[ ] API integration tests (event CRUD, RSVP, chat)
-[ ] Frontend unit tests for PWA/service worker registration and API base URL fallbacks
-[ ] Frontend integration tests for auth + notification capability flows (success + error states)
-[ ] E2E smoke tests (create event -> RSVP -> chat -> notification pref)
-[ ] E2E test on PWA push flow
-[ ] Frontend E2E mobile viewport smoke test for primary user journey
+[x] Unit tests for core domain services
+[x] API integration tests (event CRUD, RSVP, chat)
+[x] Frontend unit tests for PWA/service worker registration and API base URL fallbacks
+[x] Frontend integration tests for auth + notification capability flows (success + error states)
+[x] E2E smoke tests (create event -> RSVP -> chat -> notification pref)
+[x] E2E test on PWA push flow
+[x] Frontend E2E mobile viewport smoke test for primary user journey
 
 === Phase 10: Polish and Edge Cases ===
 [ ] Event rating and legendary classification

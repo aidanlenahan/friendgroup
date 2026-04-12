@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { readJsonResponse, resolveApiBaseUrl } from '../lib/api'
 import { registerBestServiceWorker } from '../lib/serviceWorker'
 
 type NotificationConfig = {
@@ -93,62 +94,8 @@ function getNotificationPermissionState(): NotificationPermission | 'unsupported
   return window.Notification.permission
 }
 
-function normalizeApiBaseUrl(value: string) {
-  if (!value) {
-    return value
-  }
-  return value.endsWith('/') ? value.slice(0, -1) : value
-}
-
-async function readJsonSafely(response: Response) {
-  const contentType = response.headers.get('content-type') ?? ''
-  if (!contentType.includes('application/json')) {
-    const text = await response.text()
-    return {
-      data: null,
-      message: text.slice(0, 180) || `HTTP ${response.status} ${response.statusText}`,
-    }
-  }
-
-  const data = await response.json()
-  return { data, message: null }
-}
-
 export function Phase7DebugPage() {
-  const apiBaseUrl = useMemo(
-    () => {
-      const explicitBase = import.meta.env.VITE_API_BASE_URL
-      if (explicitBase) {
-        return normalizeApiBaseUrl(explicitBase)
-      }
-
-      const legacyBase = import.meta.env.VITE_API_URL
-      if (!legacyBase) {
-        return '/api'
-      }
-
-      try {
-        const legacyUrl = new URL(legacyBase)
-        const pageHost = window.location.hostname
-        const pageIsLoopback =
-          pageHost === 'localhost' || pageHost === '127.0.0.1' || pageHost === '0.0.0.0'
-        const legacyIsLoopback =
-          legacyUrl.hostname === 'localhost' ||
-          legacyUrl.hostname === '127.0.0.1' ||
-          legacyUrl.hostname === '0.0.0.0'
-
-        // Remote PWA clients cannot reach server-localhost, so use Vite/API proxy path.
-        if (!pageIsLoopback && legacyIsLoopback) {
-          return '/api'
-        }
-      } catch {
-        return '/api'
-      }
-
-      return normalizeApiBaseUrl(legacyBase)
-    },
-    []
-  )
+  const apiBaseUrl = useMemo(resolveApiBaseUrl, [])
 
   const [email, setEmail] = useState('owner@friendgroup.dev')
   const [token, setToken] = useState('')
@@ -168,7 +115,10 @@ export function Phase7DebugPage() {
     'Notification' in window
 
   const canInstall = Boolean(installPrompt)
-  const shouldShowIosInstallHint = isIosDevice() && !isStandaloneDisplay()
+  const isIos = isIosDevice()
+  const isInstalled = isStandaloneDisplay()
+  const shouldShowIosInstallHint = isIos && !isInstalled
+  const [showIosModal, setShowIosModal] = useState(false)
 
   useEffect(() => {
     const onBeforeInstallPrompt = (event: Event) => {
@@ -197,7 +147,7 @@ export function Phase7DebugPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       })
-      const { data, message } = await readJsonSafely(response)
+      const { data, message } = await readJsonResponse(response)
       const payload = data as
         | { token: string; user: { email: string } }
         | { error?: string }
@@ -226,7 +176,7 @@ export function Phase7DebugPage() {
     setStatus('Loading notification config...')
     try {
       const response = await fetch(`${apiBaseUrl}/notifications/config`)
-      const { data, message } = await readJsonSafely(response)
+      const { data, message } = await readJsonResponse(response)
 
       if (!response.ok) {
         throw new Error(
@@ -266,7 +216,7 @@ export function Phase7DebugPage() {
 
     const activeConfig = config ?? (await (async () => {
       const response = await fetch(`${apiBaseUrl}/notifications/config`)
-      const { data, message } = await readJsonSafely(response)
+      const { data, message } = await readJsonResponse(response)
       if (!response.ok) {
         throw new Error(
           message || `Unable to load notification config (${response.status})`
@@ -338,7 +288,7 @@ export function Phase7DebugPage() {
         }),
       })
 
-      const { data, message } = await readJsonSafely(response)
+      const { data, message } = await readJsonResponse(response)
       const payload = data as { error?: string } | null
       if (!response.ok) {
         throw new Error(
@@ -382,7 +332,7 @@ export function Phase7DebugPage() {
           body: 'If you can read this, Phase 7 push wiring works.',
         }),
       })
-      const { data, message } = await readJsonSafely(response)
+      const { data, message } = await readJsonResponse(response)
       const payload = data as { error?: string } | null
 
       if (!response.ok) {
@@ -444,6 +394,11 @@ export function Phase7DebugPage() {
   }
 
   async function promptInstall() {
+    if (shouldShowIosInstallHint) {
+      setShowIosModal(true)
+      return
+    }
+
     if (!installPrompt) {
       setStatus('Install prompt is not available right now.')
       return
@@ -536,17 +491,39 @@ export function Phase7DebugPage() {
           Install prompts are browser controlled. This button appears when the
           beforeinstallprompt event is available.
         </p>
-        <div className="row">
-          <button onClick={promptInstall} disabled={!canInstall}>
-            Install Friendgroup PWA
-          </button>
-        </div>
-        {shouldShowIosInstallHint ? (
-          <p className="hint">
-            iOS tip: use Share - Add to Home Screen to install.
-          </p>
-        ) : null}
+        {!isInstalled ? (
+          <div className="row">
+            <button onClick={promptInstall} disabled={!canInstall && !shouldShowIosInstallHint}>
+              {shouldShowIosInstallHint ? 'How to Install on iPhone / iPad' : 'Install Friendgroup PWA'}
+            </button>
+          </div>
+        ) : (
+          <p className="hint">✓ Already installed as a PWA.</p>
+        )}
       </section>
+
+      {showIosModal ? (
+        <div className="modal-overlay" onClick={() => setShowIosModal(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h2>Add to Home Screen</h2>
+            <ol className="ios-steps">
+              <li>
+                Tap the <strong>Share</strong> button{' '}
+                <span className="ios-icon" aria-label="Share">⬆</span>{' '}
+                at the bottom of Safari.
+              </li>
+              <li>
+                Scroll down and tap{' '}
+                <strong>"Add to Home Screen"</strong>.
+              </li>
+              <li>
+                Tap <strong>"Add"</strong> in the top-right corner.
+              </li>
+            </ol>
+            <button onClick={() => setShowIosModal(false)}>Got it</button>
+          </div>
+        </div>
+      ) : null}
 
       <section className="panel">
         <h2>Runtime Status</h2>

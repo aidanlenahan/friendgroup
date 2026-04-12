@@ -1,58 +1,11 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { readJsonResponse, resolveApiBaseUrl } from '../lib/api'
 
 type NotificationConfig = {
   vapidPublicKey: string | null
   pushConfigured: boolean
   emailConfigured: boolean
-}
-
-function normalizeApiBaseUrl(value: string) {
-  if (!value) {
-    return value
-  }
-  return value.endsWith('/') ? value.slice(0, -1) : value
-}
-
-function resolveApiBaseUrl() {
-  const explicitBase = import.meta.env.VITE_API_BASE_URL
-  if (explicitBase) {
-    return normalizeApiBaseUrl(explicitBase)
-  }
-
-  const legacyBase = import.meta.env.VITE_API_URL
-  if (!legacyBase) {
-    return '/api'
-  }
-
-  try {
-    const legacyUrl = new URL(legacyBase)
-    const pageHost = window.location.hostname
-    const pageIsLoopback =
-      pageHost === 'localhost' || pageHost === '127.0.0.1' || pageHost === '0.0.0.0'
-    const legacyIsLoopback =
-      legacyUrl.hostname === 'localhost' ||
-      legacyUrl.hostname === '127.0.0.1' ||
-      legacyUrl.hostname === '0.0.0.0'
-
-    if (!pageIsLoopback && legacyIsLoopback) {
-      return '/api'
-    }
-  } catch {
-    return '/api'
-  }
-
-  return normalizeApiBaseUrl(legacyBase)
-}
-
-async function parseJsonMessage(response: Response) {
-  const contentType = response.headers.get('content-type') ?? ''
-  if (!contentType.includes('application/json')) {
-    const text = await response.text()
-    return { data: null, message: text || `${response.status} ${response.statusText}` }
-  }
-
-  return { data: await response.json(), message: null }
 }
 
 export function Phase9DiagnosticsPage() {
@@ -65,7 +18,7 @@ export function Phase9DiagnosticsPage() {
     setStatus('Checking /health endpoint...')
     try {
       const response = await fetch(`${apiBaseUrl}/health`)
-      const { data, message } = await parseJsonMessage(response)
+      const { data, message } = await readJsonResponse(response)
 
       if (!response.ok) {
         throw new Error(message || `Health check failed (${response.status})`)
@@ -82,7 +35,7 @@ export function Phase9DiagnosticsPage() {
     setStatus('Checking /notifications/config endpoint...')
     try {
       const response = await fetch(`${apiBaseUrl}/notifications/config`)
-      const { data, message } = await parseJsonMessage(response)
+      const { data, message } = await readJsonResponse(response)
       const payload = data as NotificationConfig | null
 
       if (!response.ok) {
