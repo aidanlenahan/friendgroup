@@ -7,12 +7,15 @@
     "dev": "npm-run-all -p dev:api dev:web",
     "dev:api": "npm --workspace apps/api run dev",
     "dev:web": "npm --workspace apps/web run dev",
-    "build": "npm-run-all build:api build:web",
+    "build": "npm run build --workspace=apps/api && npm run build --workspace=apps/web",
     "build:api": "npm --workspace apps/api run build",
     "build:web": "npm --workspace apps/web run build",
     "lint": "npm run -ws --if-present lint",
     "typecheck": "npm run -ws --if-present typecheck",
-    "test": "npm run -ws --if-present test"
+    "test": "npm run test --workspaces --if-present",
+    "db:migrate": "npm run prisma migrate dev --workspace=apps/api",
+    "db:seed": "npm run db:seed --workspace=apps/api",
+    "db:studio": "npm run prisma studio --workspace=apps/api"
   },
   "workspaces": [
     "apps/*",
