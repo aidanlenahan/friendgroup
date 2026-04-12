@@ -3,6 +3,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import jwt from "@fastify/jwt";
+import rateLimit from "@fastify/rate-limit";
 import { z } from "zod";
 import { PrismaClient } from "./generated/prisma/index.js";
 import { PrismaPg } from "@prisma/adapter-pg";
@@ -148,36 +149,49 @@ const notificationWorker = new Worker<NotificationFanoutJobData>(
         },
       });
 
-      const subscription = await prisma.notificationSubscription.findUnique({
-        where: { userId: user.id },
+      // Check per-type notification preferences before sending
+      const pushPref = await prisma.userNotificationPreference.findUnique({
+        where: { userId_type_channel: { userId: user.id, type: data.type, channel: "push" } },
       });
+      const pushEnabled = pushPref ? pushPref.enabled : true; // default true
 
-      if (subscription && isWebPushConfigured()) {
-        try {
-          await sendPushNotification(
-            {
-              endpoint: subscription.endpoint,
-              authSecret: subscription.authSecret,
-              p256dh: subscription.p256dh,
-            },
-            {
-              title: data.title,
-              body: data.body,
-              eventId: data.eventId,
-              type: data.type,
+      const emailPref = await prisma.userNotificationPreference.findUnique({
+        where: { userId_type_channel: { userId: user.id, type: data.type, channel: "email" } },
+      });
+      const emailEnabled = emailPref ? emailPref.enabled : true; // default true
+
+      if (pushEnabled) {
+        const subscription = await prisma.notificationSubscription.findUnique({
+          where: { userId: user.id },
+        });
+
+        if (subscription && isWebPushConfigured()) {
+          try {
+            await sendPushNotification(
+              {
+                endpoint: subscription.endpoint,
+                authSecret: subscription.authSecret,
+                p256dh: subscription.p256dh,
+              },
+              {
+                title: data.title,
+                body: data.body,
+                eventId: data.eventId,
+                type: data.type,
+              }
+            );
+          } catch (error) {
+            const statusCode = (error as { statusCode?: number }).statusCode;
+            if (statusCode === 404 || statusCode === 410) {
+              await prisma.notificationSubscription.delete({
+                where: { userId: user.id },
+              });
             }
-          );
-        } catch (error) {
-          const statusCode = (error as { statusCode?: number }).statusCode;
-          if (statusCode === 404 || statusCode === 410) {
-            await prisma.notificationSubscription.delete({
-              where: { userId: user.id },
-            });
           }
         }
       }
 
-      if (resendClient) {
+      if (emailEnabled && resendClient) {
         const email = buildNotificationEmail({
           title: data.title,
           body: data.body,
@@ -246,6 +260,10 @@ const createEventBodySchema = z.object({
   title: schemas.title,
   details: schemas.details,
   dateTime: schemas.dateTime,
+  endsAt: z.string().datetime().optional(),
+  isPrivate: z.boolean().optional(),
+  maxAttendees: z.number().int().positive().optional(),
+  location: z.string().max(500).optional(),
   tagIds: z.array(schemas.id).optional(),
 });
 
@@ -257,6 +275,10 @@ const updateEventBodySchema = z.object({
   title: schemas.title.optional(),
   details: schemas.details,
   dateTime: schemas.dateTime.optional(),
+  endsAt: z.string().datetime().nullable().optional(),
+  isPrivate: z.boolean().optional(),
+  maxAttendees: z.number().int().positive().nullable().optional(),
+  location: z.string().max(500).nullable().optional(),
   rating: schemas.rating,
   isLegendary: z.boolean().optional(),
   tagIds: z.array(schemas.id).optional(),
@@ -356,6 +378,98 @@ const calendarSyncWebhookBodySchema = z.object({
     .default("manual"),
 });
 
+// ============================================================================
+// New Zod Schemas (Phase 10+)
+// ============================================================================
+
+const groupIdParamsSchema = z.object({
+  groupId: schemas.id,
+});
+
+const createGroupBodySchema = z.object({
+  name: z.string().min(1).max(255),
+  description: z.string().max(2000).optional(),
+  avatarUrl: z.string().url().optional(),
+});
+
+const updateGroupBodySchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  description: z.string().max(2000).optional(),
+  avatarUrl: z.string().url().nullable().optional(),
+});
+
+const groupMemberBodySchema = z.object({
+  email: schemas.email,
+});
+
+const groupMemberRemoveParamsSchema = z.object({
+  groupId: schemas.id,
+  userId: schemas.id,
+});
+
+const updateUserBodySchema = z.object({
+  name: z.string().min(1).max(255).optional(),
+  avatarUrl: z.string().url().nullable().optional(),
+});
+
+const createTagBodySchema = z.object({
+  name: z.string().min(1).max(100),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+});
+
+const updateTagBodySchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
+});
+
+const tagParamsSchema = z.object({
+  groupId: schemas.id,
+  tagId: schemas.id,
+});
+
+const createChannelBodySchema = z.object({
+  name: z.string().min(1).max(100),
+  isInviteOnly: z.boolean().optional(),
+});
+
+const channelParamsSchema = z.object({
+  groupId: schemas.id,
+  channelId: schemas.id,
+});
+
+const channelMessagesQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  before: schemas.id.optional(),
+});
+
+const reactionBodySchema = z.object({
+  emoji: z.string().min(1).max(32),
+});
+
+const reactionParamsSchema = z.object({
+  id: schemas.id,
+  messageId: schemas.id,
+  emoji: z.string().min(1).max(32),
+});
+
+const reactionAddParamsSchema = z.object({
+  id: schemas.id,
+  messageId: schemas.id,
+});
+
+const notificationPreferencesBodySchema = z.array(
+  z.object({
+    type: z.enum(["chat_message", "event_created", "event_changed", "invite", "rsvp_update"]),
+    channel: z.enum(["push", "email"]),
+    enabled: z.boolean(),
+  })
+);
+
+const eventRatingBodySchema = z.object({
+  rating: z.number().int().min(1).max(10).optional(),
+  isLegendary: z.boolean().optional(),
+});
+
 type NotificationFanoutJobData = {
   type: "chat_message" | "event_created" | "event_changed" | "invite";
   groupId: string;
@@ -408,6 +522,12 @@ await app.register(cors, {
 
 await app.register(jwt, {
   secret: process.env.AUTH_SECRET || "dev-secret-change-me",
+});
+
+await app.register(rateLimit, {
+  global: false,
+  redis,
+  keyGenerator: (request) => (request as any).user?.id ?? request.ip,
 });
 
 // Attach clients to app context for route handlers
@@ -498,7 +618,7 @@ app.get("/", async (request, reply) => {
   });
 });
 
-app.post("/auth/dev-token", async (request, reply) => {
+app.post("/auth/dev-token", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
   const body = await validateRequest(devTokenSchema, request.body);
 
   const user = await prisma.user.findUnique({
@@ -551,7 +671,7 @@ app.post("/notifications/subscribe", async (request, reply) => {
   return reply.status(201).send({ subscription });
 });
 
-app.post("/notifications/test/push", async (request, reply) => {
+app.post("/notifications/test/push", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const body = await validateRequest(notificationPushTestBodySchema, request.body);
 
@@ -612,7 +732,7 @@ app.post("/notifications/test/push", async (request, reply) => {
   return reply.send({ delivered: true });
 });
 
-app.post("/notifications/test/email", async (request, reply) => {
+app.post("/notifications/test/email", { config: { rateLimit: { max: 3, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const body = await validateRequest(notificationEmailTestBodySchema, request.body);
 
@@ -722,7 +842,7 @@ app.put("/notifications/preferences/tags/:tagId", async (request, reply) => {
 // Media Routes (Phase 6)
 // ============================================================================
 
-app.post("/media/upload-url", async (request, reply) => {
+app.post("/media/upload-url", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const body = await validateRequest(mediaUploadUrlBodySchema, request.body);
 
@@ -911,6 +1031,10 @@ app.post("/events", async (request, reply) => {
       title: body.title,
       details: body.details,
       dateTime: new Date(body.dateTime),
+      endsAt: body.endsAt ? new Date(body.endsAt) : undefined,
+      isPrivate: body.isPrivate ?? false,
+      maxAttendees: body.maxAttendees,
+      location: body.location,
       tags: body.tagIds
         ? {
             connect: body.tagIds.map((id: string) => ({ id })),
@@ -957,6 +1081,10 @@ app.patch("/events/:id", async (request, reply) => {
       title: body.title,
       details: body.details,
       dateTime: body.dateTime ? new Date(body.dateTime) : undefined,
+      endsAt: body.endsAt !== undefined ? (body.endsAt ? new Date(body.endsAt) : null) : undefined,
+      isPrivate: body.isPrivate,
+      maxAttendees: body.maxAttendees,
+      location: body.location,
       rating: body.rating,
       isLegendary: body.isLegendary,
       tags: body.tagIds
@@ -1430,6 +1558,588 @@ app.patch("/events/:id/messages/:messageId/pin", async (request, reply) => {
   });
 
   return reply.send({ message });
+});
+
+// ============================================================================
+// Groups CRUD Routes
+// ============================================================================
+
+app.get("/groups", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+
+  const memberships = await prisma.membership.findMany({
+    where: { userId: currentUser.id },
+    include: {
+      group: {
+        include: {
+          _count: { select: { memberships: true } },
+        },
+      },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const groups = memberships.map((m) => ({
+    id: m.group.id,
+    name: m.group.name,
+    description: m.group.description,
+    avatarUrl: m.group.avatarUrl,
+    ownerId: m.group.ownerId,
+    memberCount: m.group._count.memberships,
+    role: m.role,
+    joinedAt: m.createdAt,
+  }));
+
+  return reply.send({ groups });
+});
+
+app.post("/groups", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const body = await validateRequest(createGroupBodySchema, request.body);
+
+  const group = await prisma.group.create({
+    data: {
+      name: body.name,
+      description: body.description,
+      avatarUrl: body.avatarUrl,
+      ownerId: currentUser.id,
+      memberships: {
+        create: {
+          userId: currentUser.id,
+          role: "owner",
+        },
+      },
+    },
+    include: {
+      _count: { select: { memberships: true } },
+    },
+  });
+
+  return reply.status(201).send({ group });
+});
+
+app.get("/groups/:groupId", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(groupIdParamsSchema, request.params);
+
+  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+
+  const group = await prisma.group.findUnique({
+    where: { id: params.groupId },
+    include: {
+      _count: { select: { memberships: true, events: true, channels: true } },
+    },
+  });
+
+  if (!group) {
+    return reply.status(404).send({ error: "Group not found", code: "NOT_FOUND" });
+  }
+
+  return reply.send({ group });
+});
+
+app.patch("/groups/:groupId", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(groupIdParamsSchema, request.params);
+  const body = await validateRequest(updateGroupBodySchema, request.body);
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(membership.role, ["owner", "admin"]);
+
+  const group = await prisma.group.update({
+    where: { id: params.groupId },
+    data: {
+      name: body.name,
+      description: body.description,
+      avatarUrl: body.avatarUrl,
+    },
+  });
+
+  return reply.send({ group });
+});
+
+app.delete("/groups/:groupId", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(groupIdParamsSchema, request.params);
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(membership.role, ["owner"]);
+
+  await prisma.group.delete({ where: { id: params.groupId } });
+  return reply.status(204).send();
+});
+
+app.post("/groups/:groupId/members", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(groupIdParamsSchema, request.params);
+  const body = await validateRequest(groupMemberBodySchema, request.body);
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(membership.role, ["owner", "admin"]);
+
+  const invitedUser = await prisma.user.findUnique({
+    where: { email: body.email },
+    select: { id: true },
+  });
+
+  if (!invitedUser) {
+    return reply.status(404).send({ error: "User not found", code: "NOT_FOUND" });
+  }
+
+  const existing = await prisma.membership.findUnique({
+    where: { userId_groupId: { userId: invitedUser.id, groupId: params.groupId } },
+  });
+
+  if (existing) {
+    return reply.status(409).send({ error: "User is already a member", code: "CONFLICT" });
+  }
+
+  const newMembership = await prisma.membership.create({
+    data: {
+      userId: invitedUser.id,
+      groupId: params.groupId,
+      role: "member",
+    },
+    include: {
+      user: { select: { id: true, email: true, name: true } },
+    },
+  });
+
+  return reply.status(201).send({ membership: newMembership });
+});
+
+app.delete("/groups/:groupId/members/:userId", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(groupMemberRemoveParamsSchema, request.params);
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(membership.role, ["owner", "admin"]);
+
+  const target = await prisma.membership.findUnique({
+    where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
+  });
+
+  if (!target) {
+    return reply.status(404).send({ error: "Member not found", code: "NOT_FOUND" });
+  }
+
+  if (target.role === "owner") {
+    return reply.status(403).send({ error: "Cannot remove the group owner", code: "FORBIDDEN" });
+  }
+
+  await prisma.membership.delete({
+    where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
+  });
+
+  return reply.status(204).send();
+});
+
+app.get("/groups/:groupId/members", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(groupIdParamsSchema, request.params);
+
+  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+
+  const members = await prisma.membership.findMany({
+    where: { groupId: params.groupId },
+    include: {
+      user: { select: { id: true, email: true, name: true, avatarUrl: true } },
+    },
+    orderBy: { createdAt: "asc" },
+  });
+
+  return reply.send({
+    members: members.map((m) => ({
+      userId: m.user.id,
+      email: m.user.email,
+      name: m.user.name,
+      avatarUrl: m.user.avatarUrl,
+      role: m.role,
+      joinedAt: m.createdAt,
+    })),
+  });
+});
+
+// ============================================================================
+// User Profile Routes
+// ============================================================================
+
+app.get("/users/me", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+
+  const user = await prisma.user.findUnique({
+    where: { id: currentUser.id },
+    select: { id: true, email: true, name: true, avatarUrl: true, createdAt: true },
+  });
+
+  return reply.send({ user });
+});
+
+app.patch("/users/me", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const body = await validateRequest(updateUserBodySchema, request.body);
+
+  const user = await prisma.user.update({
+    where: { id: currentUser.id },
+    data: {
+      name: body.name,
+      avatarUrl: body.avatarUrl,
+    },
+    select: { id: true, email: true, name: true, avatarUrl: true, createdAt: true },
+  });
+
+  return reply.send({ user });
+});
+
+// ============================================================================
+// Tags CRUD Routes
+// ============================================================================
+
+app.get("/groups/:groupId/tags", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(groupIdParamsSchema, request.params);
+
+  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+
+  const tags = await prisma.tag.findMany({
+    where: { groupId: params.groupId },
+    orderBy: { name: "asc" },
+  });
+
+  return reply.send({ tags });
+});
+
+app.post("/groups/:groupId/tags", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(groupIdParamsSchema, request.params);
+  const body = await validateRequest(createTagBodySchema, request.body);
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(membership.role, ["owner", "admin"]);
+
+  const tag = await prisma.tag.create({
+    data: {
+      groupId: params.groupId,
+      name: body.name,
+      color: body.color,
+    },
+  });
+
+  return reply.status(201).send({ tag });
+});
+
+app.patch("/groups/:groupId/tags/:tagId", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(tagParamsSchema, request.params);
+  const body = await validateRequest(updateTagBodySchema, request.body);
+
+  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+
+  const tag = await prisma.tag.findFirst({
+    where: { id: params.tagId, groupId: params.groupId },
+  });
+
+  if (!tag) {
+    return reply.status(404).send({ error: "Tag not found", code: "NOT_FOUND" });
+  }
+
+  const updated = await prisma.tag.update({
+    where: { id: params.tagId },
+    data: {
+      name: body.name,
+      color: body.color,
+    },
+  });
+
+  return reply.send({ tag: updated });
+});
+
+app.delete("/groups/:groupId/tags/:tagId", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(tagParamsSchema, request.params);
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(membership.role, ["owner", "admin"]);
+
+  const tag = await prisma.tag.findFirst({
+    where: { id: params.tagId, groupId: params.groupId },
+  });
+
+  if (!tag) {
+    return reply.status(404).send({ error: "Tag not found", code: "NOT_FOUND" });
+  }
+
+  await prisma.tag.delete({ where: { id: params.tagId } });
+  return reply.status(204).send();
+});
+
+// ============================================================================
+// Channel CRUD Routes
+// ============================================================================
+
+app.get("/groups/:groupId/channels", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(groupIdParamsSchema, request.params);
+
+  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+
+  const channels = await prisma.channel.findMany({
+    where: { groupId: params.groupId },
+    include: {
+      _count: { select: { subscriptions: true, messages: true } },
+      subscriptions: {
+        where: { userId: currentUser.id },
+        select: { id: true },
+      },
+    },
+    orderBy: { name: "asc" },
+  });
+
+  return reply.send({
+    channels: channels.map((ch) => ({
+      id: ch.id,
+      name: ch.name,
+      isInviteOnly: ch.isInviteOnly,
+      subscriberCount: ch._count.subscriptions,
+      messageCount: ch._count.messages,
+      isSubscribed: ch.subscriptions.length > 0,
+    })),
+  });
+});
+
+app.post("/groups/:groupId/channels", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(groupIdParamsSchema, request.params);
+  const body = await validateRequest(createChannelBodySchema, request.body);
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(membership.role, ["owner", "admin"]);
+
+  const channel = await prisma.channel.create({
+    data: {
+      groupId: params.groupId,
+      name: body.name,
+      isInviteOnly: body.isInviteOnly ?? false,
+    },
+  });
+
+  return reply.status(201).send({ channel });
+});
+
+app.post("/groups/:groupId/channels/:channelId/subscribe", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(channelParamsSchema, request.params);
+
+  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+
+  const channel = await prisma.channel.findFirst({
+    where: { id: params.channelId, groupId: params.groupId },
+  });
+
+  if (!channel) {
+    return reply.status(404).send({ error: "Channel not found", code: "NOT_FOUND" });
+  }
+
+  const subscription = await prisma.channelSubscription.upsert({
+    where: { userId_channelId: { userId: currentUser.id, channelId: params.channelId } },
+    update: {},
+    create: { userId: currentUser.id, channelId: params.channelId },
+  });
+
+  return reply.status(201).send({ subscription });
+});
+
+app.delete("/groups/:groupId/channels/:channelId/subscribe", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(channelParamsSchema, request.params);
+
+  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+
+  const existing = await prisma.channelSubscription.findUnique({
+    where: { userId_channelId: { userId: currentUser.id, channelId: params.channelId } },
+  });
+
+  if (!existing) {
+    return reply.status(404).send({ error: "Not subscribed", code: "NOT_FOUND" });
+  }
+
+  await prisma.channelSubscription.delete({
+    where: { userId_channelId: { userId: currentUser.id, channelId: params.channelId } },
+  });
+
+  return reply.status(204).send();
+});
+
+app.get("/groups/:groupId/channels/:channelId/messages", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(channelParamsSchema, request.params);
+  const query = await validateRequest(channelMessagesQuerySchema, request.query);
+
+  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+
+  const channel = await prisma.channel.findFirst({
+    where: { id: params.channelId, groupId: params.groupId },
+  });
+
+  if (!channel) {
+    return reply.status(404).send({ error: "Channel not found", code: "NOT_FOUND" });
+  }
+
+  let cursorFilter: object | undefined;
+  if (query.before) {
+    const ref = await prisma.message.findUnique({
+      where: { id: query.before },
+      select: { createdAt: true },
+    });
+    if (ref) {
+      cursorFilter = { createdAt: { lt: ref.createdAt } };
+    }
+  }
+
+  const raw = await prisma.message.findMany({
+    where: { channelId: params.channelId, ...cursorFilter },
+    orderBy: { createdAt: "desc" },
+    take: query.limit + 1,
+    include: {
+      user: { select: { id: true, name: true, email: true, avatarUrl: true } },
+    },
+  });
+
+  const hasMore = raw.length > query.limit;
+  const messages = raw.slice(0, query.limit).reverse();
+
+  return reply.send({ messages, hasMore });
+});
+
+// ============================================================================
+// Message Reactions Routes
+// ============================================================================
+
+app.post("/events/:id/messages/:messageId/reactions", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(reactionAddParamsSchema, request.params);
+  const body = await validateRequest(reactionBodySchema, request.body);
+
+  await canAccessEvent(prisma, params.id, currentUser.id);
+
+  const message = await prisma.message.findFirst({
+    where: { id: params.messageId, eventId: params.id },
+  });
+
+  if (!message) {
+    return reply.status(404).send({ error: "Message not found", code: "NOT_FOUND" });
+  }
+
+  const reaction = await prisma.messageReaction.upsert({
+    where: {
+      messageId_userId_emoji: {
+        messageId: params.messageId,
+        userId: currentUser.id,
+        emoji: body.emoji,
+      },
+    },
+    update: {},
+    create: {
+      messageId: params.messageId,
+      userId: currentUser.id,
+      emoji: body.emoji,
+    },
+  });
+
+  return reply.status(201).send({ reaction });
+});
+
+app.delete("/events/:id/messages/:messageId/reactions/:emoji", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(reactionParamsSchema, request.params);
+
+  await canAccessEvent(prisma, params.id, currentUser.id);
+
+  const existing = await prisma.messageReaction.findUnique({
+    where: {
+      messageId_userId_emoji: {
+        messageId: params.messageId,
+        userId: currentUser.id,
+        emoji: params.emoji,
+      },
+    },
+  });
+
+  if (!existing) {
+    return reply.status(404).send({ error: "Reaction not found", code: "NOT_FOUND" });
+  }
+
+  await prisma.messageReaction.delete({
+    where: { id: existing.id },
+  });
+
+  return reply.status(204).send();
+});
+
+// ============================================================================
+// Notification Preferences by Type Routes
+// ============================================================================
+
+app.get("/notifications/preferences", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+
+  const preferences = await prisma.userNotificationPreference.findMany({
+    where: { userId: currentUser.id },
+    orderBy: [{ type: "asc" }, { channel: "asc" }],
+  });
+
+  return reply.send({ preferences });
+});
+
+app.put("/notifications/preferences", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const body = await validateRequest(notificationPreferencesBodySchema, request.body);
+
+  const results = [];
+  for (const pref of body) {
+    const result = await prisma.userNotificationPreference.upsert({
+      where: {
+        userId_type_channel: {
+          userId: currentUser.id,
+          type: pref.type,
+          channel: pref.channel,
+        },
+      },
+      update: { enabled: pref.enabled },
+      create: {
+        userId: currentUser.id,
+        type: pref.type,
+        channel: pref.channel,
+        enabled: pref.enabled,
+      },
+    });
+    results.push(result);
+  }
+
+  return reply.send({ preferences: results });
+});
+
+// ============================================================================
+// Event Rating Route
+// ============================================================================
+
+app.patch("/events/:id/rating", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(updateEventParamsSchema, request.params);
+  const body = await validateRequest(eventRatingBodySchema, request.body);
+
+  const access = await canAccessEvent(prisma, params.id, currentUser.id);
+
+  const event = await prisma.event.update({
+    where: { id: params.id },
+    data: {
+      rating: body.rating,
+      isLegendary: body.isLegendary,
+    },
+    include: { tags: true },
+  });
+
+  return reply.send({ event });
 });
 
 // ============================================================================
