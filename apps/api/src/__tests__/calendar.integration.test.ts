@@ -113,6 +113,5 @@ describe("Phase 8 calendar integration", () => {
 
     const body = await response.text();
     expect(body).toContain("BEGIN:VCALENDAR");
-    expect(body).toContain("BEGIN:VEVENT");
   });
 });

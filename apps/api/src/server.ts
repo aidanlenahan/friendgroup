@@ -618,7 +618,7 @@ app.get("/", async (request, reply) => {
   });
 });
 
-app.post("/auth/dev-token", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
+app.post("/auth/dev-token", { config: { rateLimit: { max: 1000, timeWindow: "1 minute" } } }, async (request, reply) => {
   const body = await validateRequest(devTokenSchema, request.body);
 
   const user = await prisma.user.findUnique({
