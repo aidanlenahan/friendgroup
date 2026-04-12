@@ -76,6 +76,36 @@ describe('serviceWorker helpers', () => {
 })
 
 describe('registerBestServiceWorker', () => {
+  it('returns null when serviceWorker not in navigator', async () => {
+    setNavigatorMock({})
+    setFetchMock(vi.fn() as unknown as typeof fetch)
+
+    await expect(registerBestServiceWorker()).rejects.toThrow(
+      'Service worker API is not available in this browser.'
+    )
+  })
+
+  it('returns registration object on success', async () => {
+    const mockRegistration = { scope: '/', active: {} }
+    const register = vi.fn().mockResolvedValue(mockRegistration)
+    setNavigatorMock({ serviceWorker: { register } })
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response('self.addEventListener("fetch", () => {})', {
+          status: 200,
+          headers: { 'content-type': 'text/javascript' },
+        })
+      )
+    setFetchMock(fetchMock as typeof fetch)
+
+    const result = await registerBestServiceWorker()
+
+    expect(result).toEqual(mockRegistration)
+    expect(register).toHaveBeenCalledTimes(1)
+  })
+
   it('throws when service worker API is unavailable', async () => {
     setNavigatorMock({})
     setFetchMock(vi.fn() as unknown as typeof fetch)
