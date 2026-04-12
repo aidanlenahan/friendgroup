@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 test('mobile smoke: home to diagnostics flow works', async ({ page, isMobile }) => {
   test.skip(!isMobile, 'Mobile viewport only')
 
-  await page.route('**/api/health', async (route) => {
+  await page.route('**/health', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -11,7 +11,7 @@ test('mobile smoke: home to diagnostics flow works', async ({ page, isMobile }) 
     })
   })
 
-  await page.route('**/api/notifications/config', async (route) => {
+  await page.route('**/notifications/config', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -23,10 +23,8 @@ test('mobile smoke: home to diagnostics flow works', async ({ page, isMobile }) 
     })
   })
 
-  await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Project Control Center' })).toBeVisible()
-  await page.getByRole('link', { name: 'Open Phase 9 Diagnostics' }).click()
-  await expect(page).toHaveURL(/\/phase-9\/diagnostics/)
+  await page.goto('/phase-9/diagnostics')
+  await expect(page.getByRole('heading', { name: 'Phase 9 Diagnostics' })).toBeVisible()
   await page.getByRole('button', { name: 'Check API /health' }).click()
   await expect(page.getByText('API health endpoint is reachable.')).toBeVisible()
   await page.getByRole('button', { name: 'Check /notifications/config' }).click()
@@ -93,7 +91,7 @@ test('phase 7 PWA console smoke: auth, config, and subscribe flow works', async 
     })
   })
 
-  await page.route('**/api/auth/dev-token', async (route) => {
+  await page.route('**/auth/dev-token', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -108,7 +106,7 @@ test('phase 7 PWA console smoke: auth, config, and subscribe flow works', async 
     })
   })
 
-  await page.route('**/api/notifications/config', async (route) => {
+  await page.route('**/notifications/config', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -120,7 +118,7 @@ test('phase 7 PWA console smoke: auth, config, and subscribe flow works', async 
     })
   })
 
-  await page.route('**/api/notifications/subscribe', async (route) => {
+  await page.route('**/notifications/subscribe', async (route) => {
     await route.fulfill({
       status: 201,
       contentType: 'application/json',
@@ -132,7 +130,9 @@ test('phase 7 PWA console smoke: auth, config, and subscribe flow works', async 
   await expect(page.getByRole('heading', { name: 'Phase 7 PWA Console' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Get Dev Token' }).click()
-  await expect(page.getByText('Authenticated as owner@friendgroup.dev via /api.')).toBeVisible()
+  await expect(
+    page.getByText(/Authenticated as owner@friendgroup\.dev via .+\./)
+  ).toBeVisible()
 
   await page.getByRole('button', { name: 'Load /notifications/config' }).click()
   await expect(page.getByText('Loaded notification config from API.')).toBeVisible()

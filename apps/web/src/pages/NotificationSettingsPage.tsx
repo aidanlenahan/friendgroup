@@ -5,7 +5,7 @@ import {
   useUpdateNotificationPreferences,
 } from '../hooks/useNotifications'
 import { useToast } from '../hooks/useToast'
-import { apiFetch, getToken } from '../lib/api'
+import { apiFetch } from '../lib/api'
 import Spinner from '../components/Spinner'
 
 const NOTIFICATION_TYPES = [
@@ -18,7 +18,7 @@ const NOTIFICATION_TYPES = [
 
 const CHANNELS = ['push', 'email'] as const
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
+function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
   const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
   const rawData = window.atob(base64)
@@ -26,7 +26,9 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   for (let i = 0; i < rawData.length; ++i) {
     outputArray[i] = rawData.charCodeAt(i)
   }
-  return outputArray
+  const arrayBuffer = new ArrayBuffer(outputArray.length)
+  new Uint8Array(arrayBuffer).set(outputArray)
+  return arrayBuffer
 }
 
 export default function NotificationSettingsPage() {
@@ -108,7 +110,7 @@ export default function NotificationSettingsPage() {
       const registration = await navigator.serviceWorker.ready
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(config.vapidPublicKey),
+        applicationServerKey: urlBase64ToArrayBuffer(config.vapidPublicKey),
       })
       const subJson = subscription.toJSON()
       await apiFetch('/notifications/subscribe', {

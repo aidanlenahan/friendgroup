@@ -1,4 +1,4 @@
-type ServiceWorkerScriptType = ServiceWorkerRegistrationOptions['type']
+type ServiceWorkerScriptType = 'classic' | 'module'
 
 type ServiceWorkerCandidate = {
   url: string
