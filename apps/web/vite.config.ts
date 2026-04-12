@@ -25,6 +25,7 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
+      includeAssets: ['favicon.svg', 'icons.svg'],
       devOptions: {
         enabled: true,
         type: 'module',
@@ -32,25 +33,21 @@ export default defineConfig({
       manifest: {
         name: 'Friendgroup',
         short_name: 'Friendgroup',
-        description: 'Events, chat, and notifications for your friend group',
-        start_url: '/',
+        description: 'Plan events and chat with your friend group',
+        theme_color: '#4f46e5',
+        background_color: '#030712',
         display: 'standalone',
-        background_color: '#f7f4ea',
-        theme_color: '#264653',
+        start_url: '/',
         icons: [
           {
             src: '/favicon.svg',
             sizes: 'any',
             type: 'image/svg+xml',
-            purpose: 'any',
-          },
-          {
-            src: '/favicon.svg',
-            sizes: 'any',
-            type: 'image/svg+xml',
-            purpose: 'maskable',
           },
         ],
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
       },
     }),
   ],
