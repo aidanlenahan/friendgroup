@@ -11,7 +11,7 @@
     "start": "node dist/server.js",
     "db:seed": "tsx src/scripts/seed.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run src/__tests__"
   },
   "keywords": [],
   "author": "",

@@ -91,7 +91,12 @@ export function getToken(): string | null {
 }
 
 export function setToken(t: string | null) {
-  t ? localStorage.setItem('fg_token', t) : localStorage.removeItem('fg_token')
+  if (t) {
+    localStorage.setItem('fg_token', t)
+    return
+  }
+
+  localStorage.removeItem('fg_token')
 }
 
 /**
