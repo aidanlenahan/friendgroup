@@ -4,6 +4,20 @@ import { useAuthStore } from '../stores/authStore'
 import { apiFetch } from '../lib/api'
 import { useToast } from '../hooks/useToast'
 
+type BeforeInstallPromptEvent = Event & {
+  prompt: () => Promise<void>
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>
+}
+
+type UpdateMeResponse = {
+  user?: {
+    id: string
+    email: string
+    name: string
+    avatarUrl?: string | null
+  }
+}
+
 export default function SettingsPage() {
   const { user, login, token } = useAuthStore()
   const toast = useToast()
@@ -11,12 +25,12 @@ export default function SettingsPage() {
   const [name, setName] = useState(user?.name ?? '')
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl ?? '')
   const [saving, setSaving] = useState(false)
-  const [installPrompt, setInstallPrompt] = useState<any>(null)
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
 
   useEffect(() => {
-    const handler = (e: any) => {
+    const handler = (e: Event) => {
       e.preventDefault()
-      setInstallPrompt(e)
+      setInstallPrompt(e as BeforeInstallPromptEvent)
     }
     window.addEventListener('beforeinstallprompt', handler)
     return () => window.removeEventListener('beforeinstallprompt', handler)
@@ -26,7 +40,7 @@ export default function SettingsPage() {
     e.preventDefault()
     setSaving(true)
     try {
-      const data: any = await apiFetch('/users/me', {
+      const data = await apiFetch<UpdateMeResponse>('/users/me', {
         method: 'PATCH',
         body: JSON.stringify({
           name,
@@ -34,7 +48,10 @@ export default function SettingsPage() {
         }),
       })
       if (token && data.user) {
-        login(token, data.user)
+        login(token, {
+          ...data.user,
+          avatarUrl: data.user.avatarUrl ?? undefined,
+        })
       }
       toast.success('Profile updated')
     } catch {
@@ -52,7 +69,7 @@ export default function SettingsPage() {
 
   const isStandalone =
     window.matchMedia('(display-mode: standalone)').matches ||
-    (navigator as any).standalone
+    Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
 
   return (
     <div className="p-6 max-w-2xl mx-auto">

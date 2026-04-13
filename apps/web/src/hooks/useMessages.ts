@@ -1,14 +1,27 @@
 import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../lib/api'
 
+export type EventMessage = {
+  id: string
+  text: string
+  createdAt: string
+  pinned?: boolean
+  user?: { id: string; name: string; avatarUrl?: string | null }
+}
+
+export type EventMessagesPage = {
+  messages: EventMessage[]
+  nextCursor?: string | null
+}
+
 export function useEventMessages(eventId: string) {
   return useInfiniteQuery({
     queryKey: ['messages', 'event', eventId],
     queryFn: ({ pageParam }) =>
-      apiFetch<any>(
+      apiFetch<EventMessagesPage>(
         `/events/${eventId}/messages?limit=50${pageParam ? `&before=${pageParam}` : ''}`,
       ),
-    getNextPageParam: (lastPage: any) => lastPage.nextCursor,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     initialPageParam: undefined as string | undefined,
     enabled: !!eventId,
   })

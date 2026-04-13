@@ -101,7 +101,7 @@ export default function GroupPage() {
             />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {eventsData.events.map((event: any) => (
+              {eventsData.events.map((event) => (
                 <EventCard key={event.id} event={event} />
               ))}
             </div>
@@ -112,7 +112,7 @@ export default function GroupPage() {
       {/* Members Tab */}
       {activeTab === 'members' && (
         <div className="space-y-2">
-          {membersData?.members?.map((m: any) => (
+          {membersData?.members?.map((m) => (
             <div
               key={m.userId}
               className="flex items-center gap-3 bg-gray-900 rounded-xl p-3 border border-gray-800"
@@ -137,7 +137,7 @@ export default function GroupPage() {
             <EmptyState title="No tags" description="Tags help categorize events in this group." />
           ) : (
             <div className="flex flex-wrap gap-2">
-              {tagsData.tags.map((tag: any) => (
+              {tagsData.tags.map((tag) => (
                 <TagBadge key={tag.id} name={tag.name} color={tag.color} />
               ))}
             </div>
@@ -151,7 +151,7 @@ export default function GroupPage() {
           {!channelsData?.channels?.length ? (
             <EmptyState title="No channels" description="Channels are for group discussions." />
           ) : (
-            channelsData.channels.map((ch: any) => (
+            channelsData.channels.map((ch) => (
               <div
                 key={ch.id}
                 className="flex items-center justify-between bg-gray-900 rounded-xl p-3 border border-gray-800"

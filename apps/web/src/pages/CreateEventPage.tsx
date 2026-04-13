@@ -4,6 +4,8 @@ import { useCreateEvent } from '../hooks/useEvents'
 import { useGroupTags } from '../hooks/useGroups'
 import { useToast } from '../hooks/useToast'
 
+type CreateEventResult = { event: { id: string } }
+
 export default function CreateEventPage() {
   const { groupId } = useParams<{ groupId: string }>()
   const navigate = useNavigate()
@@ -19,6 +21,11 @@ export default function CreateEventPage() {
   const [maxAttendees, setMaxAttendees] = useState('')
   const [isPrivate, setIsPrivate] = useState(false)
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([])
+  const tags = tagsData?.tags ?? []
+
+  if (!groupId) {
+    return <div className="p-6 text-gray-400">Missing group id</div>
+  }
 
   const toggleTag = (tagId: string) => {
     setSelectedTagIds((prev) =>
@@ -29,7 +36,7 @@ export default function CreateEventPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
-      const result: any = await createEvent.mutateAsync({
+      const result = (await createEvent.mutateAsync({
         groupId,
         title,
         details: details || undefined,
@@ -39,7 +46,7 @@ export default function CreateEventPage() {
         maxAttendees: maxAttendees ? Number(maxAttendees) : undefined,
         isPrivate,
         tagIds: selectedTagIds.length > 0 ? selectedTagIds : undefined,
-      })
+      })) as CreateEventResult
       toast.success('Event created!')
       navigate(`/events/${result.event.id}`)
     } catch {
@@ -128,11 +135,11 @@ export default function CreateEventPage() {
           </label>
         </div>
 
-        {tagsData?.tags?.length > 0 && (
+        {tags.length > 0 && (
           <div>
             <label className="block text-sm text-gray-400 mb-2">Tags</label>
             <div className="flex flex-wrap gap-2">
-              {tagsData.tags.map((tag: any) => (
+              {tags.map((tag) => (
                 <button
                   key={tag.id}
                   type="button"

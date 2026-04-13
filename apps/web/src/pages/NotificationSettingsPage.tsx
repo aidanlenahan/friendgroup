@@ -54,7 +54,8 @@ export default function NotificationSettingsPage() {
       map[type.key] = {}
       for (const channel of CHANNELS) {
         const pref = prefsData.preferences.find(
-          (p: any) => p.type === type.key && p.channel === channel,
+          (p: { type: string; channel: string; enabled: boolean }) =>
+            p.type === type.key && p.channel === channel,
         )
         map[type.key][channel] = pref ? pref.enabled : true
       }
@@ -124,8 +125,9 @@ export default function NotificationSettingsPage() {
         }),
       })
       toast.success('Push subscription registered')
-    } catch (err: any) {
-      toast.error(err.message ?? 'Failed to subscribe to push')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to subscribe to push'
+      toast.error(message)
     } finally {
       setSubscribing(false)
     }

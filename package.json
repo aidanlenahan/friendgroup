@@ -5,8 +5,10 @@
   "description": "Friendgroup monorepo",
   "scripts": {
     "dev": "npm-run-all -p dev:api dev:web",
+    "dev:3000": "npm-run-all -p dev:api dev:web:3000",
     "dev:api": "npm --workspace apps/api run dev",
     "dev:web": "npm --workspace apps/web run dev",
+    "dev:web:3000": "npm --workspace apps/web run dev:3000",
     "build": "npm run build --workspace=apps/api && npm run build --workspace=apps/web",
     "build:api": "npm --workspace apps/api run build",
     "build:web": "npm --workspace apps/web run build",

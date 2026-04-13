@@ -618,7 +618,14 @@ app.get("/", async (request, reply) => {
   });
 });
 
-app.post("/auth/dev-token", { config: { rateLimit: { max: 1000, timeWindow: "1 minute" } } }, async (request, reply) => {
+const devTokenRateLimitMax = Number.parseInt(process.env.DEV_TOKEN_RATE_LIMIT_MAX ?? "", 10);
+const effectiveDevTokenRateLimitMax = Number.isFinite(devTokenRateLimitMax)
+  ? devTokenRateLimitMax
+  : process.env.NODE_ENV === "production"
+    ? 10
+    : 1000;
+
+app.post("/auth/dev-token", { config: { rateLimit: { max: effectiveDevTokenRateLimitMax, timeWindow: "1 minute" } } }, async (request, reply) => {
   const body = await validateRequest(devTokenSchema, request.body);
 
   const user = await prisma.user.findUnique({

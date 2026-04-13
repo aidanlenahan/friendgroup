@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useEvent, useEventAttendance, useRsvp, useEventRating, useEventMedia } from '../hooks/useEvents'
+import type { EventRecord, EventTag } from '../hooks/useEvents'
 import { useEventMessages } from '../hooks/useMessages'
+import type { EventMessage } from '../hooks/useMessages'
 import { useChat } from '../hooks/useChat'
+import type { ChatMessage } from '../hooks/useChat'
 import { useAuthStore } from '../stores/authStore'
 import { useToast } from '../hooks/useToast'
 import TagBadge from '../components/TagBadge'
@@ -21,7 +24,7 @@ function formatDate(iso: string): string {
   })
 }
 
-function buildGoogleCalLink(event: any): string {
+function buildGoogleCalLink(event: EventRecord): string {
   const start = new Date(event.dateTime).toISOString().replace(/[-:]/g, '').replace('.000', '')
   const end = event.endsAt
     ? new Date(event.endsAt).toISOString().replace(/[-:]/g, '').replace('.000', '')
@@ -41,7 +44,7 @@ export default function EventPage() {
   const currentUser = useAuthStore((s) => s.user)
   const toast = useToast()
 
-  const { data: eventData, isLoading } = useEvent(eventId!)
+  const { data: eventResponse, isLoading } = useEvent(eventId!)
   const { data: attendance } = useEventAttendance(eventId!)
   const { data: mediaData } = useEventMedia(eventId!)
   const { data: messagesData } = useEventMessages(eventId!)
@@ -51,22 +54,36 @@ export default function EventPage() {
   const { messages: chatMessages, typingUsers, connected, sendMessage, sendTyping } = useChat(eventId!)
   const [messageInput, setMessageInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
-  const [ratingValue, setRatingValue] = useState(0)
+  const [localRatingValue, setLocalRatingValue] = useState<number | null>(null)
+
+  const event = eventResponse?.event
+  const eventTags = event?.tags ?? []
+  const ratingValue = localRatingValue ?? event?.rating ?? 0
 
   // Merge REST messages with socket messages
-  const restMessages = messagesData?.pages?.flatMap((p: any) => p.messages) ?? []
+  const restMessages = messagesData?.pages?.flatMap((p) => p.messages) ?? []
+  const socketMessages: EventMessage[] = chatMessages.map((msg: ChatMessage) => ({
+    id: msg.id,
+    text: msg.content,
+    createdAt: msg.createdAt,
+    pinned: msg.pinned,
+    user: msg.user
+      ? {
+          id: msg.userId,
+          name: msg.user.name,
+          avatarUrl: msg.user.avatarUrl,
+        }
+      : undefined,
+  }))
+
   const allMessages = [
     ...restMessages,
-    ...chatMessages.filter((cm) => !restMessages.some((rm: any) => rm.id === cm.id)),
+    ...socketMessages.filter((cm) => !restMessages.some((rm) => rm.id === cm.id)),
   ]
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [allMessages.length])
-
-  useEffect(() => {
-    if (eventData?.rating) setRatingValue(eventData.rating)
-  }, [eventData?.rating])
 
   if (isLoading) {
     return (
@@ -75,8 +92,6 @@ export default function EventPage() {
       </div>
     )
   }
-
-  const event = eventData
 
   if (!event) {
     return <div className="p-6 text-gray-400">Event not found</div>
@@ -107,7 +122,7 @@ export default function EventPage() {
   }
 
   const handleRating = async (value: number) => {
-    setRatingValue(value)
+    setLocalRatingValue(value)
     try {
       await rating.mutateAsync({ rating: value })
     } catch {
@@ -142,9 +157,9 @@ export default function EventPage() {
         )}
         {event.location && <p className="text-gray-400 text-sm mt-1">{event.location}</p>}
         {event.details && <p className="text-gray-300 mt-3">{event.details}</p>}
-        {event.tags?.length > 0 && (
+        {eventTags.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-3">
-            {event.tags.map((tag: any) => (
+            {eventTags.map((tag: EventTag) => (
               <TagBadge key={tag.id} name={tag.name} color={tag.color} />
             ))}
           </div>
@@ -185,8 +200,8 @@ export default function EventPage() {
         {attendance?.attendees && (
           <div className="flex flex-wrap gap-2 mt-3">
             {attendance.attendees
-              .filter((a: any) => a.status === 'yes')
-              .map((a: any) => (
+              .filter((a) => a.status === 'yes')
+              .map((a) => (
                 <Avatar key={a.user.id} name={a.user.name} size="sm" />
               ))}
           </div>
@@ -241,7 +256,7 @@ export default function EventPage() {
             />
           </div>
           <div className="flex-1 overflow-y-auto p-4 space-y-3">
-            {allMessages.map((msg: any) => (
+            {allMessages.map((msg) => (
               <div
                 key={msg.id}
                 className={`${msg.pinned ? 'bg-indigo-950 border border-indigo-800 rounded-lg p-2' : ''}`}
@@ -263,7 +278,7 @@ export default function EventPage() {
                         <span className="text-xs text-indigo-400">pinned</span>
                       )}
                     </div>
-                    <p className="text-sm text-gray-200 break-words">{msg.content}</p>
+                    <p className="text-sm text-gray-200 break-words">{msg.text}</p>
                   </div>
                   {currentUser && (
                     <button
@@ -310,7 +325,7 @@ export default function EventPage() {
             <p className="text-gray-500 text-sm">No media uploaded yet.</p>
           ) : (
             <div className="grid grid-cols-3 gap-2">
-              {mediaData.media.map((m: any) => (
+              {mediaData.media.map((m) => (
                 <a
                   key={m.id}
                   href={m.url}

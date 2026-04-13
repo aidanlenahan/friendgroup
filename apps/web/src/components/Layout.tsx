@@ -1,6 +1,7 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
 import { useGroups } from '../hooks/useGroups'
+import type { GroupSummary } from '../hooks/useGroups'
 import ToastContainer from './Toast'
 
 export default function Layout() {
@@ -26,7 +27,7 @@ export default function Layout() {
           <p className="text-xs uppercase tracking-wider text-gray-500 px-2 mb-2">
             Your Groups
           </p>
-          {groups?.groups?.map((g: any) => (
+          {groups?.groups?.map((g: GroupSummary) => (
             <NavLink
               key={g.id}
               to={`/groups/${g.id}`}

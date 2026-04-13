@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useGroups, useCreateGroup } from '../hooks/useGroups'
+import type { GroupSummary } from '../hooks/useGroups'
 import Modal from '../components/Modal'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
@@ -51,7 +52,7 @@ export default function GroupsPage() {
         />
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {data.groups.map((g: any) => (
+          {data.groups.map((g: GroupSummary) => (
             <Link
               key={g.id}
               to={`/groups/${g.id}`}
@@ -67,8 +68,7 @@ export default function GroupsPage() {
                 <p className="text-gray-400 text-sm mt-1 line-clamp-2">{g.description}</p>
               )}
               <div className="flex items-center gap-3 mt-3 text-xs text-gray-500">
-                <span>{g.memberCount} members</span>
-                <span>{g.role}</span>
+                <span>{g._count?.memberships ?? 0} members</span>
               </div>
             </Link>
           ))}

@@ -3,6 +3,16 @@ import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { useAuthStore } from '../stores/authStore'
 
+type DevTokenResponse = {
+  token: string
+  user: {
+    id: string
+    email: string
+    name: string
+    avatarUrl?: string | null
+  }
+}
+
 export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [error, setError] = useState('')
@@ -15,14 +25,17 @@ export default function LoginPage() {
     setError('')
     setLoading(true)
     try {
-      const data: any = await apiFetch('/auth/dev-token', {
+      const data = await apiFetch<DevTokenResponse>('/auth/dev-token', {
         method: 'POST',
         body: JSON.stringify({ email }),
       })
-      login(data.token, data.user)
+      login(data.token, {
+        ...data.user,
+        avatarUrl: data.user.avatarUrl ?? undefined,
+      })
       navigate('/groups')
-    } catch (err: any) {
-      setError(err.message ?? 'Login failed')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Login failed')
     } finally {
       setLoading(false)
     }
