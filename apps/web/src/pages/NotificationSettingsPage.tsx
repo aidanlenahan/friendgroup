@@ -34,7 +34,7 @@ function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
 export default function NotificationSettingsPage() {
   const toast = useToast()
   const { data: config } = useNotificationConfig()
-  const { data: prefsData, isLoading } = useNotificationPreferences()
+  const { data: prefsData, isLoading, isError } = useNotificationPreferences()
   const updatePrefs = useUpdateNotificationPreferences()
 
   const [pushPermission, setPushPermission] = useState(
@@ -133,6 +133,15 @@ export default function NotificationSettingsPage() {
     }
   }
 
+  if (isError) {
+    return (
+      <div className="px-4 py-6 sm:p-6 max-w-2xl mx-auto">
+        <h2 className="text-2xl font-bold text-white mb-6">Notification Settings</h2>
+        <p className="text-gray-400">Failed to load notification preferences.</p>
+      </div>
+    )
+  }
+
   if (isLoading) {
     return (
       <div className="flex justify-center py-16">
@@ -204,6 +213,9 @@ export default function NotificationSettingsPage() {
                   {CHANNELS.map((ch) => (
                     <td key={ch} className="text-center py-3">
                       <button
+                        role="switch"
+                        aria-checked={localPrefs[type.key]?.[ch] ?? true}
+                        aria-label={`${type.label} via ${ch}`}
                         onClick={() => togglePref(type.key, ch)}
                         className={`w-10 h-6 rounded-full relative transition-colors ${
                           localPrefs[type.key]?.[ch]
