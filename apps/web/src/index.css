@@ -35,8 +35,6 @@ body {
 
 #root {
   width: 100%;
-  max-width: 920px;
-  margin: 0 auto;
   min-height: 100svh;
 }
 
@@ -75,3 +73,10 @@ code,
 pre {
   font-family: var(--mono);
 }
+
+/* Accessible focus-visible ring for keyboard navigation */
+:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+

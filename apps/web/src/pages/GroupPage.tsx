@@ -58,7 +58,7 @@ export default function GroupPage() {
   ]
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="px-4 py-6 sm:p-6 max-w-5xl mx-auto">
       {/* Group Header */}
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-white">{group.name}</h2>
@@ -69,12 +69,12 @@ export default function GroupPage() {
       </div>
 
       {/* Tab Bar */}
-      <div className="flex gap-1 mb-6 border-b border-gray-800">
+      <div className="flex gap-1 mb-6 border-b border-gray-800 overflow-x-auto">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`px-4 py-2 text-sm font-medium transition-colors ${
+            className={`flex-shrink-0 px-4 py-2 text-sm font-medium transition-colors ${
               activeTab === tab.key
                 ? 'text-indigo-400 border-b-2 border-indigo-400'
                 : 'text-gray-400 hover:text-gray-200'

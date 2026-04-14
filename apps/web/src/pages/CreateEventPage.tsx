@@ -55,7 +55,7 @@ export default function CreateEventPage() {
   }
 
   return (
-    <div className="p-6 max-w-2xl mx-auto">
+    <div className="px-4 py-6 sm:p-6 max-w-2xl mx-auto">
       <h2 className="text-2xl font-bold text-white mb-6">Create Event</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>

@@ -161,7 +161,7 @@ export default function EventPage() {
   const icsUrl = `/api/events/${eventId}/calendar.ics`
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="px-4 py-6 sm:p-6 max-w-5xl mx-auto">
       {/* Event Header */}
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-white">{event.title}</h2>
@@ -186,15 +186,17 @@ export default function EventPage() {
       </div>
 
       {/* RSVP + Attendance */}
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 mb-6">
-        <div className="flex items-center gap-2 mb-3">
-          <span className="text-sm text-gray-300">RSVP:</span>
+      <section aria-label="RSVP and attendance" className="bg-gray-900 border border-gray-800 rounded-2xl p-4 mb-6">
+        <div className="flex flex-wrap items-center gap-2 mb-3">
+          <span id="rsvp-label" className="text-sm text-gray-300">RSVP:</span>
+          <div role="group" aria-labelledby="rsvp-label" className="flex flex-wrap gap-2">
           {(['yes', 'no', 'maybe'] as const).map((status) => (
             <button
               key={status}
               onClick={() => handleRsvp(status)}
               disabled={rsvp.isPending}
-              className={`px-3 py-1 rounded-lg text-sm font-medium transition-colors ${
+              aria-label={`RSVP ${status}`}
+              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 status === 'yes'
                   ? 'bg-green-900 text-green-300 hover:bg-green-800'
                   : status === 'maybe'
@@ -205,6 +207,7 @@ export default function EventPage() {
               {status.charAt(0).toUpperCase() + status.slice(1)}
             </button>
           ))}
+          </div>
         </div>
         <div className="flex gap-4 text-sm text-gray-400">
           <span>{counts.yes} going</span>
@@ -220,8 +223,7 @@ export default function EventPage() {
               ))}
           </div>
         )}
-      </div>
-
+      </section>
       {/* Calendar Links */}
       <div className="flex gap-3 mb-6">
         <a
@@ -241,13 +243,15 @@ export default function EventPage() {
       </div>
 
       {/* Rating */}
-      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 mb-6">
-        <p className="text-sm text-gray-300 mb-2">Rate this event (1-10)</p>
-        <div className="flex gap-1">
+      <section aria-label="Event rating" className="bg-gray-900 border border-gray-800 rounded-2xl p-4 mb-6">
+        <p id="rating-label" className="text-sm text-gray-300 mb-2">Rate this event (1-10)</p>
+        <div role="group" aria-labelledby="rating-label" className="flex flex-wrap gap-1">
           {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
             <button
               key={n}
               onClick={() => handleRating(n)}
+              aria-label={`Rate ${n} out of 10`}
+              aria-pressed={n <= ratingValue}
               className={`w-8 h-8 rounded-lg text-sm font-bold transition-colors ${
                 n <= ratingValue
                   ? 'bg-indigo-600 text-white'
@@ -258,11 +262,11 @@ export default function EventPage() {
             </button>
           ))}
         </div>
-      </div>
+      </section>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Chat Panel */}
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl flex flex-col h-[500px]">
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl flex flex-col h-[60vh] sm:h-[500px]">
           <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
             <h3 className="text-sm font-semibold text-gray-300">Event Chat</h3>
             <span
@@ -309,7 +313,7 @@ export default function EventPage() {
             <div ref={messagesEndRef} />
           </div>
           {typingUsers.length > 0 && (
-            <div className="px-4 py-1 text-xs text-gray-500">
+            <div role="status" aria-live="polite" className="px-4 py-1 text-xs text-gray-500">
               {typingUsers.join(', ')} typing...
             </div>
           )}
@@ -320,6 +324,7 @@ export default function EventPage() {
                 onChange={(e) => setMessageInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Type a message..."
+                aria-label="Chat message"
                 className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               <button
