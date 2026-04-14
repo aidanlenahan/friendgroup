@@ -138,16 +138,29 @@ const notificationWorker = new Worker<NotificationFanoutJobData>(
     });
 
     for (const user of users) {
-      await prisma.notificationEvent.create({
-        data: {
-          type: data.type,
-          recipientId: user.id,
-          eventId: data.eventId,
-          title: data.title,
-          body: data.body,
-          sentAt: new Date(),
-        },
-      });
+      try {
+        await prisma.notificationEvent.create({
+          data: {
+            type: data.type,
+            recipientId: user.id,
+            eventId: data.eventId,
+            title: data.title,
+            body: data.body,
+            sentAt: new Date(),
+          },
+        });
+      } catch (error) {
+        const message = (error as Error).message || "";
+        // A queued fanout can outlive event deletion; skip stale FK writes.
+        if (message.includes("NotificationEvent_eventId_fkey")) {
+          app.log.warn(
+            { eventId: data.eventId, recipientId: user.id },
+            "Skipping notificationEvent insert for deleted event"
+          );
+          continue;
+        }
+        throw error;
+      }
 
       // Check per-type notification preferences before sending
       const pushPref = await prisma.userNotificationPreference.findUnique({
