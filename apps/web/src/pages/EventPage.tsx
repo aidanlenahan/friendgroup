@@ -44,7 +44,7 @@ export default function EventPage() {
   const currentUser = useAuthStore((s) => s.user)
   const toast = useToast()
 
-  const { data: eventResponse, isLoading } = useEvent(eventId!)
+  const { data: eventResponse, isLoading, isError: eventError, refetch: refetchEvent } = useEvent(eventId!)
   const { data: attendance } = useEventAttendance(eventId!)
   const { data: mediaData } = useEventMedia(eventId!)
   const { data: messagesData } = useEventMessages(eventId!)
@@ -89,6 +89,20 @@ export default function EventPage() {
     return (
       <div className="flex justify-center py-16">
         <Spinner className="text-indigo-400" />
+      </div>
+    )
+  }
+
+  if (eventError) {
+    return (
+      <div className="flex flex-col items-center py-16 gap-3 text-gray-400">
+        <p>Failed to load event.</p>
+        <button
+          onClick={() => refetchEvent()}
+          className="px-4 py-2 rounded-xl bg-gray-800 text-gray-200 text-sm hover:bg-gray-700 transition-colors"
+        >
+          Try again
+        </button>
       </div>
     )
   }

@@ -14,7 +14,7 @@ export default function GroupPage() {
   const { groupId } = useParams<{ groupId: string }>()
   const [activeTab, setActiveTab] = useState<Tab>('events')
 
-  const { data: groupData, isLoading: groupLoading } = useGroup(groupId!)
+  const { data: groupData, isLoading: groupLoading, isError: groupError, refetch: refetchGroup } = useGroup(groupId!)
   const { data: membersData } = useGroupMembers(groupId!)
   const { data: tagsData } = useGroupTags(groupId!)
   const { data: channelsData } = useGroupChannels(groupId!)
@@ -29,6 +29,20 @@ export default function GroupPage() {
   }
 
   const group = groupData?.group
+
+  if (groupError) {
+    return (
+      <div className="flex flex-col items-center py-16 gap-3 text-gray-400">
+        <p>Failed to load group.</p>
+        <button
+          onClick={() => refetchGroup()}
+          className="px-4 py-2 rounded-xl bg-gray-800 text-gray-200 text-sm hover:bg-gray-700 transition-colors"
+        >
+          Try again
+        </button>
+      </div>
+    )
+  }
 
   if (!group) {
     return (

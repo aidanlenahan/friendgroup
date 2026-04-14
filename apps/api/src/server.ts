@@ -669,7 +669,7 @@ app.get("/notifications/config", async (request, reply) => {
   });
 });
 
-app.post("/notifications/subscribe", async (request, reply) => {
+app.post("/notifications/subscribe", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const body = await validateRequest(notificationSubscribeBodySchema, request.body);
 
@@ -1038,7 +1038,7 @@ app.get("/events", async (request, reply) => {
   return reply.send({ events: filteredEvents });
 });
 
-app.post("/events", async (request, reply) => {
+app.post("/events", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const body = await validateRequest(createEventBodySchema, request.body);
 
@@ -1151,7 +1151,7 @@ app.delete("/events/:id", async (request, reply) => {
   return reply.status(204).send();
 });
 
-app.post("/events/:id/rsvps", async (request, reply) => {
+app.post("/events/:id/rsvps", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(updateEventParamsSchema, request.params);
   const body = await validateRequest(rsvpBodySchema, request.body);
@@ -1248,7 +1248,7 @@ app.get("/events/:id/attendance", async (request, reply) => {
   });
 });
 
-app.post("/events/:id/invites", async (request, reply) => {
+app.post("/events/:id/invites", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(updateEventParamsSchema, request.params);
   const body = await validateRequest(inviteBodySchema, request.body);
@@ -1552,7 +1552,7 @@ app.get("/events/:id/messages", async (request, reply) => {
   return reply.send({ messages, hasMore });
 });
 
-app.patch("/events/:id/messages/:messageId/pin", async (request, reply) => {
+app.patch("/events/:id/messages/:messageId/pin", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(messageParamsSchema, request.params);
 
@@ -1613,7 +1613,7 @@ app.get("/groups", async (request, reply) => {
   return reply.send({ groups });
 });
 
-app.post("/groups", async (request, reply) => {
+app.post("/groups", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const body = await validateRequest(createGroupBodySchema, request.body);
 
@@ -1795,7 +1795,7 @@ app.get("/users/me", async (request, reply) => {
   return reply.send({ user });
 });
 
-app.patch("/users/me", async (request, reply) => {
+app.patch("/users/me", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const body = await validateRequest(updateUserBodySchema, request.body);
 
@@ -1927,7 +1927,7 @@ app.get("/groups/:groupId/channels", async (request, reply) => {
   });
 });
 
-app.post("/groups/:groupId/channels", async (request, reply) => {
+app.post("/groups/:groupId/channels", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(groupIdParamsSchema, request.params);
   const body = await validateRequest(createChannelBodySchema, request.body);
@@ -1946,7 +1946,7 @@ app.post("/groups/:groupId/channels", async (request, reply) => {
   return reply.status(201).send({ channel });
 });
 
-app.post("/groups/:groupId/channels/:channelId/subscribe", async (request, reply) => {
+app.post("/groups/:groupId/channels/:channelId/subscribe", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(channelParamsSchema, request.params);
 
@@ -2143,7 +2143,7 @@ app.put("/notifications/preferences", async (request, reply) => {
 // Event Rating Route
 // ============================================================================
 
-app.patch("/events/:id/rating", async (request, reply) => {
+app.patch("/events/:id/rating", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(updateEventParamsSchema, request.params);
   const body = await validateRequest(eventRatingBodySchema, request.body);

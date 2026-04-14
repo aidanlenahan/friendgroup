@@ -7,7 +7,7 @@ import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
 
 export default function GroupsPage() {
-  const { data, isLoading } = useGroups()
+  const { data, isLoading, isError, refetch } = useGroups()
   const createGroup = useCreateGroup()
   const [showModal, setShowModal] = useState(false)
   const [name, setName] = useState('')
@@ -36,6 +36,16 @@ export default function GroupsPage() {
       {isLoading ? (
         <div className="flex justify-center py-16">
           <Spinner className="text-indigo-400" />
+        </div>
+      ) : isError ? (
+        <div className="flex flex-col items-center py-16 gap-3 text-gray-400">
+          <p>Failed to load groups.</p>
+          <button
+            onClick={() => refetch()}
+            className="px-4 py-2 rounded-xl bg-gray-800 text-gray-200 text-sm hover:bg-gray-700 transition-colors"
+          >
+            Try again
+          </button>
         </div>
       ) : !data?.groups?.length ? (
         <EmptyState
