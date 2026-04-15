@@ -74,16 +74,43 @@ export async function readJsonResponse(response: Response) {
 export class ApiError extends Error {
   status: number
   code: string
+  retryAfterSeconds?: number
 
   constructor(
     status: number,
     code: string,
     message: string,
+    retryAfterSeconds?: number,
   ) {
     super(message)
     this.status = status
     this.code = code
+    this.retryAfterSeconds = retryAfterSeconds
   }
+}
+
+export function getApiErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof ApiError) {
+    if (error.status === 0 || error.code === 'NETWORK_ERROR') {
+      return 'You appear to be offline. Check your connection and try again.'
+    }
+    if (error.status === 429) {
+      const retryHint = error.retryAfterSeconds
+        ? ` Try again in ${error.retryAfterSeconds}s.`
+        : ' Please wait a moment and retry.'
+      return `You are being rate limited.${retryHint}`
+    }
+    if (error.status >= 500) {
+      return 'The service is temporarily degraded. Please retry in a moment.'
+    }
+    return error.message || fallback
+  }
+
+  if (error instanceof Error && /network|failed to fetch/i.test(error.message)) {
+    return 'You appear to be offline. Check your connection and try again.'
+  }
+
+  return fallback
 }
 
 export function getToken(): string | null {
@@ -112,22 +139,34 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
       : (import.meta.env.VITE_API_BASE_URL ?? '/api')
 
   const token = getToken()
-  const res = await fetch(`${base}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...init.headers,
-    },
-  })
+  let res: Response
+  try {
+    res = await fetch(`${base}${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...init.headers,
+      },
+    })
+  } catch {
+    throw new ApiError(
+      0,
+      'NETWORK_ERROR',
+      'Network request failed',
+    )
+  }
 
   if (!res.ok) {
     const { data, message } = await readJsonResponse(res)
     const body = data as Record<string, string> | null
+    const retryAfterHeader = res.headers.get('retry-after')
+    const retryAfterSeconds = retryAfterHeader ? Number.parseInt(retryAfterHeader, 10) : undefined
     throw new ApiError(
       res.status,
       body?.code ?? 'UNKNOWN',
       body?.error ?? message ?? res.statusText,
+      Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined,
     )
   }
 

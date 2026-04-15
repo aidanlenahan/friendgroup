@@ -5,9 +5,12 @@ import type { GroupSummary } from '../hooks/useGroups'
 import Modal from '../components/Modal'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
+import { getApiErrorMessage } from '../lib/api'
+import { useIsOnline } from '../hooks/useIsOnline'
 
 export default function GroupsPage() {
-  const { data, isLoading, isError, refetch } = useGroups()
+  const { data, isLoading, isError, error, refetch } = useGroups()
+  const isOnline = useIsOnline()
   const createGroup = useCreateGroup()
   const [showModal, setShowModal] = useState(false)
   const [name, setName] = useState('')
@@ -22,12 +25,12 @@ export default function GroupsPage() {
   }
 
   return (
-    <div className="px-4 py-6 sm:p-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-6">
+    <div className="w-full min-w-0 px-4 py-6 sm:p-6 max-w-4xl mx-auto">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h2 className="text-2xl font-bold text-white">Your Groups</h2>
         <button
           onClick={() => setShowModal(true)}
-          className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+          className="whitespace-nowrap bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
         >
           + New Group
         </button>
@@ -37,15 +40,17 @@ export default function GroupsPage() {
         <div className="flex justify-center py-16">
           <Spinner className="text-indigo-400" />
         </div>
-      ) : isError ? (
+      ) : isError && !data?.groups?.length ? (
         <div className="flex flex-col items-center py-16 gap-3 text-gray-400">
-          <p>Failed to load groups.</p>
-          <button
-            onClick={() => refetch()}
-            className="px-4 py-2 rounded-xl bg-gray-800 text-gray-200 text-sm hover:bg-gray-700 transition-colors"
-          >
-            Try again
-          </button>
+          <p>{!isOnline ? 'You are offline and there is no cached data.' : getApiErrorMessage(error, 'Failed to load groups.')}</p>
+          {isOnline && (
+            <button
+              onClick={() => refetch()}
+              className="px-4 py-2 rounded-xl bg-gray-800 text-gray-200 text-sm hover:bg-gray-700 transition-colors"
+            >
+              Try again
+            </button>
+          )}
         </div>
       ) : !data?.groups?.length ? (
         <EmptyState
@@ -61,7 +66,13 @@ export default function GroupsPage() {
           }
         />
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <>
+          {isError && !isOnline && (
+            <div className="mb-4 px-4 py-2 rounded-xl bg-yellow-900/40 border border-yellow-700 text-yellow-300 text-sm">
+              You are offline. Showing cached data.
+            </div>
+          )}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {data.groups.map((g: GroupSummary) => (
             <Link
               key={g.id}
@@ -82,7 +93,8 @@ export default function GroupsPage() {
               </div>
             </Link>
           ))}
-        </div>
+          </div>
+        </>
       )}
 
       <Modal open={showModal} onClose={() => setShowModal(false)}>

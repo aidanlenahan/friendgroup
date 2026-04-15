@@ -1,6 +1,7 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useAuthStore } from './stores/authStore'
+import { ApiError } from './lib/api'
 import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
 import GroupsPage from './pages/GroupsPage'
@@ -13,7 +14,31 @@ import { Phase7DebugPage } from './pages/Phase7DebugPage'
 import { Phase9DiagnosticsPage } from './pages/Phase9DiagnosticsPage'
 
 const queryClient = new QueryClient({
-  defaultOptions: { queries: { staleTime: 30_000, retry: 1 } },
+  defaultOptions: {
+    queries: {
+      staleTime: 30_000,
+      retry: (failureCount, error) => {
+        const apiError = error instanceof ApiError ? error : null
+        if (apiError?.status === 401 || apiError?.status === 403 || apiError?.status === 404) {
+          return false
+        }
+
+        if (apiError?.status === 429 || (apiError && apiError.status >= 500) || apiError?.status === 0) {
+          return failureCount < 3
+        }
+
+        return failureCount < 2
+      },
+      retryDelay: (attemptIndex, error) => {
+        if (error instanceof ApiError && error.status === 429 && error.retryAfterSeconds) {
+          return error.retryAfterSeconds * 1000
+        }
+
+        const base = 600
+        return Math.min(base * 2 ** attemptIndex, 5_000)
+      },
+    },
+  },
 })
 
 function RequireAuth({ children }: { children: React.ReactNode }) {

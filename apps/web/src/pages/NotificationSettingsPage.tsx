@@ -5,7 +5,7 @@ import {
   useUpdateNotificationPreferences,
 } from '../hooks/useNotifications'
 import { useToast } from '../hooks/useToast'
-import { apiFetch } from '../lib/api'
+import { apiFetch, getApiErrorMessage } from '../lib/api'
 import Spinner from '../components/Spinner'
 
 const NOTIFICATION_TYPES = [
@@ -34,7 +34,7 @@ function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
 export default function NotificationSettingsPage() {
   const toast = useToast()
   const { data: config } = useNotificationConfig()
-  const { data: prefsData, isLoading, isError } = useNotificationPreferences()
+  const { data: prefsData, isLoading, isError, error } = useNotificationPreferences()
   const updatePrefs = useUpdateNotificationPreferences()
 
   const [pushPermission, setPushPermission] = useState(
@@ -137,7 +137,7 @@ export default function NotificationSettingsPage() {
     return (
       <div className="px-4 py-6 sm:p-6 max-w-2xl mx-auto">
         <h2 className="text-2xl font-bold text-white mb-6">Notification Settings</h2>
-        <p className="text-gray-400">Failed to load notification preferences.</p>
+        <p className="text-gray-400">{getApiErrorMessage(error, 'Failed to load notification preferences.')}</p>
       </div>
     )
   }

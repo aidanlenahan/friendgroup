@@ -76,7 +76,8 @@ describe('Phase7DebugPage', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Get Dev Token' }))
 
     await screen.findByText(/Authenticated as owner@friendgroup.dev via /)
-    await screen.findByText('Token status: Authenticated')
+    await screen.findByText(/Token status:/)
+    await screen.findByText('Authenticated')
   })
 
   it('shows notification config failure states', async () => {

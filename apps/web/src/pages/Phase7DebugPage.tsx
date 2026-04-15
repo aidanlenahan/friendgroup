@@ -414,123 +414,96 @@ export function Phase7DebugPage() {
     }
   }
 
-  return (
-    <main className="app-shell">
-      <section className="panel top-nav-panel">
-        <div className="row">
-          <Link className="button-link" to="/">
-            Home
-          </Link>
-          <Link className="button-link" to="/phase-9/diagnostics">
-            Phase 9 Diagnostics
-          </Link>
-        </div>
-      </section>
+  const btnBase = 'bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold py-2 px-4 rounded-xl transition-colors'
+  const sectionCls = 'bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-3'
 
-      <header className="hero">
-        <p className="eyebrow">Friendgroup</p>
-        <h1>Phase 7 PWA Console</h1>
-        <p>
-          This screen validates installability plus push permission and subscription
-          flow, aligned with the PRD and the notification setup guide.
+  return (
+    <main className="px-4 py-6 sm:p-6 max-w-2xl mx-auto space-y-6">
+      <div className="flex gap-3">
+        <Link to="/" className="text-sm text-indigo-400 hover:text-indigo-300">← Home</Link>
+        <Link to="/phase-9/diagnostics" className="text-sm text-indigo-400 hover:text-indigo-300">Phase 9 Diagnostics →</Link>
+      </div>
+
+      <header>
+        <p className="text-xs font-semibold uppercase tracking-widest text-indigo-400 mb-1">Friendgroup</p>
+        <h1 className="text-2xl font-bold text-white">Phase 7 PWA Console</h1>
+        <p className="text-sm text-gray-400 mt-1">
+          Validates installability plus push permission and subscription flow.
         </p>
       </header>
 
-      <section className="panel">
-        <h2>Step 1: Dev Authentication</h2>
-        <p>
-          Request a JWT using the API dev-token endpoint so subscription and test
-          routes can be called with auth.
-        </p>
-        <label htmlFor="email-input">User email</label>
-        <div className="row">
+      <section className={sectionCls}>
+        <h2 className="text-lg font-semibold text-white">Step 1: Dev Authentication</h2>
+        <p className="text-sm text-gray-400">Request a JWT via the dev-token endpoint to authenticate subscription and test routes.</p>
+        <label htmlFor="email-input" className="block text-sm text-gray-400">User email</label>
+        <div className="flex gap-2 flex-wrap">
           <input
             id="email-input"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
             placeholder="owner@friendgroup.dev"
             type="email"
+            className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
-          <button onClick={loginForDevToken}>Get Dev Token</button>
+          <button className={btnBase} onClick={loginForDevToken}>Get Dev Token</button>
         </div>
-        <p className="status">
-          Token status: {token ? 'Authenticated' : 'Not authenticated'}
+        <p className="text-sm text-gray-400">
+          Token status: <span className={token ? 'text-green-400' : 'text-yellow-400'}>{token ? 'Authenticated' : 'Not authenticated'}</span>
         </p>
       </section>
 
-      <section className="panel">
-        <h2>Step 2: Notification Capability</h2>
-        <p>
-          Load server config and verify browser support before permission and
-          subscription calls.
-        </p>
-        <div className="row">
-          <button onClick={loadNotificationConfig}>Load /notifications/config</button>
-          <button onClick={subscribeToPush}>Request Permission + Subscribe</button>
-          <button onClick={sendPushTest}>Send Push Test</button>
-          <button onClick={resetServiceWorkerAndSubscription} disabled={resetting}>
+      <section className={sectionCls}>
+        <h2 className="text-lg font-semibold text-white">Step 2: Notification Capability</h2>
+        <p className="text-sm text-gray-400">Load server config and verify browser support before permission and subscription calls.</p>
+        <div className="flex flex-wrap gap-2">
+          <button className={btnBase} onClick={loadNotificationConfig}>Load /notifications/config</button>
+          <button className={btnBase} onClick={subscribeToPush}>Request Permission + Subscribe</button>
+          <button className={btnBase} onClick={sendPushTest}>Send Push Test</button>
+          <button className={btnBase} onClick={resetServiceWorkerAndSubscription} disabled={resetting}>
             {resetting ? 'Resetting...' : 'Reset SW + Subscription (Debug)'}
           </button>
         </div>
-
-        <ul className="facts">
-          <li>Browser push support: {pushSupported ? 'yes' : 'no'}</li>
-          <li>Notification permission: {permission}</li>
-          <li>
-            API push configured:{' '}
-            {config ? (config.pushConfigured ? 'yes' : 'no') : 'unknown'}
-          </li>
-          <li>API email configured: {config ? (config.emailConfigured ? 'yes' : 'no') : 'unknown'}</li>
-          <li>VAPID key loaded: {config?.vapidPublicKey ? 'yes' : 'no'}</li>
+        <ul className="text-sm text-gray-300 space-y-1 list-disc list-inside">
+          <li>Browser push support: <span className="text-white">{pushSupported ? 'yes' : 'no'}</span></li>
+          <li>Notification permission: <span className="text-white">{permission}</span></li>
+          <li>API push configured: <span className="text-white">{config ? (config.pushConfigured ? 'yes' : 'no') : 'unknown'}</span></li>
+          <li>API email configured: <span className="text-white">{config ? (config.emailConfigured ? 'yes' : 'no') : 'unknown'}</span></li>
+          <li>VAPID key loaded: <span className="text-white">{config?.vapidPublicKey ? 'yes' : 'no'}</span></li>
         </ul>
       </section>
 
-      <section className="panel">
-        <h2>Step 3: Install App</h2>
-        <p>
-          Install prompts are browser controlled. This button appears when the
-          beforeinstallprompt event is available.
-        </p>
+      <section className={sectionCls}>
+        <h2 className="text-lg font-semibold text-white">Step 3: Install App</h2>
+        <p className="text-sm text-gray-400">Install prompts are browser controlled.</p>
         {!isInstalled ? (
-          <div className="row">
-            <button onClick={promptInstall} disabled={!canInstall && !shouldShowIosInstallHint}>
-              {shouldShowIosInstallHint ? 'How to Install on iPhone / iPad' : 'Install Friendgroup PWA'}
-            </button>
-          </div>
+          <button className={btnBase} onClick={promptInstall} disabled={!canInstall && !shouldShowIosInstallHint}>
+            {shouldShowIosInstallHint ? 'How to Install on iPhone / iPad' : 'Install Friendgroup PWA'}
+          </button>
         ) : (
-          <p className="hint">✓ Already installed as a PWA.</p>
+          <p className="text-sm text-green-400">✓ Already installed as a PWA.</p>
         )}
       </section>
 
       {showIosModal ? (
-        <div className="modal-overlay" onClick={() => setShowIosModal(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h2>Add to Home Screen</h2>
-            <ol className="ios-steps">
-              <li>
-                Tap the <strong>Share</strong> button{' '}
-                <span className="ios-icon" aria-label="Share">⬆</span>{' '}
-                at the bottom of Safari.
-              </li>
-              <li>
-                Scroll down and tap{' '}
-                <strong>"Add to Home Screen"</strong>.
-              </li>
-              <li>
-                Tap <strong>"Add"</strong> in the top-right corner.
-              </li>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50" onClick={() => setShowIosModal(false)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-sm mx-4 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-white">Add to Home Screen</h2>
+            <ol className="text-sm text-gray-300 space-y-2 list-decimal list-inside">
+              <li>Tap the <strong className="text-white">Share</strong> button <span aria-label="Share">⬆</span> at the bottom of Safari.</li>
+              <li>Scroll down and tap <strong className="text-white">"Add to Home Screen"</strong>.</li>
+              <li>Tap <strong className="text-white">"Add"</strong> in the top-right corner.</li>
             </ol>
-            <button onClick={() => setShowIosModal(false)}>Got it</button>
+            <button className={btnBase} onClick={() => setShowIosModal(false)}>Got it</button>
           </div>
         </div>
       ) : null}
 
-      <section className="panel">
-        <h2>Runtime Status</h2>
-        <p className="status">API base URL: {apiBaseUrl}</p>
-        <p className="status">{status}</p>
-        <h3>Subscription JSON</h3>
-        <pre>{subscriptionJson}</pre>
+      <section className={sectionCls}>
+        <h2 className="text-lg font-semibold text-white">Runtime Status</h2>
+        <p className="text-sm text-gray-400">API base URL: <span className="text-white">{apiBaseUrl}</span></p>
+        <p className="text-sm text-gray-300">{status}</p>
+        <h3 className="text-sm font-semibold text-gray-200 mt-2">Subscription JSON</h3>
+        <pre className="text-xs text-gray-300 bg-gray-800 rounded-xl p-3 overflow-x-auto whitespace-pre-wrap">{subscriptionJson}</pre>
       </section>
     </main>
   )

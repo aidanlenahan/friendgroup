@@ -1,24 +1,148 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { useGroup, useGroupMembers, useGroupTags, useGroupChannels } from '../hooks/useGroups'
-import { useEvents } from '../hooks/useEvents'
+import {
+  useGroup,
+  useGroupMembers,
+  useGroupTags,
+  useGroupChannels,
+  useSubscribeGroupChannel,
+  useUnsubscribeGroupChannel,
+  useUpdateMemberRole,
+  useRemoveMember,
+} from '../hooks/useGroups'
+import { useEvents, useDeleteEvent } from '../hooks/useEvents'
 import EventCard from '../components/EventCard'
 import TagBadge from '../components/TagBadge'
 import Avatar from '../components/Avatar'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
+import { getApiErrorMessage } from '../lib/api'
+import { useToast } from '../hooks/useToast'
+import { useIsOnline } from '../hooks/useIsOnline'
+import { useAuthStore } from '../stores/authStore'
 
 type Tab = 'events' | 'members' | 'tags' | 'channels'
+
+type EventSummary = {
+  id: string
+  title: string
+  dateTime: string
+  location?: string | null
+  tags?: Array<{ id: string; name: string; color?: string | null }>
+  rsvps?: Array<{ status: string }>
+}
+
+function AdminEventCard({ event, canDelete }: { event: EventSummary; canDelete: boolean }) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const toast = useToast()
+  const deleteEvent = useDeleteEvent(event.id)
+
+  const handleDelete = async () => {
+    try {
+      await deleteEvent.mutateAsync()
+      toast.success('Event deleted')
+    } catch {
+      toast.error('Failed to delete event')
+    }
+  }
+
+  return (
+    <div className="relative">
+      <EventCard event={event} />
+      {canDelete && (
+        <div className="absolute top-2 right-2 flex gap-1">
+          {confirmDelete ? (
+            <>
+              <button
+                onClick={handleDelete}
+                disabled={deleteEvent.isPending}
+                className="text-xs px-2 py-1 rounded-lg bg-red-900 text-red-200 hover:bg-red-800 transition-colors disabled:opacity-50"
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setConfirmDelete(false)}
+                className="text-xs px-2 py-1 rounded-lg bg-gray-800 text-gray-400 hover:bg-gray-700 transition-colors"
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={(e) => { e.preventDefault(); setConfirmDelete(true) }}
+              className="text-xs px-2 py-1 rounded-lg bg-gray-900/80 border border-gray-700 text-red-400 hover:bg-red-900/30 transition-colors opacity-0 group-hover:opacity-100"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function GroupPage() {
   const { groupId } = useParams<{ groupId: string }>()
   const [activeTab, setActiveTab] = useState<Tab>('events')
+  const [confirmRemoveMember, setConfirmRemoveMember] = useState<string | null>(null)
+  const toast = useToast()
+  const isOnline = useIsOnline()
+  const currentUser = useAuthStore((s) => s.user)
 
-  const { data: groupData, isLoading: groupLoading, isError: groupError, refetch: refetchGroup } = useGroup(groupId!)
+  const {
+    data: groupData,
+    isLoading: groupLoading,
+    isError: groupError,
+    error: groupErrorDetails,
+    refetch: refetchGroup,
+  } = useGroup(groupId!)
   const { data: membersData } = useGroupMembers(groupId!)
   const { data: tagsData } = useGroupTags(groupId!)
   const { data: channelsData } = useGroupChannels(groupId!)
   const { data: eventsData, isLoading: eventsLoading } = useEvents(groupId!)
+  const subscribeChannel = useSubscribeGroupChannel(groupId!)
+  const unsubscribeChannel = useUnsubscribeGroupChannel(groupId!)
+  const updateMemberRole = useUpdateMemberRole(groupId!)
+  const removeMember = useRemoveMember(groupId!)
+
+  // Determine current user's role in this group
+  const myMembership = membersData?.members?.find((m) => m.userId === currentUser?.id)
+  const isOwner = myMembership?.role === 'owner'
+  const isAdmin = isOwner || myMembership?.role === 'admin'
+
+  const handleChannelToggle = async (channelId: string, isSubscribed: boolean) => {
+    try {
+      if (isSubscribed) {
+        await unsubscribeChannel.mutateAsync(channelId)
+        toast.success('Channel unsubscribed')
+      } else {
+        await subscribeChannel.mutateAsync(channelId)
+        toast.success('Channel subscribed')
+      }
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to update channel subscription'))
+    }
+  }
+
+  const handleRoleToggle = async (userId: string, currentRole: string) => {
+    const newRole = currentRole === 'admin' ? 'member' : 'admin'
+    try {
+      await updateMemberRole.mutateAsync({ userId, role: newRole })
+      toast.success(`Member ${newRole === 'admin' ? 'promoted to admin' : 'demoted to member'}`)
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to update role'))
+    }
+  }
+
+  const handleRemoveMember = async (userId: string) => {
+    try {
+      await removeMember.mutateAsync(userId)
+      setConfirmRemoveMember(null)
+      toast.success('Member removed')
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to remove member'))
+    }
+  }
 
   if (groupLoading) {
     return (
@@ -30,16 +154,18 @@ export default function GroupPage() {
 
   const group = groupData?.group
 
-  if (groupError) {
+  if (groupError && !group) {
     return (
       <div className="flex flex-col items-center py-16 gap-3 text-gray-400">
-        <p>Failed to load group.</p>
-        <button
-          onClick={() => refetchGroup()}
-          className="px-4 py-2 rounded-xl bg-gray-800 text-gray-200 text-sm hover:bg-gray-700 transition-colors"
-        >
-          Try again
-        </button>
+        <p>{!isOnline ? 'You are offline and there is no cached data.' : getApiErrorMessage(groupErrorDetails, 'Failed to load group.')}</p>
+        {isOnline && (
+          <button
+            onClick={() => refetchGroup()}
+            className="px-4 py-2 rounded-xl bg-gray-800 text-gray-200 text-sm hover:bg-gray-700 transition-colors"
+          >
+            Try again
+          </button>
+        )}
       </div>
     )
   }
@@ -58,7 +184,12 @@ export default function GroupPage() {
   ]
 
   return (
-    <div className="px-4 py-6 sm:p-6 max-w-5xl mx-auto">
+    <div className="w-full min-w-0 px-4 py-6 sm:p-6 max-w-5xl mx-auto">
+      {groupError && !isOnline && (
+        <div className="mb-4 px-4 py-2 rounded-xl bg-yellow-900/40 border border-yellow-700 text-yellow-300 text-sm">
+          You are offline. Showing cached data.
+        </div>
+      )}
       {/* Group Header */}
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-white">{group.name}</h2>
@@ -116,7 +247,11 @@ export default function GroupPage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {eventsData.events.map((event) => (
-                <EventCard key={event.id} event={event} />
+                <AdminEventCard
+                  key={event.id}
+                  event={event}
+                  canDelete={isAdmin}
+                />
               ))}
             </div>
           )}
@@ -134,11 +269,56 @@ export default function GroupPage() {
               <Avatar name={m.name} avatarUrl={m.avatarUrl} size="sm" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-white truncate">{m.name}</p>
+                {m.username && (
+                  <p className="text-xs text-indigo-400">@{m.username}</p>
+                )}
                 <p className="text-xs text-gray-500">{m.email}</p>
               </div>
-              <span className="text-xs px-2 py-1 rounded-full bg-gray-800 text-gray-400">
+              <span className={`text-xs px-2 py-1 rounded-full ${
+                m.role === 'owner'
+                  ? 'bg-indigo-900 text-indigo-300'
+                  : m.role === 'admin'
+                  ? 'bg-amber-900 text-amber-300'
+                  : 'bg-gray-800 text-gray-400'
+              }`}>
                 {m.role}
               </span>
+              {isOwner && m.userId !== currentUser?.id && m.role !== 'owner' && (
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => handleRoleToggle(m.userId, m.role)}
+                    disabled={updateMemberRole.isPending}
+                    className="text-xs px-2 py-1 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors disabled:opacity-50"
+                    title={m.role === 'admin' ? 'Demote to member' : 'Promote to admin'}
+                  >
+                    {m.role === 'admin' ? 'Demote' : 'Promote'}
+                  </button>
+                  {confirmRemoveMember === m.userId ? (
+                    <>
+                      <button
+                        onClick={() => handleRemoveMember(m.userId)}
+                        disabled={removeMember.isPending}
+                        className="text-xs px-2 py-1 rounded-lg bg-red-900 text-red-300 hover:bg-red-800 transition-colors disabled:opacity-50"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setConfirmRemoveMember(null)}
+                        className="text-xs px-2 py-1 rounded-lg bg-gray-800 text-gray-400 hover:bg-gray-700 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setConfirmRemoveMember(m.userId)}
+                      className="text-xs px-2 py-1 rounded-lg bg-gray-800 text-red-400 hover:bg-red-900/30 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -168,23 +348,37 @@ export default function GroupPage() {
             channelsData.channels.map((ch) => (
               <div
                 key={ch.id}
-                className="flex items-center justify-between bg-gray-900 rounded-xl p-3 border border-gray-800"
+                className="flex items-center justify-between gap-3 bg-gray-900 rounded-xl p-3 border border-gray-800"
               >
-                <div>
-                  <p className="text-sm font-medium text-white"># {ch.name}</p>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-white truncate"># {ch.name}</p>
                   <p className="text-xs text-gray-500">
                     {ch.subscriberCount} subscribers, {ch.messageCount} messages
                   </p>
                 </div>
-                <span
-                  className={`text-xs px-2 py-1 rounded-full ${
-                    ch.isSubscribed
-                      ? 'bg-indigo-900 text-indigo-300'
-                      : 'bg-gray-800 text-gray-400'
-                  }`}
-                >
-                  {ch.isSubscribed ? 'Subscribed' : 'Not subscribed'}
-                </span>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span
+                    className={`text-xs px-2 py-1 rounded-full ${
+                      ch.isInviteOnly
+                        ? 'bg-amber-900 text-amber-300'
+                        : 'bg-emerald-900 text-emerald-300'
+                    }`}
+                  >
+                    {ch.isInviteOnly ? 'Invite-only' : 'Open'}
+                  </span>
+                  <button
+                    onClick={() => handleChannelToggle(ch.id, Boolean(ch.isSubscribed))}
+                    disabled={subscribeChannel.isPending || unsubscribeChannel.isPending || Boolean(ch.isInviteOnly && !ch.isSubscribed)}
+                    className={`text-xs px-2 py-1 rounded-full transition-colors disabled:opacity-50 ${
+                      ch.isSubscribed
+                        ? 'bg-indigo-900 text-indigo-300 hover:bg-indigo-800'
+                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    }`}
+                    title={ch.isInviteOnly && !ch.isSubscribed ? 'This channel requires an invite to subscribe' : undefined}
+                  >
+                    {ch.isSubscribed ? 'Unsubscribe' : 'Subscribe'}
+                  </button>
+                </div>
               </div>
             ))
           )}

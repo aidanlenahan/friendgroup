@@ -1,4 +1,5 @@
 import "dotenv/config";
+import * as Sentry from "@sentry/node";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
@@ -229,6 +230,12 @@ const notificationWorker = new Worker<NotificationFanoutJobData>(
 );
 
 notificationWorker.on("failed", (job, error) => {
+  if (sentryEnabled) {
+    Sentry.captureException(error, {
+      tags: { worker: "notification-fanout" },
+      extra: { jobId: job?.id },
+    });
+  }
   console.error("Notification fanout job failed", {
     jobId: job?.id,
     error: error.message,
@@ -253,6 +260,12 @@ const calendarSyncWorker = new Worker<CalendarSyncJobData>(
 );
 
 calendarSyncWorker.on("failed", (job, error) => {
+  if (sentryEnabled) {
+    Sentry.captureException(error, {
+      tags: { worker: "calendar-sync" },
+      extra: { jobId: job?.id },
+    });
+  }
   console.error("Calendar sync job failed", {
     jobId: job?.id,
     error: error.message,
@@ -261,6 +274,51 @@ calendarSyncWorker.on("failed", (job, error) => {
 
 // Create Fastify app
 const app = Fastify({ logger: true });
+
+const sentryDsn = process.env.SENTRY_DSN_API || process.env.SENTRY_DSN;
+const sentryEnabled = Boolean(sentryDsn);
+
+if (sentryEnabled) {
+  Sentry.init({
+    dsn: sentryDsn,
+    environment: process.env.NODE_ENV || "development",
+    release: process.env.SENTRY_RELEASE,
+    tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || 0),
+  });
+}
+
+const processStartedAtMs = Date.now();
+let requestCount = 0;
+const responseStatusBuckets: Record<string, number> = {
+  "2xx": 0,
+  "3xx": 0,
+  "4xx": 0,
+  "5xx": 0,
+};
+const responseLatencyMsWindow: number[] = [];
+
+function getStatusBucket(statusCode: number) {
+  if (statusCode >= 500) return "5xx";
+  if (statusCode >= 400) return "4xx";
+  if (statusCode >= 300) return "3xx";
+  return "2xx";
+}
+
+function pushLatencySample(latencyMs: number) {
+  responseLatencyMsWindow.push(latencyMs);
+  if (responseLatencyMsWindow.length > 500) {
+    responseLatencyMsWindow.shift();
+  }
+}
+
+function percentile(sortedValues: number[], p: number) {
+  if (sortedValues.length === 0) return 0;
+  const index = Math.min(
+    sortedValues.length - 1,
+    Math.max(0, Math.ceil((p / 100) * sortedValues.length) - 1)
+  );
+  return sortedValues[index];
+}
 
 const listEventsQuerySchema = z.object({
   groupId: schemas.id,
@@ -299,6 +357,7 @@ const updateEventBodySchema = z.object({
 
 const rsvpBodySchema = z.object({
   status: schemas.rsvpStatus,
+  expectedUpdatedAt: z.string().datetime().optional(),
 });
 
 const rsvpParamsSchema = z.object({
@@ -403,6 +462,7 @@ const createGroupBodySchema = z.object({
   name: z.string().min(1).max(255),
   description: z.string().max(2000).optional(),
   avatarUrl: z.string().url().optional(),
+  betaCode: z.string().optional(),
 });
 
 const updateGroupBodySchema = z.object({
@@ -422,7 +482,23 @@ const groupMemberRemoveParamsSchema = z.object({
 
 const updateUserBodySchema = z.object({
   name: z.string().min(1).max(255).optional(),
+  username: z.string().min(2).max(40).regex(/^[a-zA-Z0-9_]+$/).optional(),
   avatarUrl: z.string().url().nullable().optional(),
+});
+
+const useBetaCodeBodySchema = z.object({
+  code: z.string().min(1).max(100),
+  type: z.enum(["registration", "group_creation"]),
+});
+
+const createBetaCodeBodySchema = z.object({
+  code: z.string().min(4).max(100).optional(),
+  type: z.enum(["registration", "group_creation"]),
+  count: z.number().int().min(1).max(100).optional(),
+});
+
+const updateMemberRoleBodySchema = z.object({
+  role: z.enum(["admin", "member"]),
 });
 
 const createTagBodySchema = z.object({
@@ -549,7 +625,30 @@ app.decorate("redis", redis);
 app.decorate("s3", s3);
 
 // Register error handler
-app.setErrorHandler(errorHandler);
+app.setErrorHandler((error, request, reply) => {
+  const normalizedError = error instanceof Error ? error : new Error(String(error));
+
+  if (sentryEnabled && (error as { statusCode?: number }).statusCode !== 404) {
+    Sentry.captureException(normalizedError, {
+      tags: {
+        method: request.method,
+        route: request.routeOptions.url,
+      },
+      extra: {
+        path: request.url,
+        userId: (request as { user?: { id?: string } }).user?.id,
+      },
+    });
+  }
+
+  return errorHandler(normalizedError, request, reply);
+});
+
+app.addHook("onResponse", async (request, reply) => {
+  requestCount += 1;
+  responseStatusBuckets[getStatusBucket(reply.statusCode)] += 1;
+  pushLatencySample(reply.elapsedTime);
+});
 
 // ============================================================================
 // Health Check Routes
@@ -575,6 +674,38 @@ app.get<{ Reply: HealthStatus }>("/health/storage", async (request, reply) => {
   const status = await checkStorage(s3);
   const code = status.status === "ok" ? 200 : 503;
   return reply.status(code).send(status);
+});
+
+app.get("/metrics", async (request, reply) => {
+  const sortedLatencies = [...responseLatencyMsWindow].sort((a, b) => a - b);
+  const [notificationQueueCounts, calendarQueueCounts] = await Promise.all([
+    notificationQueue.getJobCounts("waiting", "active", "completed", "failed", "delayed"),
+    calendarSyncQueue.getJobCounts("waiting", "active", "completed", "failed", "delayed"),
+  ]);
+
+  return reply.send({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor((Date.now() - processStartedAtMs) / 1000),
+    requests: {
+      total: requestCount,
+      byStatusBucket: responseStatusBuckets,
+      latencyMs: {
+        samples: sortedLatencies.length,
+        p50: percentile(sortedLatencies, 50),
+        p95: percentile(sortedLatencies, 95),
+        p99: percentile(sortedLatencies, 99),
+      },
+    },
+    queues: {
+      notificationFanout: notificationQueueCounts,
+      calendarSync: calendarQueueCounts,
+    },
+    sentry: {
+      enabled: sentryEnabled,
+      environment: process.env.NODE_ENV || "development",
+    },
+  });
 });
 
 app.get("/health/all", async (request, reply) => {
@@ -816,7 +947,7 @@ app.get("/notifications/preferences/tags", async (request, reply) => {
   });
 });
 
-app.put("/notifications/preferences/tags/:tagId", async (request, reply) => {
+app.put("/notifications/preferences/tags/:tagId", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(notificationPrefParamsSchema, request.params);
   const body = await validateRequest(notificationPrefBodySchema, request.body);
@@ -998,6 +1129,42 @@ app.get("/events/:id/media", async (request, reply) => {
   });
 });
 
+app.get("/events/:id", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { id } = request.params as { id: string };
+
+  const event = await prisma.event.findUnique({
+    where: { id },
+    include: {
+      tags: true,
+      rsvps: true,
+      invites: true,
+    },
+  });
+
+  if (!event) {
+    return reply.status(404).send({ error: "Event not found" });
+  }
+
+  const membership = await prisma.membership.findUnique({
+    where: { userId_groupId: { userId: currentUser.id, groupId: event.groupId } },
+  });
+
+  if (!membership) {
+    return reply.status(403).send({ error: "Access denied" });
+  }
+
+  const isAdmin = ["owner", "admin"].includes(membership.role);
+  const isCreator = event.createdById === currentUser.id;
+  const isInvited = event.invites.some((invite) => invite.userId === currentUser.id);
+
+  if (!isAdmin && !isCreator && event.invites.length > 0 && !isInvited) {
+    return reply.status(403).send({ error: "Access denied" });
+  }
+
+  return reply.send({ event });
+});
+
 app.get("/events", async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const query = await validateRequest(listEventsQuerySchema, request.query);
@@ -1157,19 +1324,62 @@ app.post("/events/:id/rsvps", { config: { rateLimit: { max: 30, timeWindow: "1 m
   const body = await validateRequest(rsvpBodySchema, request.body);
   await canAccessEvent(prisma, params.id, currentUser.id);
 
-  const rsvp = await prisma.rSVP.upsert({
-    where: {
-      eventId_userId: {
-        eventId: params.id,
-        userId: currentUser.id,
-      },
-    },
-    create: {
+  const where = {
+    eventId_userId: {
       eventId: params.id,
       userId: currentUser.id,
-      status: body.status,
     },
-    update: {
+  };
+
+  const existing = await prisma.rSVP.findUnique({
+    where,
+    select: { id: true, updatedAt: true },
+  });
+
+  if (!existing) {
+    const created = await prisma.rSVP.create({
+      data: {
+        eventId: params.id,
+        userId: currentUser.id,
+        status: body.status,
+      },
+    });
+
+    return reply.status(201).send({ rsvp: created });
+  }
+
+  if (body.expectedUpdatedAt) {
+    const conditionalUpdate = await prisma.rSVP.updateMany({
+      where: {
+        eventId: params.id,
+        userId: currentUser.id,
+        updatedAt: new Date(body.expectedUpdatedAt),
+      },
+      data: {
+        status: body.status,
+      },
+    });
+
+    if (conditionalUpdate.count === 0) {
+      const latest = await prisma.rSVP.findUnique({
+        where,
+        select: { updatedAt: true },
+      });
+
+      return reply.status(409).send({
+        error: "RSVP was modified by another request. Refresh and try again.",
+        code: "RSVP_CONFLICT",
+        latestUpdatedAt: latest?.updatedAt?.toISOString() ?? null,
+      });
+    }
+
+    const updated = await prisma.rSVP.findUnique({ where });
+    return reply.status(201).send({ rsvp: updated });
+  }
+
+  const rsvp = await prisma.rSVP.update({
+    where,
+    data: {
       status: body.status,
     },
   });
@@ -1180,10 +1390,7 @@ app.post("/events/:id/rsvps", { config: { rateLimit: { max: 30, timeWindow: "1 m
 app.patch("/events/:id/rsvps/:userId", async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(rsvpParamsSchema, request.params);
-  const body = await validateRequest(
-    z.object({ status: schemas.rsvpStatus }),
-    request.body
-  );
+  const body = await validateRequest(rsvpBodySchema, request.body);
 
   const access = await canAccessEvent(prisma, params.id, currentUser.id);
   if (!access.isAdmin && params.userId !== currentUser.id) {
@@ -1193,13 +1400,49 @@ app.patch("/events/:id/rsvps/:userId", async (request, reply) => {
     });
   }
 
-  const rsvp = await prisma.rSVP.update({
-    where: {
-      eventId_userId: {
+  const where = {
+    eventId_userId: {
+      eventId: params.id,
+      userId: params.userId,
+    },
+  };
+
+  const existing = await prisma.rSVP.findUnique({ where, select: { updatedAt: true } });
+  if (!existing) {
+    return reply.status(404).send({ error: "RSVP not found", code: "NOT_FOUND" });
+  }
+
+  if (body.expectedUpdatedAt) {
+    const conditionalUpdate = await prisma.rSVP.updateMany({
+      where: {
         eventId: params.id,
         userId: params.userId,
+        updatedAt: new Date(body.expectedUpdatedAt),
       },
-    },
+      data: {
+        status: body.status,
+      },
+    });
+
+    if (conditionalUpdate.count === 0) {
+      const latest = await prisma.rSVP.findUnique({
+        where,
+        select: { updatedAt: true },
+      });
+
+      return reply.status(409).send({
+        error: "RSVP was modified by another request. Refresh and try again.",
+        code: "RSVP_CONFLICT",
+        latestUpdatedAt: latest?.updatedAt?.toISOString() ?? null,
+      });
+    }
+
+    const updated = await prisma.rSVP.findUnique({ where });
+    return reply.send({ rsvp: updated });
+  }
+
+  const rsvp = await prisma.rSVP.update({
+    where,
     data: {
       status: body.status,
     },
@@ -1543,6 +1786,7 @@ app.get("/events/:id/messages", async (request, reply) => {
     take: query.limit + 1,
     include: {
       user: { select: { id: true, name: true, email: true } },
+      reactions: { select: { userId: true, emoji: true } },
     },
   });
 
@@ -1616,6 +1860,22 @@ app.get("/groups", async (request, reply) => {
 app.post("/groups", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const body = await validateRequest(createGroupBodySchema, request.body);
+
+  // Beta gate: if GROUP_CREATION_BETA_REQUIRED is set, validate and consume a code
+  if (process.env.GROUP_CREATION_BETA_REQUIRED === "true") {
+    if (!body.betaCode) {
+      return reply.status(403).send({ error: "A beta code is required to create a group.", code: "BETA_CODE_REQUIRED" });
+    }
+    const betaCode = await prisma.betaCode.findUnique({ where: { code: body.betaCode } });
+    if (!betaCode || betaCode.type !== "group_creation" || betaCode.usedAt !== null) {
+      return reply.status(403).send({ error: "Invalid or already used beta code.", code: "INVALID_BETA_CODE" });
+    }
+    // consume the code
+    await prisma.betaCode.update({
+      where: { id: betaCode.id },
+      data: { usedById: currentUser.id, usedAt: new Date() },
+    });
+  }
 
   const group = await prisma.group.create({
     data: {
@@ -1754,6 +2014,37 @@ app.delete("/groups/:groupId/members/:userId", async (request, reply) => {
   return reply.status(204).send();
 });
 
+app.patch("/groups/:groupId/members/:userId/role", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(groupMemberRemoveParamsSchema, request.params);
+  const body = await validateRequest(updateMemberRoleBodySchema, request.body);
+
+  const callerMembership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(callerMembership.role, ["owner"]);
+
+  const target = await prisma.membership.findUnique({
+    where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
+  });
+
+  if (!target) {
+    return reply.status(404).send({ error: "Member not found", code: "NOT_FOUND" });
+  }
+
+  if (target.role === "owner") {
+    return reply.status(403).send({ error: "Cannot change the owner's role", code: "FORBIDDEN" });
+  }
+
+  const updated = await prisma.membership.update({
+    where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
+    data: { role: body.role },
+    include: {
+      user: { select: { id: true, email: true, name: true, avatarUrl: true } },
+    },
+  });
+
+  return reply.send({ membership: updated });
+});
+
 app.get("/groups/:groupId/members", async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(groupIdParamsSchema, request.params);
@@ -1763,7 +2054,7 @@ app.get("/groups/:groupId/members", async (request, reply) => {
   const members = await prisma.membership.findMany({
     where: { groupId: params.groupId },
     include: {
-      user: { select: { id: true, email: true, name: true, avatarUrl: true } },
+      user: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
     },
     orderBy: { createdAt: "asc" },
   });
@@ -1773,6 +2064,7 @@ app.get("/groups/:groupId/members", async (request, reply) => {
       userId: m.user.id,
       email: m.user.email,
       name: m.user.name,
+      username: m.user.username,
       avatarUrl: m.user.avatarUrl,
       role: m.role,
       joinedAt: m.createdAt,
@@ -1789,7 +2081,7 @@ app.get("/users/me", async (request, reply) => {
 
   const user = await prisma.user.findUnique({
     where: { id: currentUser.id },
-    select: { id: true, email: true, name: true, avatarUrl: true, createdAt: true },
+    select: { id: true, email: true, name: true, username: true, usernameChangedAt: true, avatarUrl: true, createdAt: true },
   });
 
   return reply.send({ user });
@@ -1799,16 +2091,85 @@ app.patch("/users/me", { config: { rateLimit: { max: 10, timeWindow: "1 minute" 
   const currentUser = await requireAuth(request, reply, prisma);
   const body = await validateRequest(updateUserBodySchema, request.body);
 
+  const dataToUpdate: Record<string, unknown> = {};
+  if (body.name !== undefined) dataToUpdate.name = body.name;
+  if (body.avatarUrl !== undefined) dataToUpdate.avatarUrl = body.avatarUrl;
+
+  if (body.username !== undefined) {
+    const existing = await prisma.user.findUnique({
+      where: { id: currentUser.id },
+      select: { username: true, usernameChangedAt: true },
+    });
+    if (existing?.username !== null && existing?.usernameChangedAt) {
+      const oneYearAgo = new Date();
+      oneYearAgo.setFullYear(oneYearAgo.getFullYear() - 1);
+      if (existing.usernameChangedAt > oneYearAgo) {
+        const nextAllowed = new Date(existing.usernameChangedAt);
+        nextAllowed.setFullYear(nextAllowed.getFullYear() + 1);
+        return reply.status(422).send({
+          error: "Username can only be changed once per year.",
+          code: "USERNAME_CHANGE_TOO_SOON",
+          nextAllowedAt: nextAllowed.toISOString(),
+        });
+      }
+    }
+    const conflict = await prisma.user.findUnique({ where: { username: body.username } });
+    if (conflict && conflict.id !== currentUser.id) {
+      return reply.status(409).send({ error: "Username already taken.", code: "USERNAME_TAKEN" });
+    }
+    dataToUpdate.username = body.username;
+    dataToUpdate.usernameChangedAt = new Date();
+  }
+
   const user = await prisma.user.update({
     where: { id: currentUser.id },
-    data: {
-      name: body.name,
-      avatarUrl: body.avatarUrl,
-    },
-    select: { id: true, email: true, name: true, avatarUrl: true, createdAt: true },
+    data: dataToUpdate,
+    select: { id: true, email: true, name: true, username: true, usernameChangedAt: true, avatarUrl: true, createdAt: true },
   });
 
   return reply.send({ user });
+});
+
+// ============================================================================
+// Beta Code Routes
+// ============================================================================
+
+app.post("/admin/beta-codes", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const body = await validateRequest(createBetaCodeBodySchema, request.body);
+
+  // Only allow users with BETA_ADMIN_SECRET header to generate codes
+  const adminSecret = process.env.BETA_ADMIN_SECRET;
+  const providedSecret = (request.headers as Record<string, string>)["x-admin-secret"];
+  if (!adminSecret || providedSecret !== adminSecret) {
+    return reply.status(403).send({ error: "Access denied" });
+  }
+
+  const count = body.count ?? 1;
+  const codes = [];
+  for (let i = 0; i < count; i++) {
+    const code = body.code && count === 1
+      ? body.code
+      : `${body.type.slice(0, 3).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+    const betaCode = await prisma.betaCode.create({
+      data: { code, type: body.type },
+    });
+    codes.push(betaCode);
+  }
+
+  return reply.status(201).send({ codes });
+});
+
+app.post("/beta/validate", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const body = await validateRequest(useBetaCodeBodySchema, request.body);
+
+  const betaCode = await prisma.betaCode.findUnique({ where: { code: body.code } });
+
+  if (!betaCode || betaCode.type !== body.type || betaCode.usedAt !== null) {
+    return reply.status(400).send({ error: "Invalid or already used code.", code: "INVALID_BETA_CODE" });
+  }
+
+  return reply.send({ valid: true, type: betaCode.type });
 });
 
 // ============================================================================
@@ -2111,7 +2472,7 @@ app.get("/notifications/preferences", async (request, reply) => {
   return reply.send({ preferences });
 });
 
-app.put("/notifications/preferences", async (request, reply) => {
+app.put("/notifications/preferences", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const body = await validateRequest(notificationPreferencesBodySchema, request.body);
 

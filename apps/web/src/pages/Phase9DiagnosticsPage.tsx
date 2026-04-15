@@ -60,50 +60,53 @@ export function Phase9DiagnosticsPage() {
   }
 
   return (
-    <main className="app-shell">
-      <section className="panel top-nav-panel">
-        <div className="row">
-          <Link className="button-link" to="/">
-            Home
-          </Link>
-          <Link className="button-link" to="/phase-7/debug">
-            Phase 7 Debug
-          </Link>
-        </div>
-      </section>
+    <main className="px-4 py-6 sm:p-6 max-w-2xl mx-auto space-y-6">
+      <div className="flex gap-3">
+        <Link to="/" className="text-sm text-indigo-400 hover:text-indigo-300">← Home</Link>
+        <Link to="/phase-7/debug" className="text-sm text-indigo-400 hover:text-indigo-300">Phase 7 Debug →</Link>
+      </div>
 
-      <header className="hero">
-        <p className="eyebrow">Friendgroup</p>
-        <h1>Phase 9 Diagnostics</h1>
-        <p>
+      <header>
+        <p className="text-xs font-semibold uppercase tracking-widest text-indigo-400 mb-1">Friendgroup</p>
+        <h1 className="text-2xl font-bold text-white">Phase 9 Diagnostics</h1>
+        <p className="text-sm text-gray-400 mt-1">
           Lightweight frontend diagnostics for API reachability and notification setup.
-          This is the Phase 9 landing surface for future test and quality tooling.
         </p>
       </header>
 
-      <section className="panel">
-        <h2>API Connectivity Checks</h2>
-        <p>Run quick checks against baseline API endpoints used by app workflows.</p>
-        <div className="row">
-          <button onClick={checkApiHealth}>Check API /health</button>
-          <button onClick={checkNotificationConfig}>Check /notifications/config</button>
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-3">
+        <h2 className="text-lg font-semibold text-white">API Connectivity Checks</h2>
+        <p className="text-sm text-gray-400">Run quick checks against baseline API endpoints used by app workflows.</p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold py-2 px-4 rounded-xl transition-colors"
+            onClick={checkApiHealth}
+          >
+            Check API /health
+          </button>
+          <button
+            className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold py-2 px-4 rounded-xl transition-colors"
+            onClick={checkNotificationConfig}
+          >
+            Check /notifications/config
+          </button>
         </div>
       </section>
 
-      <section className="panel">
-        <h2>Runtime Status</h2>
-        <p className="status">API base URL: {apiBaseUrl}</p>
-        <p className="status">{status}</p>
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-2">
+        <h2 className="text-lg font-semibold text-white">Runtime Status</h2>
+        <p className="text-sm text-gray-400">API base URL: <span className="text-white">{apiBaseUrl}</span></p>
+        <p className="text-sm text-gray-300">{status}</p>
       </section>
 
-      <section className="panel">
-        <h2>Health Response</h2>
-        <pre>{healthJson}</pre>
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-2">
+        <h2 className="text-lg font-semibold text-white">Health Response</h2>
+        <pre className="text-xs text-gray-300 bg-gray-800 rounded-xl p-3 overflow-x-auto whitespace-pre-wrap">{healthJson}</pre>
       </section>
 
-      <section className="panel">
-        <h2>Notification Config Summary</h2>
-        <pre>{configSummary}</pre>
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-5 space-y-2">
+        <h2 className="text-lg font-semibold text-white">Notification Config Summary</h2>
+        <pre className="text-xs text-gray-300 bg-gray-800 rounded-xl p-3 overflow-x-auto whitespace-pre-wrap">{configSummary}</pre>
       </section>
     </main>
   )

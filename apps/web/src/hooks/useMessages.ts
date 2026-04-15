@@ -7,6 +7,7 @@ export type EventMessage = {
   createdAt: string
   pinned?: boolean
   user?: { id: string; name: string; avatarUrl?: string | null }
+  reactions?: Array<{ userId: string; emoji: string }>
 }
 
 export type EventMessagesPage = {

@@ -36,6 +36,42 @@ interface AuthedSocket extends Socket {
   };
 }
 
+type ChatRateWindow = {
+  windowStartMs: number;
+  count: number;
+};
+
+const CHAT_RATE_LIMIT_WINDOW_MS = 60_000;
+const CHAT_MESSAGES_PER_MINUTE = Math.max(
+  1,
+  Number(process.env.CHAT_MESSAGE_RATE_LIMIT_PER_MINUTE || 30)
+);
+const chatRateWindows = new Map<string, ChatRateWindow>();
+
+function consumeChatQuota(userId: string) {
+  const now = Date.now();
+  const current = chatRateWindows.get(userId);
+
+  if (!current || now - current.windowStartMs >= CHAT_RATE_LIMIT_WINDOW_MS) {
+    chatRateWindows.set(userId, {
+      windowStartMs: now,
+      count: 1,
+    });
+    return { limited: false, retryAfterSeconds: 0 };
+  }
+
+  if (current.count >= CHAT_MESSAGES_PER_MINUTE) {
+    const retryAfterMs = CHAT_RATE_LIMIT_WINDOW_MS - (now - current.windowStartMs);
+    return {
+      limited: true,
+      retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000)),
+    };
+  }
+
+  current.count += 1;
+  return { limited: false, retryAfterSeconds: 0 };
+}
+
 // ---------------------------------------------------------------------------
 // Chat server factory
 // ---------------------------------------------------------------------------
@@ -161,6 +197,20 @@ export function createChatServer(
 
       if (!socket.rooms.has(`event:${eventId}`)) {
         socket.emit("error", { code: "FORBIDDEN", message: "Join the event room first" });
+        return;
+      }
+
+      const quota = consumeChatQuota(user.id);
+      if (quota.limited) {
+        logger.warn(
+          { userId: user.id, eventId },
+          "Socket message rate limit exceeded"
+        );
+        socket.emit("error", {
+          code: "RATE_LIMITED",
+          message: `Too many messages. Try again in ${quota.retryAfterSeconds}s`,
+          retryAfterSeconds: quota.retryAfterSeconds,
+        });
         return;
       }
 

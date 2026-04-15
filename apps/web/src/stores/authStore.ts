@@ -6,7 +6,8 @@ interface User {
   id: string
   email: string
   name: string
-  avatarUrl?: string
+  username?: string | null
+  avatarUrl?: string | null
 }
 
 interface AuthState {

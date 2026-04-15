@@ -2,6 +2,10 @@ Friendgroup Implementation Roadmap
 Updated: 2026-04-03
 Status: Phase 4 chat and realtime implemented
 
+
+[ ] Implement dev email 
+
+
 === Phase 1: Foundation (In Progress) ===
 [x] Setup guide creation and documentation
 [x] Local infrastructure (Postgres, Redis, MinIO) deployed
@@ -84,26 +88,26 @@ Status: Phase 4 chat and realtime implemented
 [x] Frontend E2E mobile viewport smoke test for primary user journey
 
 === Phase 10: Polish and Edge Cases ===
-[ ] Event rating and legendary classification
-[ ] Conflict resolution for concurrent RSVP updates
-[ ] Rate limiting on auth, chat, and notification endpoints
-[ ] Sentry error tracking setup
-[ ] Observability: logs and metrics baseline
-[ ] Frontend loading/error/retry states for rate-limited, offline, and degraded API scenarios
+[x] Event rating and legendary classification
+[x] Conflict resolution for concurrent RSVP updates
+[x] Rate limiting on auth, chat, and notification endpoints
+[x] Sentry error tracking setup
+[x] Observability: logs and metrics baseline
+[x] Frontend loading/error/retry states for rate-limited, offline, and degraded API scenarios
 
 === Phase 11: Frontend UX + Accessibility Hardening ===
-[ ] Mobile-first responsive layouts for events, RSVP, chat, media, and settings screens
-[ ] Group tag/topic channel UI with open vs invite-only channel affordances
-[ ] Notification settings UI by type (chat/event created/event changed/invites) and channel (push/email)
-[ ] Accessibility pass: semantic landmarks, keyboard nav, focus states, and contrast checks
-[ ] PWA offline-first UX pass (cache-aware states + reconnect indicators)
+[x] Mobile-first responsive layouts for events, RSVP, chat, media, and settings screens
+[x] Group tag/topic channel UI with open vs invite-only channel affordances
+[x] Notification settings UI by type (chat/event created/event changed/invites) and channel (push/email)
+[x] Accessibility pass: semantic landmarks, keyboard nav, focus states, and contrast checks
+[x] PWA offline-first UX pass (cache-aware states + reconnect indicators)
 [ ] Cross-browser installability and push UX validation (iOS Safari, Android Chrome, desktop)
 
 === Everything Else (Non-MVP) ===
 [ ] Event invites with specific user list
-[ ] Group-level tag channels (subscription-based)
-[ ] Message reactions/emoji
+[x] Group-level tag channels (subscription-based)
+[x] Message reactions/emoji
 [ ] Event media ratings
 [ ] Recurring events
-[ ] Admin event deletion and user removal
+[x] Admin event deletion and user removal
 [ ] Audit logs for membership and event changes

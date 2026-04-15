@@ -11,7 +11,8 @@ import { useToast } from '../hooks/useToast'
 import TagBadge from '../components/TagBadge'
 import Avatar from '../components/Avatar'
 import Spinner from '../components/Spinner'
-import { apiFetch } from '../lib/api'
+import { apiFetch, getApiErrorMessage } from '../lib/api'
+import { useIsOnline } from '../hooks/useIsOnline'
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -39,18 +40,55 @@ function buildGoogleCalLink(event: EventRecord): string {
   return `https://calendar.google.com/calendar/render?${params}`
 }
 
+const QUICK_EMOJIS = ['👍', '❤️', '😂', '🎉', '😮', '👎']
+
+function ReactionPicker({ messageId, onReact }: { messageId: string; onReact: (emoji: string) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative inline-block mt-1">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+        aria-label="Add reaction"
+      >
+        +😊
+      </button>
+      {open && (
+        <div className="absolute left-0 top-5 z-10 flex gap-1 bg-gray-900 border border-gray-700 rounded-xl p-1 shadow-xl">
+          {QUICK_EMOJIS.map((emoji) => (
+            <button
+              key={emoji}
+              onClick={() => { onReact(emoji); setOpen(false) }}
+              className="text-sm hover:scale-125 transition-transform p-1"
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function EventPage() {
   const { eventId } = useParams<{ eventId: string }>()
   const currentUser = useAuthStore((s) => s.user)
   const toast = useToast()
 
-  const { data: eventResponse, isLoading, isError: eventError, refetch: refetchEvent } = useEvent(eventId!)
+  const {
+    data: eventResponse,
+    isLoading,
+    isError: eventError,
+    error: eventErrorDetails,
+    refetch: refetchEvent,
+  } = useEvent(eventId!)
   const { data: attendance } = useEventAttendance(eventId!)
   const { data: mediaData } = useEventMedia(eventId!)
   const { data: messagesData } = useEventMessages(eventId!)
   const rsvp = useRsvp(eventId!)
   const rating = useEventRating(eventId!)
 
+  const isOnline = useIsOnline()
   const { messages: chatMessages, typingUsers, connected, sendMessage, sendTyping } = useChat(eventId!)
   const [messageInput, setMessageInput] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -93,16 +131,18 @@ export default function EventPage() {
     )
   }
 
-  if (eventError) {
+  if (eventError && !event) {
     return (
       <div className="flex flex-col items-center py-16 gap-3 text-gray-400">
-        <p>Failed to load event.</p>
-        <button
-          onClick={() => refetchEvent()}
-          className="px-4 py-2 rounded-xl bg-gray-800 text-gray-200 text-sm hover:bg-gray-700 transition-colors"
-        >
-          Try again
-        </button>
+        <p>{!isOnline ? 'You are offline and there is no cached data.' : getApiErrorMessage(eventErrorDetails, 'Failed to load event.')}</p>
+        {isOnline && (
+          <button
+            onClick={() => refetchEvent()}
+            className="px-4 py-2 rounded-xl bg-gray-800 text-gray-200 text-sm hover:bg-gray-700 transition-colors"
+          >
+            Try again
+          </button>
+        )}
       </div>
     )
   }
@@ -156,12 +196,34 @@ export default function EventPage() {
     }
   }
 
+  const handleReaction = async (messageId: string, emoji: string, alreadyReacted: boolean) => {
+    try {
+      if (alreadyReacted) {
+        await apiFetch(`/events/${eventId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}`, {
+          method: 'DELETE',
+        })
+      } else {
+        await apiFetch(`/events/${eventId}/messages/${messageId}/reactions`, {
+          method: 'POST',
+          body: JSON.stringify({ emoji }),
+        })
+      }
+    } catch {
+      // silently ignore — optimistic UX is not critical here
+    }
+  }
+
   const counts = attendance?.counts ?? { yes: 0, no: 0, maybe: 0 }
 
   const icsUrl = `/api/events/${eventId}/calendar.ics`
 
   return (
-    <div className="px-4 py-6 sm:p-6 max-w-5xl mx-auto">
+    <div className="w-full min-w-0 px-4 py-6 sm:p-6 max-w-5xl mx-auto">
+      {eventError && !isOnline && (
+        <div className="mb-4 px-4 py-2 rounded-xl bg-yellow-900/40 border border-yellow-700 text-yellow-300 text-sm">
+          You are offline. Showing cached data.
+        </div>
+      )}
       {/* Event Header */}
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-white">{event.title}</h2>
@@ -225,7 +287,7 @@ export default function EventPage() {
         )}
       </section>
       {/* Calendar Links */}
-      <div className="flex gap-3 mb-6">
+      <div className="flex flex-wrap gap-3 mb-6">
         <a
           href={icsUrl}
           className="px-3 py-2 rounded-xl bg-gray-800 text-gray-300 text-sm hover:bg-gray-700 transition-colors"
@@ -297,6 +359,34 @@ export default function EventPage() {
                       )}
                     </div>
                     <p className="text-sm text-gray-200 break-words">{msg.text}</p>
+                    {/* Reactions */}
+                    {msg.reactions && msg.reactions.length > 0 && (() => {
+                      const grouped = msg.reactions.reduce<Record<string, { count: number; mine: boolean }>>((acc, r) => {
+                        if (!acc[r.emoji]) acc[r.emoji] = { count: 0, mine: false }
+                        acc[r.emoji].count++
+                        if (r.userId === currentUser?.id) acc[r.emoji].mine = true
+                        return acc
+                      }, {})
+                      return (
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {Object.entries(grouped).map(([emoji, { count, mine }]) => (
+                            <button
+                              key={emoji}
+                              onClick={() => handleReaction(msg.id, emoji, mine)}
+                              className={`text-xs px-2 py-0.5 rounded-full border transition-colors ${
+                                mine
+                                  ? 'bg-indigo-900/60 border-indigo-600 text-indigo-200'
+                                  : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-500'
+                              }`}
+                            >
+                              {emoji} {count}
+                            </button>
+                          ))}
+                        </div>
+                      )
+                    })()}
+                    {/* Add reaction picker */}
+                    <ReactionPicker messageId={msg.id} onReact={(emoji) => handleReaction(msg.id, emoji, false)} />
                   </div>
                   {currentUser && (
                     <button
