@@ -17,6 +17,7 @@ type UpdateMeResponse = {
     username?: string | null
     usernameChangedAt?: string | null
     avatarUrl?: string | null
+    theme?: string | null
   }
 }
 
@@ -37,6 +38,8 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  const [themeSaving, setThemeSaving] = useState(false)
+  const currentTheme = user?.theme ?? 'dark'
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -115,6 +118,29 @@ export default function SettingsPage() {
     setInstallPrompt(null)
   }
 
+  const handleThemeChange = async (newTheme: 'dark' | 'light') => {
+    if (newTheme === currentTheme || themeSaving) return
+    setThemeSaving(true)
+    try {
+      const data = await apiFetch<UpdateMeResponse>('/users/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ theme: newTheme }),
+      })
+      if (token && data.user) {
+        login(token, {
+          ...data.user,
+          username: data.user.username ?? undefined,
+          avatarUrl: data.user.avatarUrl ?? undefined,
+          theme: data.user.theme ?? 'dark',
+        })
+      }
+    } catch {
+      toast.error('Failed to save theme preference')
+    } finally {
+      setThemeSaving(false)
+    }
+  }
+
   const isStandalone =
     window.matchMedia('(display-mode: standalone)').matches ||
     Boolean((navigator as Navigator & { standalone?: boolean }).standalone)
@@ -171,7 +197,7 @@ export default function SettingsPage() {
         <div>
           <label className="block text-sm text-gray-400 mb-1">
             Username
-            <span className="text-gray-600 ml-2 font-normal">(can be changed once per year)</span>
+            <span className="text-gray-400 ml-2 font-normal">(can be changed once per year)</span>
           </label>
           <div className="relative">
             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">@</span>
@@ -184,7 +210,7 @@ export default function SettingsPage() {
             />
           </div>
           {user?.username && (
-            <p className="text-xs text-gray-600 mt-1">Current: @{user.username}</p>
+            <p className="text-xs text-gray-400 mt-1">Current: @{user.username}</p>
           )}
         </div>
 
@@ -196,6 +222,41 @@ export default function SettingsPage() {
           {saving ? 'Saving...' : 'Save Changes'}
         </button>
       </form>
+
+      <div className="space-y-4 mb-8">
+        <h3 className="text-lg font-semibold text-gray-200">Appearance</h3>
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <p className="text-sm font-medium text-white mb-3">Theme</p>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => handleThemeChange('dark')}
+              disabled={themeSaving}
+              aria-pressed={currentTheme === 'dark'}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
+                currentTheme === 'dark'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+              }`}
+            >
+              Dark
+            </button>
+            <button
+              type="button"
+              onClick={() => handleThemeChange('light')}
+              disabled={themeSaving}
+              aria-pressed={currentTheme === 'light'}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
+                currentTheme === 'light'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+              }`}
+            >
+              Light
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div className="space-y-4">
         <h3 className="text-lg font-semibold text-gray-200">Notifications</h3>

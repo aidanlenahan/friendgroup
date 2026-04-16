@@ -1,232 +1,253 @@
 ========================================================
 TASKS.TXT — Friendgroup Feature + Bug Backlog
-Last updated: 2026-04-14
+Last updated: 2026-04-16
 Format: [x] = done, [ ] = pending, [-] = in progress / partial
-Priority order: P1 = critical bugs, P2 = core UX, P3 = auth/security,
-                P4 = integrations, P5 = infrastructure/meta discussions
+Priority order: P1 = blocks any real user from using the app
+                P2 = core UX gaps visible to all users after launch
+                P3 = feature completeness / secondary UX
+                P4 = integrations
+                P5 = low priority / future enhancements
 ========================================================
 
-=== P1: Critical Bugs ===
+=== P1: Blocking Beta Launch (Auth / Registration) ===
+All pending. Currently the app has NO real authentication — it runs on dev-token
+JWTs only. No real user can register or log in without these tasks.
 
-[x] fix event page. when click on created event, it says not found.
-    DONE 2026-04-14 — The API was missing a GET /events/:id route entirely.
-    Only GET /events (list) existed. Added app.get("/events/:id") in
-    apps/api/src/server.ts that fetches the event by id, checks group
-    membership, and applies the same invite-only visibility filter as
-    the list route. The frontend hook useEvent() was already calling
-    the correct URL — this was purely a missing API route.
+[ ] user registration flow — build POST /auth/register + RegisterPage UI
+    DONE 2026-04-16 — Full registration flow implemented. See
+    tmp/chat/4-16-user-registration-flow.txt for full implementation notes.
+    Summary:
+    - DB: added passwordHash, emailVerified, emailVerificationToken to User
+      model (migration 20260416122825_add_auth_fields applied)
+    - API endpoints added to apps/api/src/server.ts:
+        POST /auth/register — firstName+lastName, email, password (8-32, rules),
+          optional betaCode. Auto-generates username (firstName+lastName, lowercase,
+          numeric suffix if taken). Creates unverified user, stores 6-digit OTP in
+          Redis (10 min TTL), sends verification email (logged to console in dev).
+          Returns { message, userId, emailSent }.
+        POST /auth/verify-email — { userId, code } → verifies OTP, sets
+          emailVerified=true, returns JWT token + user.
+        POST /auth/resend-verification — { userId } → 60-second cooldown enforced
+          via Redis TTL. Regenerates code and resends email.
+        POST /auth/login — email + password, checks emailVerified (returns 403
+          EMAIL_NOT_VERIFIED with userId if not), returns JWT on success.
+        POST /auth/request-login-code — sends OTP to email (anti-enumeration:
+          always returns 200). 60-second cooldown per user.
+        POST /auth/verify-login-code — verifies OTP, also verifies email if
+          not yet done, returns JWT token + user.
+    - Frontend pages:
+        RegisterPage.tsx — firstName (max 15), lastName (max 15), email (max 30),
+          confirm email, password (8-32, uppercase+lowercase+number required),
+          confirm password, optional beta code field. Auto-navigates to /verify-email
+          on success.
+        VerifyEmailPage.tsx — 6-digit numeric input, verify button, resend button
+          (60-second cooldown countdown timer). Reads userId from query string.
+        LoginPage.tsx — password form + "Other methods →" link that switches to
+          email-code flow (request code → enter code → sign in). Both paths
+          navigate to /groups on success.
+    - App.tsx routes: /register, /verify-email added.
+    - dev-token endpoint preserved for seeded dev users who have no password.
+    PENDING items still open in this feature area:
+    - Google SSO (noted as future work in spec)
+    - Forgot password (separate P1 task)
 
-=== P2: Core UX / User Profile / Social Features ===
+[x] account registration locked behind beta code (for beta stage)
+    DONE 2026-04-16 — POST /auth/register now checks REGISTRATION_BETA_REQUIRED
+    env var and consumes a registration BetaCode atomically inside the same
+    transaction that creates the user. If required and missing/invalid → 403.
 
-[x] make admin/regular user functionality
-    DONE 2026-04-14 — Membership roles (owner/admin/member) were already
-    stored in the DB (Membership.role). Added:
-    - PATCH /groups/:groupId/members/:userId/role API endpoint (owner-only)
-    - updateMemberRoleBodySchema (role: "admin" | "member")
-    - useUpdateMemberRole() mutation in useGroups.ts
-    - GroupPage members tab now shows colour-coded role badges
-      (indigo=owner, amber=admin, gray=member) and Promote/Demote buttons
-      visible only to the group owner.
-
-[x] make fine-tune permissions per user, only editable by admin
-    DONE 2026-04-14 — Role changes (and member removal, see below)
-    are enforced server-side via requireRole(callerMembership.role, ["owner"]).
-    Only the group owner can change admin/member roles. Admin/member
-    cannot self-promote. Owner role is immutable. Frontend buttons
-    are conditionally rendered only when isOwner is true.
-
-[x] fix profile URL to be username, username can be changed once every year max
-    DONE 2026-04-14 — Schema changes:
-    - Added username (String? @unique) and usernameChangedAt (DateTime?)
-      to User model in prisma/schema.prisma
-    - Migration: 20260414141644_add_username_beta_codes applied
-    - PATCH /users/me now accepts optional username field
-    - Before saving: checks if last change was < 1 year ago; returns
-      422 USERNAME_CHANGE_TOO_SOON with nextAllowedAt if so
-    - Checks for uniqueness conflict; returns 409 USERNAME_TAKEN if taken
-    - SettingsPage updated: @username input field with live lowercase +
-      alphanumeric/underscore sanitisation on keystroke
-    - Displays current username under the input for reference
-    - NOTE: Profile URL routing (/u/:username -> user's profile page)
-      is scaffolded at the data layer but the public profile page UI
-      has not been built yet. See tasks below.
-
-[x] user profile photo
-    DONE 2026-04-14 — SettingsPage now includes:
-    - Avatar preview (img if URL set, else initial letter circle)
-    - "Upload Photo" button triggers file input (image/* only)
-    - On select: calls POST /media/upload-url with context:'avatar',
-      PUTs file to signed S3 URL, sets avatarUrl state with publicUrl
-    - Toast: "Photo uploaded — save your profile to apply it" (user
-      still needs to click Save to persist to DB)
-    - Removed the manual "Avatar URL" text input — replaced with upload
-    NOTE: The old text input is gone. The system does NOT yet enforce
-    one-photo-per-user overwrite at storage layer (see outstanding task
-    below). The URL is simply updated each save.
-
-[x] chat
-    DONE in earlier phases (Phase 4). Socket.IO event chat rooms,
-    message persistence, pinned messages, typing indicators, and
-    cursor-paginated message list are all implemented.
-
-[x] user details
-    DONE 2026-04-14 (partially). Settings page now exposes Display Name,
-    Username (@handle), and Profile Photo. GET /users/me returns id,
-    email, name, username, usernameChangedAt, avatarUrl, createdAt.
-    A full public-facing user profile page (/u/:username) viewing
-    another user's details is NOT yet built — see pending task below.
-
-[ ] make profile photo file limited to ONE per user, if profile photo is
-    changed, previous photo is overwritten (not just a new file created)
-    PENDING — The current upload flow creates a new MediaAsset each time.
-    To implement: when context='avatar', server should look up the user's
-    previous avatar MediaAsset, delete the S3 object, then overwrite.
-    Requires a dedicated avatar field or a context='avatar' query on
-    MediaAsset table. Backend change needed in POST /media/upload-url
-    or a new PUT /users/me/avatar endpoint.
-
-[ ] build public user profile page at /u/:username
-    PENDING — Data layer exists (username stored, unique). Need:
-    - Frontend route /u/:username -> ProfilePage component
-    - GET /users/:username API endpoint (public-ish, requires auth)
-    - Show display name, username, avatar, groups in common
-    - Link username display in members list and chat to this page
-
-[ ] user details — upon registration, collect display name, username, email,
-    password, and any other useful fields
-    PENDING — There is currently no registration flow in the UI. The app
-    uses dev-token auth only. A proper registration page (name, username,
-    email, password) is needed before beta launch. This is blocked on
-    having a real auth system (see forgot password / verify email tasks).
-
-[ ] storage limit (per user/per group?)
-    PENDING — No quota enforcement beyond per-event media limit currently
-    exists. Need to decide: per-user total bytes OR per-group total bytes,
-    then track in MediaAsset aggregation and enforce at upload-url time.
-
-[ ] email notifications
-    PENDING — Email transactional template endpoint (POST /notifications/
-    test/email) and Resend integration exists. But automatic email
-    dispatch on event_created / chat_message / invite / rsvp_update
-    notification events is not wired up. Currently only push (web push)
-    notifications are sent via the fanout queue. Need to add an email
-    dispatch path inside the BullMQ fanout worker, gated on the user's
-    UserNotificationPreference (type/channel).
-
-=== P3: Auth / Security / Beta Access ===
-
-[x] 'group' creation locked behind code (for beta stage)
-    DONE 2026-04-14 — Added BetaCode model to schema:
-      BetaCode { id, code (unique), type ("registration"|"group_creation"),
-                 usedById, usedAt, createdAt }
-    Group creation route now checks GROUP_CREATION_BETA_REQUIRED env var.
-    If "true", POST /groups requires betaCode in body; validates it is
-    unused and of type "group_creation"; consumes it atomically.
-    Admin code generation: POST /admin/beta-codes (requires X-Admin-Secret
-    header matching BETA_ADMIN_SECRET env var). Returns array of codes.
-    Public validation endpoint: POST /beta/validate (rate-limited 10/min)
-    checks code validity without consuming it (for frontend pre-check UX).
-    Frontend does NOT yet show a beta code input on the Create Group modal.
-
-[ ] account registration locked behind code (for beta stage)
-    PARTIAL — BetaCode model supports type:"registration" already.
-    POST /beta/validate can check registration codes. But:
-    - No registration UI exists yet (app uses dev-token only)
-    - The actual registration endpoint (POST /auth/register) does not
-      exist yet — needs to be built alongside the registration UI
-    - When built, it should consume a registration BetaCode atomically
+[ ] group creation beta code input — add to Create Group modal UI
+    PARTIAL — Backend is fully done: POST /groups checks
+    GROUP_CREATION_BETA_REQUIRED env var, validates and consumes a
+    group_creation BetaCode atomically. But the frontend Create Group
+    modal has NO beta code input field yet. Small frontend gap.
 
 [ ] forgot password functionality
-    PENDING — Requires:
+    PENDING — Depends on having real password auth (registration above).
+    Requires:
     - POST /auth/forgot-password (generate time-limited token, send email)
-    - Token storage (new PasswordResetToken model in schema)
+    - PasswordResetToken model in schema
     - POST /auth/reset-password (validate token, update password hash)
     - Frontend: ForgotPasswordPage, ResetPasswordPage routes
-    - Blocked on: having password auth in the first place (currently
-      using dev-token JWT which skips password entirely)
 
 [ ] verify email functionality
-    PENDING — Requires:
-    - User.emailVerified Boolean field + User.emailVerificationToken
-    - Send verification email on registration (or re-send endpoint)
-    - GET /auth/verify-email?token=xxx route that sets emailVerified=true
-    - Block certain actions (e.g. push subscription) for unverified users
-    - Frontend: show "Please verify your email" banner for new users
+    DONE 2026-04-16 (as part of registration flow) — emailVerified and
+    emailVerificationToken fields added to User schema. 6-digit OTP sent
+    via email on registration; VerifyEmailPage handles entry and resend.
+    POST /auth/login returns 403 EMAIL_NOT_VERIFIED if not yet verified.
+    Email-code login path also verifies the user on first use.
+    STILL PENDING: "Please verify your email" banner in the app for users
+    who somehow have emailVerified=false after initial login.
 
-[ ] verify account one other way (whatsapp, telegram, etc.)
-    PENDING — Low priority until core email verify is done. Options:
-    - WhatsApp Business API (paid, requires Meta approval)
-    - Telegram bot (free, easier to integrate)
-    - SMS via Twilio / Vonage
-    Not started. Design decision needed before implementation.
+=== P2: Core UX — Visible to All Users ===
+
+[x] fix CSS — too dark, some text illegible
+    DONE 2026-04-16 — Audited all components. Root cause was :root CSS vars using
+    light-mode colors (#243838 text on #030712 bg). Fixed index.css to use dark
+    defaults. Fixed text-gray-600 usages in EventPage and SettingsPage that were
+    illegible (~2:1 contrast). App.css confirmed as dead code (unimported).
+
+[ ] build public user profile page at /u/:username
+    PENDING — Data layer is complete (username stored and unique).
+    Needs:
+    - Frontend route /u/:username → ProfilePage component
+    - GET /users/:username API endpoint (auth-gated)
+    - Show display name, username, avatar, mutual groups
+    - Link from members list and chat messages to this page
+
+[ ] event invites — add UI to invite specific users
+    PARTIAL — POST /events/:id/invites and GET /events/:id/invites API
+    endpoints exist. Frontend has no UI to use them. Needs:
+    - Invite modal on EventPage / CreateEventPage
+    - User search/add by email or username
+    - Display current invite list with pending/accepted status
+
+[ ] username change: show time remaining when change is blocked
+    PENDING — API already returns nextAllowedAt in the 422
+    USERNAME_CHANGE_TOO_SOON response. SettingsPage just needs to parse
+    this and display "You can change your username again in X months/days".
+    Small, high-impact UX win.
+
+[ ] profile photo — limit to one per user, overwrite previous on change
+    PENDING — Current flow creates a new MediaAsset on every upload.
+    Fix: when context='avatar', server looks up prior avatar MediaAsset,
+    deletes the S3 object, then saves the new one in its place.
+    Backend change in POST /media/upload-url or new PUT /users/me/avatar.
+
+[ ] email notifications — wire automatic dispatch on app events
+    PENDING — Resend integration and POST /notifications/test/email exist.
+    Automatic email on event_created / chat_message / invite / rsvp_update
+    is NOT wired. Only push (web push) goes through BullMQ fanout today.
+    Add email path inside the fanout worker gated on UserNotificationPreference.
+
+=== P3: Feature Completeness / Secondary UX ===
+
+[ ] dev vs prod instance — decide on deployment strategy
+    DISCUSSION — Not a code task. Points to consider:
+    - Current: single friendgroup_dev DB, local MinIO, local Redis
+    - infra/docker-compose.yml + systemd services exist for deployment
+    - Recommend: keep dev (friendgroup_dev), add prod (friendgroup_prod)
+      with separate .env.production, MinIO bucket, Redis instance
+    - Beta codes already gate access; decision needed before public push
+
+[ ] storage limit enforcement (per user and/or per group)
+    PENDING — No quota enforcement beyond per-event media limit.
+    Decide: per-user total bytes OR per-group total bytes (or both),
+    then track via MediaAsset aggregation and enforce at upload-url time.
+
+[ ] make debug/dev pages visible in the UI
+    PENDING — Debug and QA route pages exist but may not be reachable
+    from normal navigation. Enable in dev/staging at minimum.
+
+[ ] recurring events
+    PENDING — No recurrence model in schema. Needs RRULE support
+    (rrule npm package), recurrenceRule field on Event, and UI for
+    frequency/until/count in CreateEventPage. Not needed for initial beta.
+
+[ ] audit logs for membership and event changes
+    PENDING — No AuditLog model yet. Would log member join/remove, role
+    change, event create/edit/delete, with actor, target, timestamp, diff.
+    Useful for group owner transparency. Not started.
 
 === P4: Integrations ===
 
-[ ] brush up on ics functionality and syncing
-    PENDING — ICS export endpoint (GET /events/:id/calendar.ics) and
-    Google Calendar deep-link are implemented (Phase 8). The BullMQ
-    calendarSync queue exists. However:
-    - The ICS feed is generated on-demand, not pre-cached
-    - Webhook receiver (POST /calendar/sync/webhook) exists but has
-      no real provider integration (Google/Apple don't push to it)
-    - Group calendar feed (GET /groups/:groupId/calendar.ics) exists
-    - Needs review: test ICS import in calendars, verify VTIMEZONE
-      blocks are correct, test recurring event output when added
+[ ] review and harden ICS / calendar sync
+    PENDING — ICS export (GET /events/:id/calendar.ics), Google Calendar
+    deep-link, and group feed (GET /groups/:groupId/calendar.ics) are
+    implemented (Phase 8). BullMQ calendarSync queue exists. Still needs:
+    - Test ICS import in real clients (Google, Apple, Outlook)
+    - Verify VTIMEZONE blocks are correct
+    - Webhook receiver exists but has no real Google/Apple provider wired up
 
-=== P5: Infrastructure / Meta Discussions ===
+=== P5: Low Priority / Future ===
 
-[ ] conversation about if we should have dev instance and public facing
-    instance. after dev testing maybe push to public facing?
-    DISCUSSION — Not a code task. Points to consider:
-    - Current setup: single friendgroup_dev DB, local MinIO, local Redis
-    - infra/docker-compose.yml and systemd services exist for deployment
-    - Recommend: keep dev (friendgroup_dev) and add prod (friendgroup_prod)
-      with separate .env.production, separate MinIO bucket, separate Redis
-    - Beta codes system is already in place to gate access on prod
-    - Decision needed before any public-facing push
+[x] dark mode
+    DONE 2026-04-16 — Per-user dark/light theme setting added. User.theme field
+    in DB (default 'dark'). Toggle in Settings > Appearance. Saves via PATCH
+    /users/me, reflected in auth store, applied via data-theme on <html>.
+    Tailwind v4 CSS vars remapped for light mode. Persists across logins.
+    WebKit overscroll background set explicitly in both modes.
 
-=== P5: "Everything Else" cross-reference (from TODO.txt) ===
+[ ] event media ratings (per-asset)
+    PENDING — Distinct from event-level rating (1-10, legendary — done).
+    Per-MediaAsset ratings need a new schema field and UI. Very low priority.
 
-[ ] Event invites with specific user list
-    PARTIAL — POST /events/:id/invites and GET /events/:id/invites API
-    endpoints exist. But the frontend has no UI to send invites to
-    specific users from the EventPage or CreateEventPage. Needs an
-    invite modal with user search/add by email.
+[ ] verify account via alternative channel (WhatsApp, Telegram, SMS)
+    PENDING — Low priority until core email verify is done. Options:
+    WhatsApp Business API (paid), Telegram bot (free), SMS via Twilio.
+    Design decision needed before any implementation.
 
-[x] Message reactions/emoji
-    DONE 2026-04-14 — Added frontend ReactionPicker component (6 quick
-    emojis: 👍❤️😂🎉😮👎) in EventPage. Updated GET /events/:id/messages
-    to include reactions (userId + emoji) in response. Added grouped
-    reaction display per message with count + mine highlight. Click
-    existing reaction to toggle off; +😊 button opens picker. Backend
-    endpoints already existed (POST/DELETE /events/:id/messages/:messageId/
-    reactions). EventMessage type updated to include reactions field.
+[ ] Phase 7 manual device matrix
+    PENDING — iOS Safari, Android Chrome, desktop installability and push
+    UX validation. Needed before production launch but not blocking dev.
 
-[x] Admin event deletion and user removal
-    DONE 2026-04-14 — GroupPage events tab now shows AdminEventCard wrapper
-    with a delete button (✕) visible to admins/owners. Click to enter
-    confirm state, then confirm to delete via useDeleteEvent mutation.
-    Member removal: owners see Remove button on each non-owner member
-    in the members tab. Click enters confirm state (Cancel/Confirm).
-    Removal calls DELETE /groups/:groupId/members/:userId.
+=== Completed Tasks (Archive) ===
 
-[ ] Event media ratings
-    PENDING — This is distinct from event-level rating (1-10, legendary
-    flag, already done). Event media ratings would be per-MediaAsset.
-    Not started. No schema field for it yet. Low priority.
+[x] fix event page — clicking a created event showed "not found"
+    DONE 2026-04-14 — API was missing GET /events/:id (only list existed).
+    Added route with group membership + invite-only visibility filter.
+    useEvent() hook was already calling the correct URL.
 
-[ ] Recurring events
-    PENDING — No recurrence model exists. Would need RRULE support
-    (e.g. rrule npm package), a recurrenceRule field on Event, and
-    UI for frequency/until/count in CreateEventPage. Medium complexity.
+[x] make admin/regular user functionality
+    DONE 2026-04-14 — PATCH /groups/:groupId/members/:userId/role (owner-only).
+    useUpdateMemberRole() mutation. GroupPage shows colour-coded role badges
+    (indigo=owner, amber=admin, gray=member) and Promote/Demote buttons.
 
-[ ] Audit logs for membership and event changes
-    PENDING — No AuditLog model in schema yet. Would log: member join,
-    member remove, role change, event create/edit/delete, with actor,
-    target, timestamp, and diff. Useful for group owner transparency.
-    Not started.
+[x] fine-tune permissions per user, only editable by admin/owner
+    DONE 2026-04-14 — Server-side requireRole check. Owner-only role changes;
+    admin/member cannot self-promote; owner role immutable. Frontend buttons
+    conditionally shown to owner only.
 
-[ ] fix CSS, too dark and some text illegible
-[ ] implement dark mode
-[ ] make debug dev pages visible for now
-[ ] if username change fails due to insufficient time passed since last change, show how much time is left for name change.
+[x] fix profile URL to be username; username changeable once per year max
+    DONE 2026-04-14 — Added username + usernameChangedAt to User schema.
+    PATCH /users/me validates 1-year cooldown (422 USERNAME_CHANGE_TOO_SOON
+    with nextAllowedAt) and uniqueness (409 USERNAME_TAKEN).
+    SettingsPage: @username input with live lowercase/alphanumeric sanitisation.
+    NOTE: /u/:username public profile page UI not yet built (see P2 above).
+
+[x] user profile photo upload
+    DONE 2026-04-14 — SettingsPage: avatar preview, Upload Photo button,
+    POST /media/upload-url with context:'avatar', S3 PUT, toast confirmation.
+    Old manual URL input removed. Overwrite-previous not enforced yet (see P2).
+
+[x] chat (Socket.IO event rooms)
+    DONE Phase 4 — Message persistence, pinned messages, typing indicators,
+    cursor-paginated message list, broadcast to all room subscribers.
+
+[x] user details in settings (display name, username, avatar)
+    DONE 2026-04-14 — GET /users/me returns id, email, name, username,
+    usernameChangedAt, avatarUrl, createdAt. SettingsPage exposes all fields.
+
+[x] group creation locked behind beta code (backend)
+    DONE 2026-04-14 — BetaCode model (id, code, type, usedById, usedAt).
+    POST /groups checks GROUP_CREATION_BETA_REQUIRED, validates/consumes
+    group_creation code atomically. POST /admin/beta-codes generates codes
+    (X-Admin-Secret auth). POST /beta/validate for frontend pre-check.
+    NOTE: Frontend Create Group modal has no code input yet (see P1 above).
+
+[x] message reactions/emoji
+    DONE 2026-04-14 — ReactionPicker (👍❤️😂🎉😮👎) in EventPage.
+    GET /events/:id/messages includes reactions. Grouped display with count
+    + mine highlight. Toggle off by clicking own reaction.
+
+[x] admin event deletion and user removal
+    DONE 2026-04-14 — AdminEventCard with delete (confirm-state) for
+    admins/owners. Member removal: Remove button (confirm) for owners on
+    non-owner members. Calls DELETE /groups/:groupId/members/:userId.
+
+[x] Phase 1–11 core infrastructure (see TODO.txt for full phase record)
+    Foundation, events CRUD, auth middleware, chat, notifications, media
+    upload, PWA/service worker, calendar integration, testing suite,
+    polish/edge cases, frontend UX/accessibility hardening — all done.
+
+
+
+[ ] invite members via 12 digit code in the form of XXXX-XXXX-XXXX
+[ ] owner can remove users
+[ ] owner must approve users, gets email when new member requests to join
+[ ] later implement admin rights to regular users to approve and remove users and have general permissions over the group
+[ ] get chat to work
+[ ] have general chat on the group
+[ ] fine tune notifications
+[ ] get uploads to work - maybe 100 pictures per person and no videos?
+[ ] get profile picture uploads to work - one per person. if new upload profile picture, it overwrites the old one

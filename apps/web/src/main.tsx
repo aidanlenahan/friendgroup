@@ -4,7 +4,11 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
+import { initTheme } from './hooks/useTheme'
 import { registerBestServiceWorker } from './lib/serviceWorker'
+
+// Apply theme immediately to prevent flash of wrong theme on load
+initTheme()
 
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN
 

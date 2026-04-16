@@ -19,6 +19,7 @@ type GroupMembersResponse = {
     email: string
     avatarUrl?: string | null
     role: 'owner' | 'admin' | 'member'
+    status: 'active' | 'pending'
   }>
 }
 type GroupTagsResponse = {
@@ -74,7 +75,7 @@ export function useGroupChannels(groupId: string) {
 export function useCreateGroup() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { name: string; description?: string }) =>
+    mutationFn: (data: { name: string; description?: string; betaCode?: string }) =>
       apiFetch('/groups', { method: 'POST', body: JSON.stringify(data) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups'] }),
   })
@@ -123,6 +124,54 @@ export function useRemoveMember(groupId: string) {
   return useMutation({
     mutationFn: (userId: string) =>
       apiFetch(`/groups/${groupId}/members/${userId}`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'members'] }),
+  })
+}
+
+export function useGroupInviteCode(groupId: string) {
+  return useQuery({
+    queryKey: ['groups', groupId, 'invite-code'],
+    queryFn: () => apiFetch<{ groupId: string; inviteCode: string }>(`/groups/${groupId}/invite-code`),
+    enabled: false, // fetched on demand via refetch()
+    retry: false,
+  })
+}
+
+export function useRegenerateInviteCode(groupId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ groupId: string; inviteCode: string }>(`/groups/${groupId}/invite-code/regenerate`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'invite-code'] }),
+  })
+}
+
+export function useJoinGroup() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (inviteCode: string) =>
+      apiFetch<{ message: string; groupId: string; groupName: string }>('/groups/join', {
+        method: 'POST',
+        body: JSON.stringify({ inviteCode }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups'] }),
+  })
+}
+
+export function useApproveMember(groupId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (userId: string) =>
+      apiFetch(`/groups/${groupId}/members/${userId}/approve`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'members'] }),
+  })
+}
+
+export function useDenyMember(groupId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (userId: string) =>
+      apiFetch(`/groups/${groupId}/members/${userId}/deny`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'members'] }),
   })
 }

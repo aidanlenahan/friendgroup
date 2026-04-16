@@ -1,5 +1,4 @@
 import webpush from "web-push";
-import { Resend } from "resend";
 
 export type StoredPushSubscription = {
   endpoint: string;
@@ -45,14 +44,6 @@ export async function sendPushNotification(
     },
     JSON.stringify(payload)
   );
-}
-
-export function getResendClient(): Resend | null {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) {
-    return null;
-  }
-  return new Resend(apiKey);
 }
 
 export function buildNotificationEmail(params: {

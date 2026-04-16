@@ -17,7 +17,11 @@ model User {
   name                       String
   username                   String?                     @unique
   usernameChangedAt          DateTime?
+  passwordHash               String?
+  emailVerified              Boolean                     @default(false)
+  emailVerificationToken     String?                     @unique
   avatarUrl                  String?
+  theme                      String                      @default("dark")
   createdAt                  DateTime                    @default(now())
   updatedAt                  DateTime                    @updatedAt
 
@@ -36,6 +40,7 @@ model User {
   reactions                  MessageReaction[]
   notificationPreferences    UserNotificationPreference[]
   betaCodesUsed              BetaCode[]
+  passwordResetTokens        PasswordResetToken[]
 
   @@index([email])
   @@index([username])
@@ -47,6 +52,7 @@ model Group {
   ownerId     String
   description String?
   avatarUrl   String?
+  inviteCode  String?       @unique
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
 
@@ -64,6 +70,7 @@ model Membership {
   userId    String
   groupId   String
   role      String   @default("member")  // owner, admin, member
+  status    String   @default("active")  // active, pending
   createdAt DateTime @default(now())
 
   // Relations
@@ -72,6 +79,7 @@ model Membership {
 
   @@unique([userId, groupId])
   @@index([groupId])
+  @@index([groupId, status])
 }
 
 // ============================================================================
@@ -341,4 +349,23 @@ model BetaCode {
 
   @@index([code])
   @@index([type])
+}
+
+// ============================================================================
+// Password Reset
+// ============================================================================
+
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  token     String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  // Relations
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([token])
 }

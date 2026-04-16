@@ -2,6 +2,16 @@ import "dotenv/config";
 import { PrismaClient } from "../generated/prisma/index.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
+import { promisify } from "util";
+import { scrypt, randomBytes } from "crypto";
+
+const scryptAsync = promisify(scrypt);
+
+async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString("hex");
+  const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
+  return `${salt}:${derivedKey.toString("hex")}`;
+}
 
 const connectionString =
   process.env.DATABASE_URL ||
@@ -12,6 +22,25 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 async function main() {
+  // Dev test user — bypasses password rules, emailVerified=true
+  const devPasswordHash = await hashPassword("password");
+  await prisma.user.upsert({
+    where: { email: "aidanlenahan@gmail.com" },
+    update: {
+      name: "Aidan Lenahan",
+      username: "aidanlenahan",
+      passwordHash: devPasswordHash,
+      emailVerified: true,
+    },
+    create: {
+      email: "aidanlenahan@gmail.com",
+      name: "Aidan Lenahan",
+      username: "aidanlenahan",
+      passwordHash: devPasswordHash,
+      emailVerified: true,
+    },
+  });
+
   const owner = await prisma.user.upsert({
     where: { email: "owner@friendgroup.dev" },
     update: { name: "Owner User" },

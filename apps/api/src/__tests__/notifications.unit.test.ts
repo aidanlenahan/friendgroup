@@ -74,8 +74,8 @@ describe("notification domain helpers", () => {
     );
   });
 
-  it("builds email templates and returns null resend client without config", async () => {
-    const { buildNotificationEmail, getResendClient } = await import(
+  it("builds email templates correctly", async () => {
+    const { buildNotificationEmail } = await import(
       "../lib/notifications.js"
     );
 
@@ -88,6 +88,5 @@ describe("notification domain helpers", () => {
     expect(template.html).toContain("Open Friendgroup");
     expect(template.text).toContain("Game night moved to 8pm.");
     expect(template.text).toContain("https://friendgroup.app/events/evt_123");
-    expect(getResendClient()).toBeNull();
   });
 });

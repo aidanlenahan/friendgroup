@@ -9,6 +9,10 @@ import {
   useUnsubscribeGroupChannel,
   useUpdateMemberRole,
   useRemoveMember,
+  useGroupInviteCode,
+  useRegenerateInviteCode,
+  useApproveMember,
+  useDenyMember,
 } from '../hooks/useGroups'
 import { useEvents, useDeleteEvent } from '../hooks/useEvents'
 import EventCard from '../components/EventCard'
@@ -85,6 +89,8 @@ export default function GroupPage() {
   const { groupId } = useParams<{ groupId: string }>()
   const [activeTab, setActiveTab] = useState<Tab>('events')
   const [confirmRemoveMember, setConfirmRemoveMember] = useState<string | null>(null)
+  const [showInviteCode, setShowInviteCode] = useState(false)
+  const [copiedCode, setCopiedCode] = useState(false)
   const toast = useToast()
   const isOnline = useIsOnline()
   const currentUser = useAuthStore((s) => s.user)
@@ -100,15 +106,22 @@ export default function GroupPage() {
   const { data: tagsData } = useGroupTags(groupId!)
   const { data: channelsData } = useGroupChannels(groupId!)
   const { data: eventsData, isLoading: eventsLoading } = useEvents(groupId!)
+  const { data: inviteCodeData, refetch: refetchInviteCode } = useGroupInviteCode(groupId!)
   const subscribeChannel = useSubscribeGroupChannel(groupId!)
   const unsubscribeChannel = useUnsubscribeGroupChannel(groupId!)
   const updateMemberRole = useUpdateMemberRole(groupId!)
   const removeMember = useRemoveMember(groupId!)
+  const regenerateCode = useRegenerateInviteCode(groupId!)
+  const approveMember = useApproveMember(groupId!)
+  const denyMember = useDenyMember(groupId!)
 
   // Determine current user's role in this group
   const myMembership = membersData?.members?.find((m) => m.userId === currentUser?.id)
   const isOwner = myMembership?.role === 'owner'
   const isAdmin = isOwner || myMembership?.role === 'admin'
+
+  const pendingMembers = membersData?.members?.filter((m) => m.status === 'pending') ?? []
+  const activeMembers = membersData?.members?.filter((m) => m.status === 'active') ?? []
 
   const handleChannelToggle = async (channelId: string, isSubscribed: boolean) => {
     try {
@@ -141,6 +154,50 @@ export default function GroupPage() {
       toast.success('Member removed')
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Failed to remove member'))
+    }
+  }
+
+  const handleShowInviteCode = () => {
+    setShowInviteCode(true)
+    refetchInviteCode()
+  }
+
+  const handleCopyCode = async () => {
+    const code = inviteCodeData?.inviteCode
+    if (!code) return
+    try {
+      await navigator.clipboard.writeText(code)
+      setCopiedCode(true)
+      setTimeout(() => setCopiedCode(false), 2000)
+    } catch {
+      toast.error('Failed to copy code')
+    }
+  }
+
+  const handleRegenerateCode = async () => {
+    try {
+      await regenerateCode.mutateAsync()
+      toast.success('Invite code regenerated')
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to regenerate code'))
+    }
+  }
+
+  const handleApprove = async (userId: string) => {
+    try {
+      await approveMember.mutateAsync(userId)
+      toast.success('Member approved')
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to approve member'))
+    }
+  }
+
+  const handleDeny = async (userId: string) => {
+    try {
+      await denyMember.mutateAsync(userId)
+      toast.success('Request denied')
+    } catch (error) {
+      toast.error(getApiErrorMessage(error, 'Failed to deny request'))
     }
   }
 
@@ -260,67 +317,170 @@ export default function GroupPage() {
 
       {/* Members Tab */}
       {activeTab === 'members' && (
-        <div className="space-y-2">
-          {membersData?.members?.map((m) => (
-            <div
-              key={m.userId}
-              className="flex items-center gap-3 bg-gray-900 rounded-xl p-3 border border-gray-800"
-            >
-              <Avatar name={m.name} avatarUrl={m.avatarUrl} size="sm" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-white truncate">{m.name}</p>
-                {m.username && (
-                  <p className="text-xs text-indigo-400">@{m.username}</p>
-                )}
-                <p className="text-xs text-gray-500">{m.email}</p>
+        <div className="space-y-4">
+          {/* Invite Users button + invite code panel — owner/admin only */}
+          {isAdmin && (
+            <div className="flex justify-end">
+              <button
+                onClick={handleShowInviteCode}
+                className="text-xs px-3 py-1.5 rounded-lg bg-indigo-900/50 border border-indigo-700 text-indigo-300 hover:bg-indigo-800/50 transition-colors font-medium"
+              >
+                Invite Users
+              </button>
+            </div>
+          )}
+
+          {/* Invite code panel */}
+          {showInviteCode && isAdmin && (
+            <div className="bg-gray-900 rounded-xl border border-indigo-800 p-4 space-y-3">
+              <p className="text-sm text-gray-400">Share this code with people you want to invite. They can use it from the Groups page.</p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 font-mono text-lg tracking-widest text-indigo-300 bg-gray-800 rounded-lg px-4 py-2 select-all">
+                  {inviteCodeData?.inviteCode ?? '————————————'}
+                </code>
+                <button
+                  onClick={handleCopyCode}
+                  disabled={!inviteCodeData?.inviteCode}
+                  className="px-3 py-2 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors text-sm disabled:opacity-50"
+                >
+                  {copiedCode ? 'Copied!' : 'Copy'}
+                </button>
               </div>
-              <span className={`text-xs px-2 py-1 rounded-full ${
-                m.role === 'owner'
-                  ? 'bg-indigo-900 text-indigo-300'
-                  : m.role === 'admin'
-                  ? 'bg-amber-900 text-amber-300'
-                  : 'bg-gray-800 text-gray-400'
-              }`}>
-                {m.role}
-              </span>
-              {isOwner && m.userId !== currentUser?.id && m.role !== 'owner' && (
-                <div className="flex items-center gap-1">
+              <div className="flex items-center justify-between">
+                {isOwner && (
                   <button
-                    onClick={() => handleRoleToggle(m.userId, m.role)}
-                    disabled={updateMemberRole.isPending}
-                    className="text-xs px-2 py-1 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors disabled:opacity-50"
-                    title={m.role === 'admin' ? 'Demote to member' : 'Promote to admin'}
+                    onClick={handleRegenerateCode}
+                    disabled={regenerateCode.isPending}
+                    className="text-xs text-gray-500 hover:text-red-400 transition-colors disabled:opacity-50"
                   >
-                    {m.role === 'admin' ? 'Demote' : 'Promote'}
+                    {regenerateCode.isPending ? 'Regenerating...' : 'Regenerate code (invalidates current)'}
                   </button>
-                  {confirmRemoveMember === m.userId ? (
-                    <>
+                )}
+                <button
+                  onClick={() => setShowInviteCode(false)}
+                  className="text-xs text-gray-500 hover:text-gray-300 transition-colors ml-auto"
+                >
+                  Hide
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Pending join requests — owner/admin only */}
+          {isAdmin && pendingMembers.length > 0 && (
+            <div>
+              <h4 className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2">
+                Pending Requests ({pendingMembers.length})
+              </h4>
+              <div className="space-y-2">
+                {pendingMembers.map((m) => (
+                  <div
+                    key={m.userId}
+                    className="flex items-center gap-3 bg-amber-900/20 rounded-xl p-3 border border-amber-800/50"
+                  >
+                    <Avatar name={m.name} avatarUrl={m.avatarUrl} size="sm" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{m.name}</p>
+                      {m.username && (
+                        <p className="text-xs text-indigo-400">@{m.username}</p>
+                      )}
+                      <p className="text-xs text-gray-500">{m.email}</p>
+                    </div>
+                    <span className="text-xs px-2 py-1 rounded-full bg-amber-900 text-amber-300">
+                      pending
+                    </span>
+                    <div className="flex items-center gap-1">
                       <button
-                        onClick={() => handleRemoveMember(m.userId)}
-                        disabled={removeMember.isPending}
+                        onClick={() => handleApprove(m.userId)}
+                        disabled={approveMember.isPending}
+                        className="text-xs px-2 py-1 rounded-lg bg-emerald-900 text-emerald-300 hover:bg-emerald-800 transition-colors disabled:opacity-50"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        onClick={() => handleDeny(m.userId)}
+                        disabled={denyMember.isPending}
                         className="text-xs px-2 py-1 rounded-lg bg-red-900 text-red-300 hover:bg-red-800 transition-colors disabled:opacity-50"
                       >
-                        Confirm
+                        Deny
                       </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Active members */}
+          {activeMembers.length > 0 && (
+            <div className="space-y-2">
+              {pendingMembers.length > 0 && isAdmin && (
+                <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  Active Members ({activeMembers.length})
+                </h4>
+              )}
+              {activeMembers.map((m) => (
+                <div
+                  key={m.userId}
+                  className="flex items-center gap-3 bg-gray-900 rounded-xl p-3 border border-gray-800"
+                >
+                  <Avatar name={m.name} avatarUrl={m.avatarUrl} size="sm" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{m.name}</p>
+                    {m.username && (
+                      <p className="text-xs text-indigo-400">@{m.username}</p>
+                    )}
+                    <p className="text-xs text-gray-500">{m.email}</p>
+                  </div>
+                  <span className={`text-xs px-2 py-1 rounded-full ${
+                    m.role === 'owner'
+                      ? 'bg-indigo-900 text-indigo-300'
+                      : m.role === 'admin'
+                      ? 'bg-amber-900 text-amber-300'
+                      : 'bg-gray-800 text-gray-400'
+                  }`}>
+                    {m.role}
+                  </span>
+                  {isOwner && m.userId !== currentUser?.id && m.role !== 'owner' && (
+                    <div className="flex items-center gap-1">
                       <button
-                        onClick={() => setConfirmRemoveMember(null)}
-                        className="text-xs px-2 py-1 rounded-lg bg-gray-800 text-gray-400 hover:bg-gray-700 transition-colors"
+                        onClick={() => handleRoleToggle(m.userId, m.role)}
+                        disabled={updateMemberRole.isPending}
+                        className="text-xs px-2 py-1 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors disabled:opacity-50"
+                        title={m.role === 'admin' ? 'Demote to member' : 'Promote to admin'}
                       >
-                        Cancel
+                        {m.role === 'admin' ? 'Demote' : 'Promote'}
                       </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmRemoveMember(m.userId)}
-                      className="text-xs px-2 py-1 rounded-lg bg-gray-800 text-red-400 hover:bg-red-900/30 transition-colors"
-                    >
-                      Remove
-                    </button>
+                      {confirmRemoveMember === m.userId ? (
+                        <>
+                          <button
+                            onClick={() => handleRemoveMember(m.userId)}
+                            disabled={removeMember.isPending}
+                            className="text-xs px-2 py-1 rounded-lg bg-red-900 text-red-300 hover:bg-red-800 transition-colors disabled:opacity-50"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            onClick={() => setConfirmRemoveMember(null)}
+                            className="text-xs px-2 py-1 rounded-lg bg-gray-800 text-gray-400 hover:bg-gray-700 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => setConfirmRemoveMember(m.userId)}
+                          className="text-xs px-2 py-1 rounded-lg bg-gray-800 text-red-400 hover:bg-red-900/30 transition-colors"
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
-              )}
+              ))}
             </div>
-          ))}
+          )}
         </div>
       )}
 

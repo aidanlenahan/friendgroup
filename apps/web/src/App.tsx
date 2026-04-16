@@ -2,8 +2,13 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useAuthStore } from './stores/authStore'
 import { ApiError } from './lib/api'
+import { useThemeApplier } from './hooks/useTheme'
 import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
+import RegisterPage from './pages/RegisterPage'
+import VerifyEmailPage from './pages/VerifyEmailPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import GroupsPage from './pages/GroupsPage'
 import GroupPage from './pages/GroupPage'
 import EventPage from './pages/EventPage'
@@ -47,10 +52,15 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  useThemeApplier()
   return (
     <QueryClientProvider client={queryClient}>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         {/* Legacy debug/diagnostic routes */}
         <Route path="/phase-7/debug" element={<Phase7DebugPage />} />
         <Route path="/phase-9/diagnostics" element={<Phase9DiagnosticsPage />} />

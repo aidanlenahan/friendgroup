@@ -2,10 +2,10 @@
 @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=IBM+Plex+Mono:wght@400;500&family=Work+Sans:wght@400;500;700&display=swap');
 
 :root {
-  --text: #243838;
-  --text-h: #132625;
-  --bg: #f7f4ea;
-  --border: #d4d8ce;
+  --text: #e2e8f0;
+  --text-h: #f1f5f9;
+  --bg: #030712;
+  --border: #1f2937;
   --sans: 'Work Sans', 'Segoe UI', sans-serif;
   --heading: 'Fraunces', Georgia, serif;
   --mono: 'IBM Plex Mono', ui-monospace, monospace;
@@ -28,10 +28,7 @@ body {
   margin: 0;
   width: 100%;
   overflow-x: hidden;
-  background:
-    radial-gradient(circle at top left, rgba(42, 157, 143, 0.2), transparent 35%),
-    radial-gradient(circle at 90% 20%, rgba(233, 196, 106, 0.28), transparent 35%),
-    #f7f4ea;
+  background: #030712;
 }
 
 #root {
@@ -79,5 +76,53 @@ pre {
 :focus-visible {
   outline: 2px solid #6366f1;
   outline-offset: 2px;
+}
+
+/* ============================================================
+   Light Mode — applied when <html data-theme="light">
+   Remaps Tailwind v4 gray scale so dark surfaces become light
+   and dark text becomes readable on light backgrounds.
+   Body background is set explicitly so WebKit overscroll area
+   also reflects the theme color (same technique as dark mode).
+   ============================================================ */
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  /* CSS vars used in :root rules above */
+  --text: #243838;
+  --text-h: #132625;
+  --bg: #f8f7f1;
+  --border: #d4d8ce;
+
+  /* Tailwind v4 gray scale — inverted for light mode.
+     950 (was near-black) → near-white cream
+     Down to 100 (was near-white) → near-black */
+  --color-gray-950: #f8f7f1;
+  --color-gray-900: #f0ede3;
+  --color-gray-800: #e3dfd7;
+  --color-gray-700: #cdc8c0;
+  --color-gray-600: #8e8980;
+  --color-gray-500: #6d6a64;
+  --color-gray-400: #4b4844;
+  --color-gray-300: #363330;
+  --color-gray-200: #252220;
+  --color-gray-100: #1a1816;
+
+  /* Make text-white render as near-black in light mode so
+     headings and card text remain readable on light surfaces.
+     Colored-button text (indigo, red, etc.) still looks fine
+     as dark text on a saturated background is legible. */
+  --color-white: #1a1816;
+}
+
+[data-theme="light"] body {
+  /* Sets both the page and the WebKit overscroll area to the light bg */
+  background: #f8f7f1;
+}
+
+[data-theme="light"] .flex.h-dvh {
+  /* Layout wrapper — match body bg */
+  background: #f8f7f1;
 }
 

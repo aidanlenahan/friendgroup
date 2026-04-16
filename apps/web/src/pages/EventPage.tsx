@@ -48,7 +48,7 @@ function ReactionPicker({ messageId, onReact }: { messageId: string; onReact: (e
     <div className="relative inline-block mt-1">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="text-xs text-gray-600 hover:text-gray-400 transition-colors"
+        className="text-xs text-gray-400 hover:text-gray-200 transition-colors"
         aria-label="Add reaction"
       >
         +😊
@@ -348,7 +348,7 @@ export default function EventPage() {
                       <span className="text-xs font-medium text-gray-300">
                         {msg.user?.name ?? 'Unknown'}
                       </span>
-                      <span className="text-xs text-gray-600">
+                      <span className="text-xs text-gray-400">
                         {new Date(msg.createdAt).toLocaleTimeString([], {
                           hour: '2-digit',
                           minute: '2-digit',
@@ -391,7 +391,7 @@ export default function EventPage() {
                   {currentUser && (
                     <button
                       onClick={() => handlePin(msg.id)}
-                      className="text-xs text-gray-600 hover:text-gray-300"
+                      className="text-xs text-gray-400 hover:text-gray-200"
                       title="Pin message"
                     >
                       pin

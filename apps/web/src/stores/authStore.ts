@@ -8,6 +8,7 @@ interface User {
   name: string
   username?: string | null
   avatarUrl?: string | null
+  theme?: string | null
 }
 
 interface AuthState {

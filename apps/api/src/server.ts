@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "dotenv/config"; // reloaded: 2026-04-16
 import * as Sentry from "@sentry/node";
 import Fastify from "fastify";
 import cors from "@fastify/cors";
@@ -10,7 +10,23 @@ import { PrismaClient } from "./generated/prisma/index.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { Redis } from "ioredis";
-import { randomUUID } from "crypto";
+import { randomUUID, scrypt, randomBytes, timingSafeEqual } from "crypto";
+import { promisify } from "util";
+
+const scryptAsync = promisify(scrypt);
+
+async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString("hex");
+  const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
+  return `${salt}:${derivedKey.toString("hex")}`;
+}
+
+async function verifyPassword(password: string, hash: string): Promise<boolean> {
+  const [salt, storedKey] = hash.split(":");
+  const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
+  const storedBuf = Buffer.from(storedKey, "hex");
+  return derivedKey.length === storedBuf.length && timingSafeEqual(derivedKey, storedBuf);
+}
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Queue, Worker } from "bullmq";
@@ -32,10 +48,10 @@ import { createChatServer } from "./lib/chat.js";
 import {
   buildNotificationEmail,
   configureWebPushFromEnv,
-  getResendClient,
   isWebPushConfigured,
   sendPushNotification,
 } from "./lib/notifications.js";
+import { isMailConfigured, sendTransactionalEmail } from "./lib/mailer.js";
 import { buildGoogleCalendarLink, buildIcsCalendar } from "./lib/calendar.js";
 
 // Initialize clients
@@ -60,7 +76,6 @@ const mediaMaxEventBytes = Number(process.env.MEDIA_MAX_EVENT_BYTES || 200 * 102
 const uploadUrlTtlSeconds = Number(process.env.MEDIA_UPLOAD_URL_TTL_SECONDS || 15 * 60);
 
 const pushConfigured = configureWebPushFromEnv();
-const resendClient = getResendClient();
 
 const queueConnection = new Redis(process.env.REDIS_URL || "redis://localhost:6379", {
   maxRetriesPerRequest: null,
@@ -205,24 +220,18 @@ const notificationWorker = new Worker<NotificationFanoutJobData>(
         }
       }
 
-      if (emailEnabled && resendClient) {
+      if (emailEnabled && isMailConfigured()) {
         const email = buildNotificationEmail({
           title: data.title,
           body: data.body,
           ctaUrl: process.env.WEB_BASE_URL,
         });
-
-        try {
-          await resendClient.emails.send({
-            from: process.env.EMAIL_FROM || "no-reply@friendgroup.local",
-            to: user.email,
-            subject: data.title,
-            html: email.html,
-            text: email.text,
-          });
-        } catch {
-          // Continue fanout even if provider send fails for one recipient.
-        }
+        await sendTransactionalEmail({
+          to: user.email,
+          subject: data.title,
+          html: email.html,
+          text: email.text,
+        });
       }
     }
   },
@@ -373,6 +382,52 @@ const devTokenSchema = z.object({
   email: schemas.email,
 });
 
+const registerBodySchema = z.object({
+  firstName: z.string().min(1).max(15),
+  lastName: z.string().min(1).max(15),
+  email: schemas.email.max(30),
+  password: z.string().min(8).max(32).regex(
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/,
+    "Password must have at least one uppercase letter, one lowercase letter, and one number"
+  ),
+  betaCode: z.string().min(1).max(100).optional(),
+});
+
+const loginBodySchema = z.object({
+  emailOrUsername: z.string().min(1).max(255),
+  password: z.string().min(1).max(128),
+});
+
+const verifyEmailBodySchema = z.object({
+  userId: schemas.id,
+  code: z.string().length(6).regex(/^\d{6}$/),
+});
+
+const resendVerificationBodySchema = z.object({
+  userId: schemas.id,
+});
+
+const requestLoginCodeBodySchema = z.object({
+  email: schemas.email,
+});
+
+const verifyLoginCodeBodySchema = z.object({
+  email: schemas.email,
+  code: z.string().length(6).regex(/^\d{6}$/),
+});
+
+const forgotPasswordBodySchema = z.object({
+  email: schemas.email,
+});
+
+const resetPasswordBodySchema = z.object({
+  token: z.string().min(64).max(64),
+  password: z.string().min(8).max(32).regex(
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/,
+    "Password must have at least one uppercase letter, one lowercase letter, and one number"
+  ),
+});
+
 const messageParamsSchema = z.object({
   id: schemas.id,
   messageId: schemas.id,
@@ -484,6 +539,7 @@ const updateUserBodySchema = z.object({
   name: z.string().min(1).max(255).optional(),
   username: z.string().min(2).max(40).regex(/^[a-zA-Z0-9_]+$/).optional(),
   avatarUrl: z.string().url().nullable().optional(),
+  theme: z.enum(["dark", "light"]).optional(),
 });
 
 const useBetaCodeBodySchema = z.object({
@@ -499,6 +555,15 @@ const createBetaCodeBodySchema = z.object({
 
 const updateMemberRoleBodySchema = z.object({
   role: z.enum(["admin", "member"]),
+});
+
+const joinGroupBodySchema = z.object({
+  inviteCode: z.string().length(12),
+});
+
+const memberApprovalParamsSchema = z.object({
+  groupId: schemas.id,
+  userId: schemas.id,
 });
 
 const createTagBodySchema = z.object({
@@ -739,6 +804,14 @@ app.get("/", async (request, reply) => {
     status: "running",
     endpoints: [
       "/auth/dev-token",
+      "/auth/register",
+      "/auth/verify-email",
+      "/auth/resend-verification",
+      "/auth/login",
+      "/auth/request-login-code",
+      "/auth/verify-login-code",
+      "/auth/forgot-password",
+      "/auth/reset-password",
       "/health",
       "/health/db",
       "/health/redis",
@@ -774,7 +847,7 @@ app.post("/auth/dev-token", { config: { rateLimit: { max: effectiveDevTokenRateL
 
   const user = await prisma.user.findUnique({
     where: { email: body.email },
-    select: { id: true, email: true, name: true },
+    select: { id: true, email: true, name: true, username: true, avatarUrl: true, theme: true },
   });
 
   if (!user) {
@@ -789,6 +862,355 @@ app.post("/auth/dev-token", { config: { rateLimit: { max: effectiveDevTokenRateL
 });
 
 // ============================================================================
+// Auth Routes — Registration and Login
+// ============================================================================
+
+const registrationBetaRequired = process.env.REGISTRATION_BETA_REQUIRED === "true";
+
+function generateOtpCode(): string {
+  // Cryptographically random 6-digit code
+  const buf = randomBytes(3);
+  const num = ((buf[0] << 16) | (buf[1] << 8) | buf[2]) % 1_000_000;
+  return num.toString().padStart(6, "0");
+}
+
+async function sendEmailCode(to: string, code: string, subject: string, body: string) {
+  await sendTransactionalEmail({
+    to,
+    subject,
+    html: `
+      <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+        <h2 style="margin:0 0 12px 0;">Friendgroup</h2>
+        <p style="margin:0 0 20px 0;">${body}</p>
+        <p style="font-size:2.2em;letter-spacing:0.35em;font-weight:700;margin:0 0 20px 0;">${code}</p>
+        <p style="color:#64748b;font-size:12px;margin:0;">This code expires in 10 minutes. If you did not request this, you can safely ignore this email.</p>
+      </div>
+    `,
+    text: `${body}\n\nYour code: ${code}\n\nThis code expires in 10 minutes.`,
+  });
+  if (process.env.NODE_ENV !== "production") {
+    app.log.info({ to, code }, "[DEV] Email code");
+  }
+}
+
+app.post("/auth/register", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const body = await validateRequest(registerBodySchema, request.body);
+
+  // Check email uniqueness
+  const existingEmail = await prisma.user.findUnique({
+    where: { email: body.email },
+    select: { id: true },
+  });
+  if (existingEmail) {
+    return reply.status(409).send({ error: "Email already in use", code: "EMAIL_TAKEN" });
+  }
+
+  // Beta code check
+  if (registrationBetaRequired) {
+    if (!body.betaCode) {
+      return reply.status(403).send({
+        error: "A registration beta code is required",
+        code: "BETA_CODE_REQUIRED",
+      });
+    }
+    const code = await prisma.betaCode.findUnique({ where: { code: body.betaCode } });
+    if (!code || code.type !== "registration" || code.usedAt !== null) {
+      return reply.status(403).send({
+        error: "Invalid or already-used beta code",
+        code: "BETA_CODE_INVALID",
+      });
+    }
+  }
+
+  const fullName = `${body.firstName} ${body.lastName}`;
+  const baseUsername = (body.firstName + body.lastName).toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  // Ensure username uniqueness — append suffix if needed
+  let username = baseUsername;
+  let suffix = 1;
+  while (true) {
+    const taken = await prisma.user.findUnique({ where: { username }, select: { id: true } });
+    if (!taken) break;
+    username = `${baseUsername}${suffix}`;
+    suffix++;
+  }
+
+  const passwordHash = await hashPassword(body.password);
+
+  const user = await prisma.$transaction(async (tx) => {
+    const newUser = await tx.user.create({
+      data: {
+        name: fullName,
+        email: body.email,
+        username,
+        passwordHash,
+        emailVerified: false,
+      },
+      select: { id: true, email: true, name: true, username: true, avatarUrl: true, theme: true },
+    });
+
+    if (registrationBetaRequired && body.betaCode) {
+      await tx.betaCode.update({
+        where: { code: body.betaCode },
+        data: { usedById: newUser.id, usedAt: new Date() },
+      });
+    }
+
+    return newUser;
+  });
+
+  // Store 6-digit OTP in Redis (10 min TTL)
+  const otpCode = generateOtpCode();
+  await redis.setex(`verify:email:${user.id}`, 600, otpCode);
+
+  await sendEmailCode(
+    user.email,
+    otpCode,
+    "Verify your Friendgroup account",
+    "Enter this code to verify your email address:"
+  );
+
+  return reply.status(201).send({
+    message: "Account created. Check your email for a verification code.",
+    userId: user.id,
+    emailSent: true,
+  });
+});
+
+app.post("/auth/verify-email", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const body = await validateRequest(verifyEmailBodySchema, request.body);
+
+  const stored = await redis.get(`verify:email:${body.userId}`);
+  if (!stored || stored !== body.code) {
+    return reply.status(400).send({ error: "Invalid or expired verification code", code: "INVALID_CODE" });
+  }
+
+  const user = await prisma.user.update({
+    where: { id: body.userId },
+    data: { emailVerified: true, emailVerificationToken: null },
+    select: { id: true, email: true, name: true, username: true, avatarUrl: true, theme: true },
+  });
+
+  await redis.del(`verify:email:${body.userId}`);
+  await redis.del(`verify:cooldown:${body.userId}`);
+
+  const token = await reply.jwtSign({ sub: user.id, email: user.email });
+  return reply.send({ token, user });
+});
+
+app.post("/auth/resend-verification", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const body = await validateRequest(resendVerificationBodySchema, request.body);
+
+  const cooldown = await redis.get(`verify:cooldown:${body.userId}`);
+  if (cooldown) {
+    const ttl = await redis.ttl(`verify:cooldown:${body.userId}`);
+    return reply.status(429).send({
+      error: "Please wait before resending",
+      code: "RESEND_COOLDOWN",
+      secondsRemaining: ttl,
+    });
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: body.userId },
+    select: { id: true, email: true, emailVerified: true },
+  });
+  if (!user || user.emailVerified) {
+    return reply.status(400).send({ error: "User not found or already verified", code: "INVALID_REQUEST" });
+  }
+
+  const otpCode = generateOtpCode();
+  await redis.setex(`verify:email:${body.userId}`, 600, otpCode);
+  await redis.setex(`verify:cooldown:${body.userId}`, 60, "1");
+
+  await sendEmailCode(
+    user.email,
+    otpCode,
+    "Verify your Friendgroup account",
+    "Enter this code to verify your email address:"
+  );
+
+  return reply.send({ message: "Verification code resent" });
+});
+
+app.post("/auth/login", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const body = await validateRequest(loginBodySchema, request.body);
+
+  // Accept email or @username
+  const isEmail = body.emailOrUsername.includes("@");
+  const user = isEmail
+    ? await prisma.user.findUnique({
+        where: { email: body.emailOrUsername },
+        select: {
+          id: true, email: true, name: true, username: true,
+          avatarUrl: true, theme: true, passwordHash: true, emailVerified: true,
+        },
+      })
+    : await prisma.user.findUnique({
+        where: { username: body.emailOrUsername },
+        select: {
+          id: true, email: true, name: true, username: true,
+          avatarUrl: true, theme: true, passwordHash: true, emailVerified: true,
+        },
+      });
+
+  const invalidCreds = { error: "Invalid email or password", code: "INVALID_CREDENTIALS" };
+
+  if (!user || !user.passwordHash) {
+    return reply.status(401).send(invalidCreds);
+  }
+
+  const valid = await verifyPassword(body.password, user.passwordHash);
+  if (!valid) {
+    return reply.status(401).send(invalidCreds);
+  }
+
+  if (!user.emailVerified) {
+    return reply.status(403).send({
+      error: "Email not verified. Check your inbox for a verification code.",
+      code: "EMAIL_NOT_VERIFIED",
+      userId: user.id,
+    });
+  }
+
+  const { passwordHash: _omit, emailVerified: _ev, ...safeUser } = user;
+  const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email });
+  return reply.send({ token, user: safeUser });
+});
+
+app.post("/auth/request-login-code", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const body = await validateRequest(requestLoginCodeBodySchema, request.body);
+
+  // Always return 200 to avoid user enumeration (don't reveal if email exists)
+  const user = await prisma.user.findUnique({
+    where: { email: body.email },
+    select: { id: true, email: true, emailVerified: true },
+  });
+
+  if (user) {
+    const cooldown = await redis.get(`login:cooldown:${user.id}`);
+    if (!cooldown) {
+      const otpCode = generateOtpCode();
+      await redis.setex(`login:code:${user.id}`, 600, otpCode);
+      await redis.setex(`login:cooldown:${user.id}`, 60, "1");
+      await sendEmailCode(
+        user.email,
+        otpCode,
+        "Your Friendgroup sign-in code",
+        "Use this code to sign in to Friendgroup:"
+      );
+    }
+  }
+
+  return reply.send({ message: "If that email exists, a sign-in code has been sent." });
+});
+
+app.post("/auth/verify-login-code", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const body = await validateRequest(verifyLoginCodeBodySchema, request.body);
+
+  const user = await prisma.user.findUnique({
+    where: { email: body.email },
+    select: { id: true, email: true, name: true, username: true, avatarUrl: true, theme: true, emailVerified: true },
+  });
+
+  if (!user) {
+    return reply.status(401).send({ error: "Invalid code", code: "INVALID_CODE" });
+  }
+
+  const stored = await redis.get(`login:code:${user.id}`);
+  if (!stored || stored !== body.code) {
+    return reply.status(401).send({ error: "Invalid or expired code", code: "INVALID_CODE" });
+  }
+
+  await redis.del(`login:code:${user.id}`);
+  await redis.del(`login:cooldown:${user.id}`);
+
+  // If user hadn't verified email yet, email-code login verifies them
+  if (!user.emailVerified) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: true },
+    });
+    await redis.del(`verify:email:${user.id}`);
+  }
+
+  const { emailVerified: _ev, ...safeUser } = user;
+  const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email });
+  return reply.send({ token, user: safeUser });
+});
+
+app.post("/auth/forgot-password", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (request, reply) => {
+  const body = await validateRequest(forgotPasswordBodySchema, request.body);
+
+  const user = await prisma.user.findUnique({
+    where: { email: body.email },
+    select: { id: true, email: true },
+  });
+
+  if (user) {
+    // Invalidate any existing unused tokens for this user first
+    await prisma.passwordResetToken.updateMany({
+      where: { userId: user.id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
+    const rawToken = randomBytes(32).toString("hex");
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+    await prisma.passwordResetToken.create({
+      data: { userId: user.id, token: rawToken, expiresAt },
+    });
+
+    const resetUrl = `${process.env.WEB_BASE_URL}/reset-password?token=${rawToken}`;
+
+    await sendTransactionalEmail({
+      to: user.email,
+      subject: "Reset your Friendgroup password",
+      html: `
+        <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+          <h2 style="margin:0 0 12px 0;">Friendgroup</h2>
+          <p style="margin:0 0 20px 0;">We received a request to reset your password. Click the button below to choose a new one. This link expires in 1 hour.</p>
+          <p style="margin:0 0 20px 0;">
+            <a href="${resetUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:600;">Reset Password</a>
+          </p>
+          <p style="color:#64748b;font-size:12px;margin:0;">If you did not request a password reset, you can safely ignore this email. The link will expire automatically.</p>
+        </div>
+      `,
+      text: `Reset your Friendgroup password\n\nClick this link to reset your password (expires in 1 hour):\n${resetUrl}\n\nIf you did not request this, ignore this email.`,
+    });
+
+    if (process.env.NODE_ENV !== "production") {
+      app.log.info({ to: user.email, resetUrl }, "[DEV] Password reset link");
+    }
+  }
+
+  // Anti-enumeration: always return 200 regardless of whether email exists
+  return reply.send({ message: "If that email is registered, a reset link has been sent." });
+});
+
+app.post("/auth/reset-password", { config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
+  const body = await validateRequest(resetPasswordBodySchema, request.body);
+
+  const record = await prisma.passwordResetToken.findUnique({
+    where: { token: body.token },
+    select: { id: true, userId: true, expiresAt: true, usedAt: true },
+  });
+
+  if (!record || record.usedAt !== null || record.expiresAt < new Date()) {
+    return reply.status(400).send({ error: "Invalid or expired reset link", code: "INVALID_TOKEN" });
+  }
+
+  const passwordHash = await hashPassword(body.password);
+
+  await prisma.$transaction([
+    prisma.user.update({ where: { id: record.userId }, data: { passwordHash } }),
+    prisma.passwordResetToken.update({ where: { id: record.id }, data: { usedAt: new Date() } }),
+  ]);
+
+  return reply.send({ message: "Password updated. You can now sign in." });
+});
+
+// ============================================================================
 // Notification Routes (Phase 5)
 // ============================================================================
 
@@ -796,7 +1218,7 @@ app.get("/notifications/config", async (request, reply) => {
   return reply.send({
     vapidPublicKey: process.env.VAPID_PUBLIC_KEY || null,
     pushConfigured,
-    emailConfigured: Boolean(process.env.RESEND_API_KEY),
+    emailConfigured: isMailConfigured(),
   });
 });
 
@@ -887,9 +1309,9 @@ app.post("/notifications/test/email", { config: { rateLimit: { max: 3, timeWindo
   const currentUser = await requireAuth(request, reply, prisma);
   const body = await validateRequest(notificationEmailTestBodySchema, request.body);
 
-  if (!resendClient) {
+  if (!isMailConfigured()) {
     return reply.status(503).send({
-      error: "Email provider not configured. Set RESEND_API_KEY first.",
+      error: "Email not configured. Set SMTP_USER and SMTP_PASS in the environment.",
       code: "EMAIL_NOT_CONFIGURED",
     });
   }
@@ -903,15 +1325,14 @@ app.post("/notifications/test/email", { config: { rateLimit: { max: 3, timeWindo
     ctaUrl: process.env.WEB_BASE_URL,
   });
 
-  const result = await resendClient.emails.send({
-    from: process.env.EMAIL_FROM || "no-reply@friendgroup.local",
+  await sendTransactionalEmail({
     to: currentUser.email,
     subject,
     html: template.html,
     text: template.text,
   });
 
-  return reply.send({ sent: true, result });
+  return reply.send({ sent: true });
 });
 
 app.get("/notifications/preferences/tags", async (request, reply) => {
@@ -1883,10 +2304,12 @@ app.post("/groups", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } }
       description: body.description,
       avatarUrl: body.avatarUrl,
       ownerId: currentUser.id,
+      inviteCode: randomBytes(6).toString("hex"), // 12 hex chars
       memberships: {
         create: {
           userId: currentUser.id,
           role: "owner",
+          status: "active",
         },
       },
     },
@@ -2049,10 +2472,15 @@ app.get("/groups/:groupId/members", async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(groupIdParamsSchema, request.params);
 
-  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  const callerMembership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  const isOwnerOrAdmin = ["owner", "admin"].includes(callerMembership.role);
 
   const members = await prisma.membership.findMany({
-    where: { groupId: params.groupId },
+    where: {
+      groupId: params.groupId,
+      // Non-owners only see active members; owners/admins see all (including pending)
+      ...(isOwnerOrAdmin ? {} : { status: "active" }),
+    },
     include: {
       user: { select: { id: true, email: true, name: true, username: true, avatarUrl: true } },
     },
@@ -2067,9 +2495,195 @@ app.get("/groups/:groupId/members", async (request, reply) => {
       username: m.user.username,
       avatarUrl: m.user.avatarUrl,
       role: m.role,
+      status: m.status,
       joinedAt: m.createdAt,
     })),
   });
+});
+
+// GET /groups/:groupId/invite-code — owner/admin retrieves the invite code
+app.get("/groups/:groupId/invite-code", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(groupIdParamsSchema, request.params);
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(membership.role, ["owner", "admin"]);
+
+  let group = await prisma.group.findUnique({
+    where: { id: params.groupId },
+    select: { id: true, inviteCode: true },
+  });
+
+  if (!group) {
+    return reply.status(404).send({ error: "Group not found", code: "NOT_FOUND" });
+  }
+
+  // Auto-generate a code if somehow the group has none (e.g. legacy data)
+  if (!group.inviteCode) {
+    group = await prisma.group.update({
+      where: { id: params.groupId },
+      data: { inviteCode: randomBytes(6).toString("hex") },
+      select: { id: true, inviteCode: true },
+    });
+  }
+
+  return reply.send({ groupId: params.groupId, inviteCode: group.inviteCode });
+});
+
+// POST /groups/:groupId/invite-code/regenerate — owner regenerates the invite code
+app.post("/groups/:groupId/invite-code/regenerate", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(groupIdParamsSchema, request.params);
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(membership.role, ["owner"]);
+
+  const group = await prisma.group.update({
+    where: { id: params.groupId },
+    data: { inviteCode: randomBytes(6).toString("hex") },
+    select: { id: true, inviteCode: true },
+  });
+
+  return reply.send({ groupId: params.groupId, inviteCode: group.inviteCode });
+});
+
+// POST /groups/join — any authenticated user joins a group via invite code (creates pending membership)
+app.post("/groups/join", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const body = await validateRequest(joinGroupBodySchema, request.body);
+
+  const group = await prisma.group.findUnique({
+    where: { inviteCode: body.inviteCode },
+    select: { id: true, name: true, ownerId: true },
+  });
+
+  if (!group) {
+    return reply.status(404).send({ error: "Invalid invite code", code: "INVALID_INVITE_CODE" });
+  }
+
+  const existing = await prisma.membership.findUnique({
+    where: { userId_groupId: { userId: currentUser.id, groupId: group.id } },
+    select: { id: true, status: true },
+  });
+
+  if (existing) {
+    if (existing.status === "active") {
+      return reply.status(409).send({ error: "You are already a member of this group", code: "ALREADY_MEMBER" });
+    }
+    // Already has pending request
+    return reply.status(409).send({ error: "You already have a pending join request for this group", code: "ALREADY_PENDING" });
+  }
+
+  await prisma.membership.create({
+    data: {
+      userId: currentUser.id,
+      groupId: group.id,
+      role: "member",
+      status: "pending",
+    },
+  });
+
+  // Email the group owner to notify them of the join request
+  const owner = await prisma.user.findUnique({
+    where: { id: group.ownerId },
+    select: { email: true, name: true },
+  });
+
+  if (owner) {
+    const groupUrl = `${process.env.WEB_BASE_URL}/groups/${group.id}?tab=members`;
+    await sendTransactionalEmail({
+      to: owner.email,
+      subject: `New join request for ${group.name}`,
+      html: `
+        <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+          <h2 style="margin:0 0 12px 0;">Friendgroup</h2>
+          <p style="margin:0 0 16px 0;"><strong>${currentUser.name}</strong> (${currentUser.email}) has requested to join your group <strong>${group.name}</strong>.</p>
+          <p style="margin:0 0 20px 0;">You can approve or deny their request from the Members tab of your group.</p>
+          <p style="margin:0 0 20px 0;">
+            <a href="${groupUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:600;">Review Request</a>
+          </p>
+          <p style="color:#64748b;font-size:12px;margin:0;">You are receiving this because you are the owner of the group.</p>
+        </div>
+      `,
+      text: `${currentUser.name} (${currentUser.email}) has requested to join your group "${group.name}".\n\nReview the request: ${groupUrl}`,
+    });
+
+    if (process.env.NODE_ENV !== "production") {
+      app.log.info({ to: owner.email, requester: currentUser.name, group: group.name }, "[DEV] Group join request email");
+    }
+  }
+
+  return reply.status(201).send({
+    message: "Join request sent. The group owner will review your request.",
+    groupId: group.id,
+    groupName: group.name,
+  });
+});
+
+// POST /groups/:groupId/members/:userId/approve — owner/admin approves a pending membership
+app.post("/groups/:groupId/members/:userId/approve", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(memberApprovalParamsSchema, request.params);
+
+  const callerMembership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(callerMembership.role, ["owner", "admin"]);
+
+  const target = await prisma.membership.findUnique({
+    where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
+    include: { user: { select: { id: true, name: true, email: true } } },
+  });
+
+  if (!target) {
+    return reply.status(404).send({ error: "Join request not found", code: "NOT_FOUND" });
+  }
+
+  if (target.status !== "pending") {
+    return reply.status(409).send({ error: "Membership is not in pending state", code: "NOT_PENDING" });
+  }
+
+  const updated = await prisma.membership.update({
+    where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
+    data: { status: "active" },
+    include: { user: { select: { id: true, name: true, email: true, avatarUrl: true } } },
+  });
+
+  return reply.send({
+    membership: {
+      userId: updated.user.id,
+      name: updated.user.name,
+      email: updated.user.email,
+      avatarUrl: updated.user.avatarUrl,
+      role: updated.role,
+      status: updated.status,
+    },
+  });
+});
+
+// POST /groups/:groupId/members/:userId/deny — owner/admin denies and removes a pending membership
+app.post("/groups/:groupId/members/:userId/deny", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(memberApprovalParamsSchema, request.params);
+
+  const callerMembership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(callerMembership.role, ["owner", "admin"]);
+
+  const target = await prisma.membership.findUnique({
+    where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
+  });
+
+  if (!target) {
+    return reply.status(404).send({ error: "Join request not found", code: "NOT_FOUND" });
+  }
+
+  if (target.status !== "pending") {
+    return reply.status(409).send({ error: "Membership is not in pending state", code: "NOT_PENDING" });
+  }
+
+  await prisma.membership.delete({
+    where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
+  });
+
+  return reply.status(204).send();
 });
 
 // ============================================================================
@@ -2081,7 +2695,7 @@ app.get("/users/me", async (request, reply) => {
 
   const user = await prisma.user.findUnique({
     where: { id: currentUser.id },
-    select: { id: true, email: true, name: true, username: true, usernameChangedAt: true, avatarUrl: true, createdAt: true },
+    select: { id: true, email: true, name: true, username: true, usernameChangedAt: true, avatarUrl: true, theme: true, createdAt: true },
   });
 
   return reply.send({ user });
@@ -2094,6 +2708,7 @@ app.patch("/users/me", { config: { rateLimit: { max: 10, timeWindow: "1 minute" 
   const dataToUpdate: Record<string, unknown> = {};
   if (body.name !== undefined) dataToUpdate.name = body.name;
   if (body.avatarUrl !== undefined) dataToUpdate.avatarUrl = body.avatarUrl;
+  if (body.theme !== undefined) dataToUpdate.theme = body.theme;
 
   if (body.username !== undefined) {
     const existing = await prisma.user.findUnique({
@@ -2124,7 +2739,7 @@ app.patch("/users/me", { config: { rateLimit: { max: 10, timeWindow: "1 minute" 
   const user = await prisma.user.update({
     where: { id: currentUser.id },
     data: dataToUpdate,
-    select: { id: true, email: true, name: true, username: true, usernameChangedAt: true, avatarUrl: true, createdAt: true },
+    select: { id: true, email: true, name: true, username: true, usernameChangedAt: true, avatarUrl: true, theme: true, createdAt: true },
   });
 
   return reply.send({ user });

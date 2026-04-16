@@ -33,7 +33,7 @@
 - Redis for ephemeral presence/session helpers and queue transport
 
 ## Authentication and Authorization
-- Auth: Clerk or Auth.js (email magic link + OAuth providers)
+- Auth: custom email/password registration + OTP email codes (no external auth service)
 - Authorization: role-based access (owner/admin/member) at group and channel level
 
 ## Calendar Integration
@@ -42,8 +42,10 @@
 - Webhook/job strategy for keeping updated ICS feeds in sync
 
 ## Email
-- Transactional provider: Postmark or Resend
-- Templates: React Email
+- Transactional transport: Nodemailer via direct SMTP
+- Default provider: Gmail SMTP with an App Password (port 465 / SMTPS)
+- Any SMTP server supported via `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS` env vars
+- Inline HTML templates — no external template dependency
 
 ## DevOps and Hosting
 - Frontend hosting: Vercel or Netlify
