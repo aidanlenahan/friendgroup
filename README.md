@@ -9,13 +9,15 @@ Most friend groups split coordination across multiple apps: one for scheduling, 
 **Core features:**
 
 - **Groups** — Create and manage multiple independent groups. Roles: owner, admin, member.
+- **Group invites** — Each group has a shareable 12-character invite code. Join requests create a pending membership; owner is notified by email and can approve or deny from the Members tab.
 - **Events** — Create events with title, description, date/time, location, tags, and RSVP tracking. Rate events and mark standout ones as legendary.
 - **Event chat** — Each event has its own chat room. Supports pinned messages, typing indicators, message reactions, and cursor-paginated history.
 - **Tag channels** — Group-level topic channels. Users subscribe to tags they care about; notifications are scoped to matching tags.
-- **Notifications** — Web push (VAPID) and email (Resend). Per-user delivery preferences by type and tag.
+- **Notifications** — Web push (VAPID) and email (SMTP). Per-user delivery preferences by type and tag.
 - **Media** — Photo/video uploads per event via signed S3 URLs. Per-file and per-event size limits enforced.
 - **Calendar export** — ICS export and Google Calendar deep-link per event.
-- **User profiles** — Display name, avatar (S3-uploaded), and unique username (changeable once per year).
+- **User profiles** — Display name, avatar (S3-uploaded), unique username (changeable once per year), and dark/light theme preference.
+- **Auth** — Email/password registration with OTP verification, passwordless sign-in via email code, and forgot-password reset flow.
 - **Beta access control** — Group creation and registration gateable behind single-use beta codes.
 - **PWA** — Installable, service-worker backed, works on mobile.
 
@@ -30,7 +32,7 @@ Most friend groups split coordination across multiple apps: one for scheduling, 
 | Database | PostgreSQL + Prisma ORM |
 | Cache / queues | Redis, BullMQ |
 | File storage | S3-compatible (local: MinIO) |
-| Email | Resend + React Email |
+| Email | Nodemailer (SMTP — Gmail App Password or any SMTP server) |
 | Push | Web Push (VAPID) |
 | Testing | Vitest, Supertest, Playwright |
 | PWA | Workbox / vite-plugin-pwa |
@@ -64,7 +66,7 @@ cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
 ```
 
-Edit `apps/api/.env` and set `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and optionally `RESEND_API_KEY`. All other defaults work as-is for local development.
+Edit `apps/api/.env` and set `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` for push notifications. For transactional email, set `SMTP_USER` and `SMTP_PASS` (Gmail App Password works — leave blank to disable email in dev). All other defaults work as-is for local development.
 
 **3. Install dependencies and migrate**
 
@@ -105,7 +107,9 @@ See `apps/api/.env.example` and `apps/web/.env.example` for the full list. Key v
 | `AUTH_SECRET` | JWT signing secret |
 | `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` | Web push keys (generate with `web-push generate-vapid-keys`) |
 | `S3_ENDPOINT` / `S3_BUCKET` | Object storage config |
-| `RESEND_API_KEY` | Transactional email (optional in dev) |
+| `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | SMTP server config (defaults to Gmail — `smtp.gmail.com:465`) |
+| `SMTP_USER` / `SMTP_PASS` | SMTP credentials (Gmail: use an App Password). Optional in dev |
+| `EMAIL_FROM` | Sender address, e.g. `Friendgroup <noreply@example.com>` |
 | `GROUP_CREATION_BETA_REQUIRED` | Set to `true` to require beta codes for group creation |
 | `BETA_ADMIN_SECRET` | Secret for the `POST /admin/beta-codes` endpoint |
 | `VITE_API_BASE_URL` | API base URL used by the frontend |
