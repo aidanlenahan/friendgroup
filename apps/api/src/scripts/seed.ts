@@ -25,17 +25,17 @@ async function main() {
   // Dev test user — bypasses password rules, emailVerified=true
   const devPasswordHash = await hashPassword("password");
   await prisma.user.upsert({
-    where: { email: "aidanlenahan@gmail.com" },
+    where: { email: "admin@example.com" },
     update: {
-      name: "Aidan Lenahan",
-      username: "aidanlenahan",
+      name: "Seed Admin",
+      username: "seedadmin",
       passwordHash: devPasswordHash,
       emailVerified: true,
     },
     create: {
-      email: "aidanlenahan@gmail.com",
-      name: "Aidan Lenahan",
-      username: "aidanlenahan",
+      email: "admin@example.com",
+      name: "Seed Admin",
+      username: "seedadmin",
       passwordHash: devPasswordHash,
       emailVerified: true,
     },

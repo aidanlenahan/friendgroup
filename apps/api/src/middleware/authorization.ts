@@ -21,6 +21,10 @@ export async function requireGroupMembership(
     throw new AppError(403, "Group membership required", "FORBIDDEN");
   }
 
+  if (membership.status !== "active") {
+    throw new AppError(403, "Your join request for this group has not been approved by the admins yet. Please try again later.", "MEMBERSHIP_PENDING");
+  }
+
   return membership;
 }
 

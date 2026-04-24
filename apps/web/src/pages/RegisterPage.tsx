@@ -78,11 +78,12 @@ export default function RegisterPage() {
           {/* Name row */}
           <div className="flex gap-3">
             <div className="flex-1">
+              <label className="block text-xs font-medium text-gray-400 mb-1">First Name</label>
               <input
                 type="text"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value.slice(0, 15))}
-                placeholder="First name"
+                placeholder="Jane"
                 maxLength={15}
                 required
                 className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -92,11 +93,12 @@ export default function RegisterPage() {
               )}
             </div>
             <div className="flex-1">
+              <label className="block text-xs font-medium text-gray-400 mb-1">Last Name</label>
               <input
                 type="text"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value.slice(0, 15))}
-                placeholder="Last name"
+                placeholder="Smith"
                 maxLength={15}
                 required
                 className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -109,11 +111,12 @@ export default function RegisterPage() {
 
           {/* Email */}
           <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value.slice(0, 30))}
-              placeholder="Email"
+              placeholder="jane@example.com"
               maxLength={30}
               required
               className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -123,11 +126,12 @@ export default function RegisterPage() {
 
           {/* Confirm email */}
           <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Confirm Email</label>
             <input
               type="email"
               value={confirmEmail}
               onChange={(e) => setConfirmEmail(e.target.value.slice(0, 30))}
-              placeholder="Confirm email"
+              placeholder="jane@example.com"
               maxLength={30}
               required
               className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -139,11 +143,12 @@ export default function RegisterPage() {
 
           {/* Password */}
           <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Password</label>
             <input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value.slice(0, 32))}
-              placeholder="Password (8–32 chars)"
+              placeholder="Min 8 chars, uppercase, lowercase, number"
               maxLength={32}
               required
               className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -155,11 +160,12 @@ export default function RegisterPage() {
 
           {/* Confirm password */}
           <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Confirm Password</label>
             <input
               type="password"
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value.slice(0, 32))}
-              placeholder="Confirm password"
+              placeholder="Re-enter your password"
               maxLength={32}
               required
               className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -171,12 +177,18 @@ export default function RegisterPage() {
 
           {/* Beta code */}
           <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Invite Code</label>
             <input
               type="text"
               value={betaCode}
-              onChange={(e) => setBetaCode(e.target.value)}
-              placeholder="Beta invite code (if required)"
-              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              onChange={(e) =>
+                setBetaCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12))
+              }
+              placeholder="12-character access code"
+              maxLength={12}
+              spellCheck={false}
+              autoComplete="off"
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono tracking-wider uppercase"
             />
           </div>
 

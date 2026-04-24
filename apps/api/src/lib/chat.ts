@@ -87,6 +87,13 @@ export function createChatServer(
     eventId: string;
     userId: string;
     content: string;
+  }) => Promise<void>,
+  onChannelMessageCreated?: (payload: {
+    messageId: string;
+    channelId: string;
+    groupId: string;
+    userId: string;
+    content: string;
   }) => Promise<void>
 ): SocketIOServer {
   const io = new SocketIOServer(httpServer, {
@@ -215,6 +222,18 @@ export function createChatServer(
       }
 
       try {
+        // Fetch event to resolve groupId for mute check
+        const eventForMute = await prisma.event.findUnique({ where: { id: eventId }, select: { groupId: true } });
+        if (eventForMute) {
+          const muteMembership = await prisma.membership.findUnique({
+            where: { userId_groupId: { userId: user.id, groupId: eventForMute.groupId } },
+            select: { mutedUntil: true },
+          });
+          if (muteMembership?.mutedUntil && muteMembership.mutedUntil > new Date()) {
+            socket.emit("error", { code: "MUTED", message: "You are muted in this group" });
+            return;
+          }
+        }
         const message = await prisma.message.create({
           data: {
             eventId,
@@ -260,6 +279,144 @@ export function createChatServer(
       socket.to(`event:${eventId}`).emit("typing:stop", {
         userId: user.id,
         eventId,
+      });
+    });
+
+    // -- join:channel ---------------------------------------------------
+    socket.on("join:channel", async (data: unknown) => {
+      if (
+        typeof data !== "object" ||
+        data === null ||
+        typeof (data as Record<string, unknown>).channelId !== "string" ||
+        typeof (data as Record<string, unknown>).groupId !== "string"
+      ) {
+        socket.emit("error", { code: "BAD_REQUEST", message: "channelId and groupId must be strings" });
+        return;
+      }
+      const { channelId, groupId } = data as { channelId: string; groupId: string };
+      try {
+        const membership = await prisma.membership.findUnique({
+          where: { userId_groupId: { userId: user.id, groupId } },
+        });
+        if (!membership || membership.status !== "active") {
+          socket.emit("error", { code: "FORBIDDEN", message: "Not an active group member" });
+          return;
+        }
+        const channel = await prisma.channel.findFirst({
+          where: { id: channelId, groupId },
+        });
+        if (!channel) {
+          socket.emit("error", { code: "NOT_FOUND", message: "Channel not found" });
+          return;
+        }
+        await socket.join(`channel:${channelId}`);
+        socket.emit("joined:channel", { channelId });
+        logger.info({ userId: user.id, channelId }, "Joined channel room");
+      } catch (err) {
+        logger.error(err, "join:channel error");
+        socket.emit("error", { code: "INTERNAL", message: "Failed to join channel" });
+      }
+    });
+
+    // -- leave:channel --------------------------------------------------
+    socket.on("leave:channel", (channelId: unknown) => {
+      if (typeof channelId !== "string") return;
+      socket.leave(`channel:${channelId}`);
+      socket.emit("left:channel", { channelId });
+    });
+
+    // -- channel:message:send -------------------------------------------
+    socket.on("channel:message:send", async (data: unknown) => {
+      if (
+        typeof data !== "object" ||
+        data === null ||
+        typeof (data as Record<string, unknown>).channelId !== "string" ||
+        typeof (data as Record<string, unknown>).content !== "string"
+      ) {
+        socket.emit("error", { code: "BAD_REQUEST", message: "Invalid channel message payload" });
+        return;
+      }
+      const { channelId, content } = data as { channelId: string; content: string };
+      const trimmed = content.trim().slice(0, 4000);
+      if (!trimmed) {
+        socket.emit("error", { code: "BAD_REQUEST", message: "Message content is empty" });
+        return;
+      }
+      if (!socket.rooms.has(`channel:${channelId}`)) {
+        socket.emit("error", { code: "FORBIDDEN", message: "Join the channel room first" });
+        return;
+      }
+      const quota = consumeChatQuota(user.id);
+      if (quota.limited) {
+        socket.emit("error", {
+          code: "RATE_LIMITED",
+          message: `Too many messages. Try again in ${quota.retryAfterSeconds}s`,
+          retryAfterSeconds: quota.retryAfterSeconds,
+        });
+        return;
+      }
+      try {
+        const channel = await prisma.channel.findUnique({
+          where: { id: channelId },
+          select: { id: true, groupId: true },
+        });
+        if (!channel) {
+          socket.emit("error", { code: "NOT_FOUND", message: "Channel not found" });
+          return;
+        }
+        // Check mute status
+        const muteMembership = await prisma.membership.findUnique({
+          where: { userId_groupId: { userId: user.id, groupId: channel.groupId } },
+          select: { mutedUntil: true },
+        });
+        if (muteMembership?.mutedUntil && muteMembership.mutedUntil > new Date()) {
+          socket.emit("error", { code: "MUTED", message: "You are muted in this group" });
+          return;
+        }
+        const message = await prisma.message.create({
+          data: {
+            channelId,
+            userId: user.id,
+            content: trimmed,
+          },
+          include: {
+            user: { select: { id: true, name: true, email: true, avatarUrl: true } },
+          },
+        });
+        io.to(`channel:${channelId}`).emit("channel:message:new", message);
+        if (onChannelMessageCreated) {
+          await onChannelMessageCreated({
+            messageId: message.id,
+            channelId,
+            groupId: channel.groupId,
+            userId: user.id,
+            content: message.content,
+          });
+        }
+      } catch (err) {
+        logger.error(err, "channel:message:send error");
+        socket.emit("error", { code: "INTERNAL", message: "Failed to persist channel message" });
+      }
+    });
+
+    // -- channel:typing:start -------------------------------------------
+    socket.on("channel:typing:start", (channelId: unknown) => {
+      if (typeof channelId !== "string") return;
+      if (!socket.rooms.has(`channel:${channelId}`)) return;
+      socket.to(`channel:${channelId}`).emit("channel:typing:start", {
+        userId: user.id,
+        name: user.name,
+        channelId,
+      });
+    });
+
+    // -- channel:typing:stop --------------------------------------------
+    socket.on("channel:typing:stop", (channelId: unknown) => {
+      if (typeof channelId !== "string") return;
+      if (!socket.rooms.has(`channel:${channelId}`)) return;
+      socket.to(`channel:${channelId}`).emit("channel:typing:stop", {
+        userId: user.id,
+        channelId,
       });
     });
 

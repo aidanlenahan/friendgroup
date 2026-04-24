@@ -107,7 +107,7 @@ Status: Phase 4 chat and realtime implemented
 [ ] Event invites with specific user list
 [x] Group-level tag channels (subscription-based)
 [x] Message reactions/emoji
-[ ] Event media ratings
+[x] Event media ratings
 [ ] Recurring events
 [x] Admin event deletion and user removal
 [ ] Audit logs for membership and event changes

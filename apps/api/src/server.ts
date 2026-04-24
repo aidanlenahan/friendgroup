@@ -1,6 +1,6 @@
 import "dotenv/config"; // reloaded: 2026-04-16
 import * as Sentry from "@sentry/node";
-import Fastify from "fastify";
+import Fastify, { type FastifyRequest, type FastifyReply } from "fastify";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import jwt from "@fastify/jwt";
@@ -27,7 +27,7 @@ async function verifyPassword(password: string, hash: string): Promise<boolean> 
   const storedBuf = Buffer.from(storedKey, "hex");
   return derivedKey.length === storedBuf.length && timingSafeEqual(derivedKey, storedBuf);
 }
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Queue, Worker } from "bullmq";
 import { errorHandler } from "./lib/errors.js";
@@ -73,9 +73,21 @@ const s3 = new S3Client({
 const s3Bucket = process.env.S3_BUCKET || "friendgroup-media";
 const mediaMaxFileBytes = Number(process.env.MEDIA_MAX_FILE_BYTES || 10 * 1024 * 1024);
 const mediaMaxEventBytes = Number(process.env.MEDIA_MAX_EVENT_BYTES || 200 * 1024 * 1024);
+const mediaMaxUserBytes = Number(process.env.MEDIA_MAX_USER_BYTES || 1024 * 1024 * 1024); // 1 GB default
+const mediaMaxUserFiles = Number(process.env.MEDIA_MAX_USER_FILES || 100); // 100 photos per user
 const uploadUrlTtlSeconds = Number(process.env.MEDIA_UPLOAD_URL_TTL_SECONDS || 15 * 60);
+const allowedMediaMimeTypes = new Set([
+  "image/jpeg", "image/png", "image/gif", "image/webp",
+  "image/heic", "image/heif", "image/avif",
+]);
 
 const pushConfigured = configureWebPushFromEnv();
+
+// Admin emails — read from env var only (no hardcoded fallback)
+const ADMIN_EMAILS = (process.env.ADMIN_EMAILS ?? "")
+  .split(",")
+  .map((e) => e.trim().toLowerCase())
+  .filter(Boolean);
 
 const queueConnection = new Redis(process.env.REDIS_URL || "redis://localhost:6379", {
   maxRetriesPerRequest: null,
@@ -221,10 +233,14 @@ const notificationWorker = new Worker<NotificationFanoutJobData>(
       }
 
       if (emailEnabled && isMailConfigured()) {
+        const webBase = (process.env.WEB_BASE_URL || "").replace(/\/$/, "");
+        const ctaUrl = data.eventId
+          ? `${webBase}/events/${data.eventId}`
+          : webBase || undefined;
         const email = buildNotificationEmail({
           title: data.title,
           body: data.body,
-          ctaUrl: process.env.WEB_BASE_URL,
+          ctaUrl,
         });
         await sendTransactionalEmail({
           to: user.email,
@@ -359,7 +375,6 @@ const updateEventBodySchema = z.object({
   isPrivate: z.boolean().optional(),
   maxAttendees: z.number().int().positive().nullable().optional(),
   location: z.string().max(500).nullable().optional(),
-  rating: schemas.rating,
   isLegendary: z.boolean().optional(),
   tagIds: z.array(schemas.id).optional(),
 });
@@ -473,6 +488,11 @@ const mediaUploadUrlBodySchema = z.object({
   filename: z.string().min(1).max(255),
   mimeType: z.string().min(1).max(200),
   sizeBytes: z.number().int().positive(),
+});
+
+const avatarUploadUrlBodySchema = z.object({
+  filename: z.string().min(1).max(255),
+  contentType: z.string().min(1).max(200),
 });
 
 const mediaCompleteBodySchema = z.object({
@@ -620,8 +640,11 @@ const notificationPreferencesBodySchema = z.array(
 );
 
 const eventRatingBodySchema = z.object({
-  rating: z.number().int().min(1).max(10).optional(),
-  isLegendary: z.boolean().optional(),
+  value: z.number().int().min(1).max(5),
+});
+
+const eventTagsBodySchema = z.object({
+  tagIds: z.array(schemas.id),
 });
 
 type NotificationFanoutJobData = {
@@ -629,6 +652,7 @@ type NotificationFanoutJobData = {
   groupId: string;
   actorUserId?: string;
   eventId?: string;
+  channelId?: string;
   tagIds?: string[];
   recipientUserIds?: string[];
   title: string;
@@ -858,7 +882,7 @@ app.post("/auth/dev-token", { config: { rateLimit: { max: effectiveDevTokenRateL
   }
 
   const token = await reply.jwtSign({ sub: user.id, email: user.email });
-  return reply.send({ token, user });
+  return reply.send({ token, user: { ...user, isAdmin: ADMIN_EMAILS.includes(user.email.toLowerCase()) } });
 });
 
 // ============================================================================
@@ -905,20 +929,35 @@ app.post("/auth/register", { config: { rateLimit: { max: 10, timeWindow: "1 minu
     return reply.status(409).send({ error: "Email already in use", code: "EMAIL_TAKEN" });
   }
 
-  // Beta code check
+  // Invite code check
   if (registrationBetaRequired) {
     if (!body.betaCode) {
       return reply.status(403).send({
-        error: "A registration beta code is required",
+        error: "An invite code is required to register",
         code: "BETA_CODE_REQUIRED",
       });
     }
-    const code = await prisma.betaCode.findUnique({ where: { code: body.betaCode } });
-    if (!code || code.type !== "registration" || code.usedAt !== null) {
+    // Check persistent code first (Redis override ?? env var)
+    const redisOverride = await redis.get("admin:registration_invite_code");
+    const persistentCode = redisOverride ?? process.env.REGISTRATION_INVITE_CODE;
+    const matchesPersistent = persistentCode && body.betaCode === persistentCode;
+
+    // Check one-time DB code
+    const oneTimeCode = !matchesPersistent
+      ? await prisma.betaCode.findUnique({ where: { code: body.betaCode } })
+      : null;
+    const matchesOneTime = oneTimeCode && oneTimeCode.type === "registration" && oneTimeCode.usedAt === null;
+
+    if (!matchesPersistent && !matchesOneTime) {
       return reply.status(403).send({
-        error: "Invalid or already-used beta code",
+        error: "Invalid invite code",
         code: "BETA_CODE_INVALID",
       });
+    }
+
+    // If it was a one-time code, consume it inside the transaction below
+    if (matchesOneTime) {
+      (request as any)._registrationOneTimeCodeId = oneTimeCode!.id;
     }
   }
 
@@ -949,9 +988,11 @@ app.post("/auth/register", { config: { rateLimit: { max: 10, timeWindow: "1 minu
       select: { id: true, email: true, name: true, username: true, avatarUrl: true, theme: true },
     });
 
-    if (registrationBetaRequired && body.betaCode) {
+    // If a one-time registration code was used, consume it now (inside transaction)
+    const oneTimeCodeId = (request as any)._registrationOneTimeCodeId;
+    if (oneTimeCodeId) {
       await tx.betaCode.update({
-        where: { code: body.betaCode },
+        where: { id: oneTimeCodeId },
         data: { usedById: newUser.id, usedAt: new Date() },
       });
     }
@@ -995,7 +1036,7 @@ app.post("/auth/verify-email", { config: { rateLimit: { max: 20, timeWindow: "1 
   await redis.del(`verify:cooldown:${body.userId}`);
 
   const token = await reply.jwtSign({ sub: user.id, email: user.email });
-  return reply.send({ token, user });
+  return reply.send({ token, user: { ...user, isAdmin: ADMIN_EMAILS.includes(user.email.toLowerCase()) } });
 });
 
 app.post("/auth/resend-verification", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
@@ -1075,7 +1116,7 @@ app.post("/auth/login", { config: { rateLimit: { max: 10, timeWindow: "1 minute"
 
   const { passwordHash: _omit, emailVerified: _ev, ...safeUser } = user;
   const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email });
-  return reply.send({ token, user: safeUser });
+  return reply.send({ token, user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
 });
 
 app.post("/auth/request-login-code", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request, reply) => {
@@ -1136,7 +1177,7 @@ app.post("/auth/verify-login-code", { config: { rateLimit: { max: 10, timeWindow
 
   const { emailVerified: _ev, ...safeUser } = user;
   const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email });
-  return reply.send({ token, user: safeUser });
+  return reply.send({ token, user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
 });
 
 app.post("/auth/forgot-password", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (request, reply) => {
@@ -1427,6 +1468,25 @@ app.post("/media/upload-url", { config: { rateLimit: { max: 30, timeWindow: "1 m
     });
   }
 
+  // Images only
+  if (!allowedMediaMimeTypes.has(body.mimeType)) {
+    return reply.status(415).send({
+      error: "Only image files are allowed (JPEG, PNG, GIF, WebP, HEIC, AVIF)",
+      code: "UNSUPPORTED_MEDIA_TYPE",
+    });
+  }
+
+  // Per-user file count check (max 100 photos)
+  const userFileCount = await prisma.mediaAsset.count({
+    where: { uploaderId: currentUser.id },
+  });
+  if (userFileCount >= mediaMaxUserFiles) {
+    return reply.status(413).send({
+      error: `You have reached the maximum of ${mediaMaxUserFiles} photos`,
+      code: "USER_MEDIA_FILE_LIMIT_EXCEEDED",
+    });
+  }
+
   const usage = await prisma.mediaAsset.aggregate({
     where: { eventId: body.eventId },
     _sum: { sizeBytes: true },
@@ -1437,6 +1497,19 @@ app.post("/media/upload-url", { config: { rateLimit: { max: 30, timeWindow: "1 m
     return reply.status(413).send({
       error: `Event media quota exceeded (${mediaMaxEventBytes} bytes)` ,
       code: "EVENT_MEDIA_QUOTA_EXCEEDED",
+    });
+  }
+
+  // Per-user total storage quota
+  const userUsage = await prisma.mediaAsset.aggregate({
+    where: { uploaderId: currentUser.id },
+    _sum: { sizeBytes: true },
+  });
+  const currentUserBytes = userUsage._sum.sizeBytes ?? 0;
+  if (currentUserBytes + body.sizeBytes > mediaMaxUserBytes) {
+    return reply.status(413).send({
+      error: "Your personal storage quota has been exceeded",
+      code: "USER_MEDIA_QUOTA_EXCEEDED",
     });
   }
 
@@ -1485,6 +1558,25 @@ app.post("/media/complete", async (request, reply) => {
     });
   }
 
+  // Images only (double-check at commit time)
+  if (!allowedMediaMimeTypes.has(body.mimeType)) {
+    return reply.status(415).send({
+      error: "Only image files are allowed (JPEG, PNG, GIF, WebP, HEIC, AVIF)",
+      code: "UNSUPPORTED_MEDIA_TYPE",
+    });
+  }
+
+  // Per-user file count (double-check at commit time)
+  const userFileCount = await prisma.mediaAsset.count({
+    where: { uploaderId: currentUser.id },
+  });
+  if (userFileCount >= mediaMaxUserFiles) {
+    return reply.status(413).send({
+      error: `You have reached the maximum of ${mediaMaxUserFiles} photos`,
+      code: "USER_MEDIA_FILE_LIMIT_EXCEEDED",
+    });
+  }
+
   const usage = await prisma.mediaAsset.aggregate({
     where: { eventId: body.eventId },
     _sum: { sizeBytes: true },
@@ -1495,6 +1587,19 @@ app.post("/media/complete", async (request, reply) => {
     return reply.status(413).send({
       error: `Event media quota exceeded (${mediaMaxEventBytes} bytes)`,
       code: "EVENT_MEDIA_QUOTA_EXCEEDED",
+    });
+  }
+
+  // Per-user total storage quota (double-check at commit time)
+  const userUsage = await prisma.mediaAsset.aggregate({
+    where: { uploaderId: currentUser.id },
+    _sum: { sizeBytes: true },
+  });
+  const currentUserBytes = userUsage._sum.sizeBytes ?? 0;
+  if (currentUserBytes + body.sizeBytes > mediaMaxUserBytes) {
+    return reply.status(413).send({
+      error: "Your personal storage quota has been exceeded",
+      code: "USER_MEDIA_QUOTA_EXCEEDED",
     });
   }
 
@@ -1516,6 +1621,28 @@ app.post("/media/complete", async (request, reply) => {
   return reply.status(201).send({ mediaAsset });
 });
 
+// POST /media/avatar-upload-url — generate a presigned URL for uploading a user avatar
+app.post("/media/avatar-upload-url", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const body = await validateRequest(avatarUploadUrlBodySchema, request.body);
+
+  const ext = body.filename.split(".").pop()?.replace(/[^a-zA-Z0-9]/g, "") ?? "jpg";
+  const objectKey = `avatars/${currentUser.id}/${Date.now()}-${randomUUID()}.${ext}`;
+
+  const putCommand = new PutObjectCommand({
+    Bucket: s3Bucket,
+    Key: objectKey,
+    ACL: "public-read",
+    ContentType: body.contentType,
+  });
+
+  const uploadUrl = await getSignedUrl(s3, putCommand, { expiresIn: uploadUrlTtlSeconds });
+  const baseUrl = (process.env.S3_PUBLIC_BASE_URL || process.env.S3_ENDPOINT || "").replace(/\/$/, "");
+  const publicUrl = `${baseUrl}/${s3Bucket}/${objectKey}`;
+
+  return reply.send({ uploadUrl, publicUrl, objectKey });
+});
+
 app.get("/events/:id/media", async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(updateEventParamsSchema, request.params);
@@ -1529,6 +1656,7 @@ app.get("/events/:id/media", async (request, reply) => {
       uploader: {
         select: { id: true, name: true, email: true },
       },
+      likes: { select: { userId: true } },
     },
     orderBy: { createdAt: "desc" },
     take: query.limit,
@@ -1538,7 +1666,12 @@ app.get("/events/:id/media", async (request, reply) => {
 
   return reply.send({
     eventId: params.id,
-    media,
+    media: media.map((m) => ({
+      ...m,
+      likeCount: m.likes.length,
+      likedByMe: m.likes.some((l) => l.userId === currentUser.id),
+      likes: undefined,
+    })),
     limits: {
       maxFileBytes: mediaMaxFileBytes,
       maxEventBytes: mediaMaxEventBytes,
@@ -1548,6 +1681,35 @@ app.get("/events/:id/media", async (request, reply) => {
       returnedBytes: totalBytes,
     },
   });
+});
+
+// POST /media/:assetId/like — toggle like on a media asset
+app.post("/media/:assetId/like", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { assetId } = request.params as { assetId: string };
+
+  const asset = await prisma.mediaAsset.findUnique({
+    where: { id: assetId },
+    select: { id: true, eventId: true },
+  });
+  if (!asset) {
+    return reply.status(404).send({ error: "Media asset not found", code: "NOT_FOUND" });
+  }
+
+  // Ensure caller can access the event
+  await canAccessEvent(prisma, asset.eventId, currentUser.id);
+
+  const existing = await prisma.mediaAssetLike.findUnique({
+    where: { assetId_userId: { assetId, userId: currentUser.id } },
+  });
+
+  if (existing) {
+    await prisma.mediaAssetLike.delete({ where: { id: existing.id } });
+    return reply.send({ liked: false });
+  } else {
+    await prisma.mediaAssetLike.create({ data: { assetId, userId: currentUser.id } });
+    return reply.send({ liked: true });
+  }
 });
 
 app.get("/events/:id", async (request, reply) => {
@@ -1560,6 +1722,7 @@ app.get("/events/:id", async (request, reply) => {
       tags: true,
       rsvps: true,
       invites: true,
+      ratings: { select: { value: true, userId: true } },
     },
   });
 
@@ -1583,7 +1746,12 @@ app.get("/events/:id", async (request, reply) => {
     return reply.status(403).send({ error: "Access denied" });
   }
 
-  return reply.send({ event });
+  const avgRating = event.ratings.length > 0
+    ? Math.round((event.ratings.reduce((s, r) => s + r.value, 0) / event.ratings.length) * 10) / 10
+    : null;
+  const myRating = event.ratings.find((r) => r.userId === currentUser.id)?.value ?? null;
+
+  return reply.send({ event: { ...event, avgRating, myRating, ratingCount: event.ratings.length }, isAdmin, isCreator });
 });
 
 app.get("/events", async (request, reply) => {
@@ -1609,6 +1777,7 @@ app.get("/events", async (request, reply) => {
       tags: true,
       rsvps: true,
       invites: true,
+      ratings: { select: { value: true, userId: true } },
     },
   });
 
@@ -1623,7 +1792,15 @@ app.get("/events", async (request, reply) => {
     return event.invites.some((invite) => invite.userId === currentUser.id);
   });
 
-  return reply.send({ events: filteredEvents });
+  const eventsWithRatings = filteredEvents.map((event) => {
+    const avgRating = event.ratings.length > 0
+      ? Math.round((event.ratings.reduce((s, r) => s + r.value, 0) / event.ratings.length) * 10) / 10
+      : null;
+    const myRating = event.ratings.find((r) => r.userId === currentUser.id)?.value ?? null;
+    return { ...event, avgRating, myRating, ratingCount: event.ratings.length };
+  });
+
+  return reply.send({ events: eventsWithRatings });
 });
 
 app.post("/events", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
@@ -1693,7 +1870,6 @@ app.patch("/events/:id", async (request, reply) => {
       isPrivate: body.isPrivate,
       maxAttendees: body.maxAttendees,
       location: body.location,
-      rating: body.rating,
       isLegendary: body.isLegendary,
       tags: body.tagIds
         ? {
@@ -2005,6 +2181,8 @@ app.get("/events/:id/calendar.ics", async (request, reply) => {
       title: true,
       details: true,
       dateTime: true,
+      endsAt: true,
+      location: true,
       updatedAt: true,
     },
   });
@@ -2020,6 +2198,8 @@ app.get("/events/:id/calendar.ics", async (request, reply) => {
         title: event.title,
         details: event.details,
         dateTime: event.dateTime,
+        endsAt: event.endsAt,
+        location: event.location,
         updatedAt: event.updatedAt,
       },
     ],
@@ -2057,6 +2237,8 @@ app.get("/events/:id/calendar/google-link", async (request, reply) => {
       title: true,
       details: true,
       dateTime: true,
+      endsAt: true,
+      location: true,
       updatedAt: true,
     },
   });
@@ -2071,6 +2253,8 @@ app.get("/events/:id/calendar/google-link", async (request, reply) => {
       title: event.title,
       details: event.details,
       dateTime: event.dateTime,
+      endsAt: event.endsAt,
+      location: event.location,
       updatedAt: event.updatedAt,
     },
     process.env.WEB_BASE_URL
@@ -2127,6 +2311,8 @@ app.get("/groups/:groupId/calendar.ics", async (request, reply) => {
       title: event.title,
       details: event.details,
       dateTime: event.dateTime,
+      endsAt: event.endsAt,
+      location: event.location,
       updatedAt: event.updatedAt,
     })),
     {
@@ -2270,7 +2456,7 @@ app.get("/groups", async (request, reply) => {
     description: m.group.description,
     avatarUrl: m.group.avatarUrl,
     ownerId: m.group.ownerId,
-    memberCount: m.group._count.memberships,
+    _count: { memberships: m.group._count.memberships },
     role: m.role,
     joinedAt: m.createdAt,
   }));
@@ -2282,20 +2468,29 @@ app.post("/groups", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } }
   const currentUser = await requireAuth(request, reply, prisma);
   const body = await validateRequest(createGroupBodySchema, request.body);
 
-  // Beta gate: if GROUP_CREATION_BETA_REQUIRED is set, validate and consume a code
+  // Beta gate: if GROUP_CREATION_BETA_REQUIRED is set, validate code
   if (process.env.GROUP_CREATION_BETA_REQUIRED === "true") {
     if (!body.betaCode) {
-      return reply.status(403).send({ error: "A beta code is required to create a group.", code: "BETA_CODE_REQUIRED" });
+      return reply.status(403).send({ error: "An invite code is required to create a group.", code: "BETA_CODE_REQUIRED" });
     }
-    const betaCode = await prisma.betaCode.findUnique({ where: { code: body.betaCode } });
-    if (!betaCode || betaCode.type !== "group_creation" || betaCode.usedAt !== null) {
-      return reply.status(403).send({ error: "Invalid or already used beta code.", code: "INVALID_BETA_CODE" });
+    // Check persistent code first (Redis override ?? env var)
+    const redisGroupOverride = await redis.get("admin:group_creation_invite_code");
+    const persistentGroupCode = redisGroupOverride ?? process.env.GROUP_CREATION_INVITE_CODE;
+    const matchesGroupPersistent = persistentGroupCode && body.betaCode === persistentGroupCode;
+
+    if (!matchesGroupPersistent) {
+      // Fall back to one-time DB code
+      const betaCode = await prisma.betaCode.findUnique({ where: { code: body.betaCode } });
+      if (!betaCode || betaCode.type !== "group_creation" || betaCode.usedAt !== null) {
+        return reply.status(403).send({ error: "Invalid or already used invite code.", code: "INVALID_BETA_CODE" });
+      }
+      // consume the one-time code
+      await prisma.betaCode.update({
+        where: { id: betaCode.id },
+        data: { usedById: currentUser.id, usedAt: new Date() },
+      });
     }
-    // consume the code
-    await prisma.betaCode.update({
-      where: { id: betaCode.id },
-      data: { usedById: currentUser.id, usedAt: new Date() },
-    });
+    // Persistent code: no DB update needed
   }
 
   const group = await prisma.group.create({
@@ -2310,6 +2505,12 @@ app.post("/groups", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } }
           userId: currentUser.id,
           role: "owner",
           status: "active",
+        },
+      },
+      channels: {
+        create: {
+          name: "general",
+          isInviteOnly: false,
         },
       },
     },
@@ -2434,6 +2635,15 @@ app.delete("/groups/:groupId/members/:userId", async (request, reply) => {
     where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
   });
 
+  await prisma.auditLog.create({
+    data: {
+      groupId: params.groupId,
+      actorId: currentUser.id,
+      action: "member_removed",
+      targetUserId: params.userId,
+    },
+  });
+
   return reply.status(204).send();
 });
 
@@ -2462,6 +2672,16 @@ app.patch("/groups/:groupId/members/:userId/role", async (request, reply) => {
     data: { role: body.role },
     include: {
       user: { select: { id: true, email: true, name: true, avatarUrl: true } },
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      groupId: params.groupId,
+      actorId: currentUser.id,
+      action: "role_changed",
+      targetUserId: params.userId,
+      meta: { from: target.role, to: body.role },
     },
   });
 
@@ -2496,18 +2716,19 @@ app.get("/groups/:groupId/members", async (request, reply) => {
       avatarUrl: m.user.avatarUrl,
       role: m.role,
       status: m.status,
+      mutedUntil: m.mutedUntil ?? null,
       joinedAt: m.createdAt,
     })),
   });
 });
 
-// GET /groups/:groupId/invite-code — owner/admin retrieves the invite code
+// GET /groups/:groupId/invite-code — any active member can retrieve the invite code
 app.get("/groups/:groupId/invite-code", async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(groupIdParamsSchema, request.params);
 
-  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
-  requireRole(membership.role, ["owner", "admin"]);
+  // Any active member can view the invite code; only admins/owners can regenerate it
+  await requireGroupMembership(prisma, currentUser.id, params.groupId);
 
   let group = await prisma.group.findUnique({
     where: { id: params.groupId },
@@ -2530,13 +2751,13 @@ app.get("/groups/:groupId/invite-code", async (request, reply) => {
   return reply.send({ groupId: params.groupId, inviteCode: group.inviteCode });
 });
 
-// POST /groups/:groupId/invite-code/regenerate — owner regenerates the invite code
+// POST /groups/:groupId/invite-code/regenerate — owner or admin regenerates the invite code
 app.post("/groups/:groupId/invite-code/regenerate", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(groupIdParamsSchema, request.params);
 
   const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
-  requireRole(membership.role, ["owner"]);
+  requireRole(membership.role, ["owner", "admin"]);
 
   const group = await prisma.group.update({
     where: { id: params.groupId },
@@ -2553,7 +2774,7 @@ app.post("/groups/join", { config: { rateLimit: { max: 10, timeWindow: "1 minute
   const body = await validateRequest(joinGroupBodySchema, request.body);
 
   const group = await prisma.group.findUnique({
-    where: { inviteCode: body.inviteCode },
+    where: { inviteCode: body.inviteCode.toLowerCase() },
     select: { id: true, name: true, ownerId: true },
   });
 
@@ -2580,6 +2801,15 @@ app.post("/groups/join", { config: { rateLimit: { max: 10, timeWindow: "1 minute
       groupId: group.id,
       role: "member",
       status: "pending",
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      groupId: group.id,
+      actorId: currentUser.id,
+      action: "member_joined",
+      targetUserId: currentUser.id,
     },
   });
 
@@ -2641,10 +2871,41 @@ app.post("/groups/:groupId/members/:userId/approve", { config: { rateLimit: { ma
     return reply.status(409).send({ error: "Membership is not in pending state", code: "NOT_PENDING" });
   }
 
-  const updated = await prisma.membership.update({
-    where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
-    data: { status: "active" },
-    include: { user: { select: { id: true, name: true, email: true, avatarUrl: true } } },
+  const [updated, group] = await Promise.all([
+    prisma.membership.update({
+      where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
+      data: { status: "active" },
+      include: { user: { select: { id: true, name: true, email: true, avatarUrl: true } } },
+    }),
+    prisma.group.findUnique({ where: { id: params.groupId }, select: { name: true } }),
+  ]);
+
+  if (target.user && isMailConfigured()) {
+    const groupUrl = `${process.env.WEB_BASE_URL}/groups/${params.groupId}`;
+    await sendTransactionalEmail({
+      to: target.user.email,
+      subject: `You've been approved to join ${group?.name ?? "the group"}`,
+      html: `
+        <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+          <h2 style="margin:0 0 12px 0;">Friendgroup</h2>
+          <p style="margin:0 0 16px 0;">Your request to join <strong>${group?.name ?? "the group"}</strong> has been <strong style="color:#22c55e;">approved</strong>!</p>
+          <p style="margin:0 0 20px 0;">
+            <a href="${groupUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:600;">Open Group</a>
+          </p>
+          <p style="color:#64748b;font-size:12px;margin:0;">You are receiving this because you requested to join this group.</p>
+        </div>
+      `,
+      text: `Your request to join "${group?.name ?? "the group"}" has been approved!\n\nOpen the group: ${groupUrl}`,
+    });
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      groupId: params.groupId,
+      actorId: currentUser.id,
+      action: "member_approved",
+      targetUserId: params.userId,
+    },
   });
 
   return reply.send({
@@ -2669,6 +2930,7 @@ app.post("/groups/:groupId/members/:userId/deny", { config: { rateLimit: { max: 
 
   const target = await prisma.membership.findUnique({
     where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
+    include: { user: { select: { id: true, name: true, email: true } } },
   });
 
   if (!target) {
@@ -2679,11 +2941,107 @@ app.post("/groups/:groupId/members/:userId/deny", { config: { rateLimit: { max: 
     return reply.status(409).send({ error: "Membership is not in pending state", code: "NOT_PENDING" });
   }
 
-  await prisma.membership.delete({
-    where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
+  const [, group] = await Promise.all([
+    prisma.membership.delete({
+      where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
+    }),
+    prisma.group.findUnique({ where: { id: params.groupId }, select: { name: true } }),
+  ]);
+
+  if (target.user && isMailConfigured()) {
+    await sendTransactionalEmail({
+      to: target.user.email,
+      subject: `Your join request for ${group?.name ?? "the group"} was not approved`,
+      html: `
+        <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
+          <h2 style="margin:0 0 12px 0;">Friendgroup</h2>
+          <p style="margin:0 0 16px 0;">Your request to join <strong>${group?.name ?? "the group"}</strong> was not approved at this time.</p>
+          <p style="color:#64748b;font-size:12px;margin:0;">You are receiving this because you requested to join this group.</p>
+        </div>
+      `,
+      text: `Your request to join "${group?.name ?? "the group"}" was not approved at this time.`,
+    });
+  }
+
+  await prisma.auditLog.create({
+    data: {
+      groupId: params.groupId,
+      actorId: currentUser.id,
+      action: "member_denied",
+      targetUserId: params.userId,
+    },
   });
 
   return reply.status(204).send();
+});
+
+// POST /groups/:groupId/members/:userId/mute — admin+ mutes a member (blocks chat messages)
+app.post("/groups/:groupId/members/:userId/mute", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { groupId, userId } = request.params as { groupId: string; userId: string };
+  const body = z.object({ durationHours: z.number().int().min(1).max(8760).optional() }).parse(request.body);
+
+  const callerMembership = await requireGroupMembership(prisma, currentUser.id, groupId);
+  requireRole(callerMembership.role, ["owner", "admin"]);
+
+  const target = await prisma.membership.findUnique({
+    where: { userId_groupId: { userId, groupId } },
+  });
+  if (!target) {
+    return reply.status(404).send({ error: "Member not found", code: "NOT_FOUND" });
+  }
+  if (target.role === "owner") {
+    return reply.status(403).send({ error: "Cannot mute the group owner", code: "FORBIDDEN" });
+  }
+
+  const mutedUntil = body.durationHours
+    ? new Date(Date.now() + body.durationHours * 3600 * 1000)
+    : new Date(Date.now() + 100 * 365 * 24 * 3600 * 1000); // ~permanent
+
+  await prisma.membership.update({
+    where: { userId_groupId: { userId, groupId } },
+    data: { mutedUntil },
+  });
+
+  return reply.send({ message: "Member muted", mutedUntil });
+});
+
+// POST /groups/:groupId/members/:userId/unmute — admin+ removes mute
+app.post("/groups/:groupId/members/:userId/unmute", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { groupId, userId } = request.params as { groupId: string; userId: string };
+
+  const callerMembership = await requireGroupMembership(prisma, currentUser.id, groupId);
+  requireRole(callerMembership.role, ["owner", "admin"]);
+
+  await prisma.membership.updateMany({
+    where: { userId, groupId },
+    data: { mutedUntil: null },
+  });
+
+  return reply.send({ message: "Member unmuted" });
+});
+
+// GET /groups/:groupId/audit-log — owner/admin views the group's audit log
+app.get("/groups/:groupId/audit-log", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { groupId } = request.params as { groupId: string };
+  const query = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50) }).parse(request.query);
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, groupId);
+  requireRole(membership.role, ["owner", "admin"]);
+
+  const logs = await prisma.auditLog.findMany({
+    where: { groupId },
+    orderBy: { createdAt: "desc" },
+    take: query.limit,
+    include: {
+      actor: { select: { id: true, name: true, avatarUrl: true } },
+      targetUser: { select: { id: true, name: true } },
+    },
+  });
+
+  return reply.send({ logs });
 });
 
 // ============================================================================
@@ -2698,7 +3056,43 @@ app.get("/users/me", async (request, reply) => {
     select: { id: true, email: true, name: true, username: true, usernameChangedAt: true, avatarUrl: true, theme: true, createdAt: true },
   });
 
-  return reply.send({ user });
+  const isAdmin = ADMIN_EMAILS.length > 0 && ADMIN_EMAILS.includes(currentUser.email.toLowerCase());
+  return reply.send({ user: { ...user, isAdmin } });
+});
+
+app.get("/users/:username", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { username } = request.params as { username: string };
+
+  const user = await prisma.user.findUnique({
+    where: { username },
+    select: { id: true, name: true, username: true, avatarUrl: true, createdAt: true },
+  });
+
+  if (!user) {
+    return reply.status(404).send({ error: "User not found.", code: "USER_NOT_FOUND" });
+  }
+
+  // Mutual groups: groups where both the viewer and the profile user are active members
+  const mutualMemberships = await prisma.membership.findMany({
+    where: {
+      userId: user.id,
+      status: "active",
+      group: {
+        memberships: { some: { userId: currentUser.id, status: "active" } },
+      },
+    },
+    select: {
+      group: { select: { id: true, name: true, avatarUrl: true } },
+    },
+  });
+
+  return reply.send({
+    user: {
+      ...user,
+      mutualGroups: mutualMemberships.map((m: { group: { id: string; name: string; avatarUrl: string | null } }) => m.group),
+    },
+  });
 });
 
 app.patch("/users/me", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
@@ -2709,6 +3103,30 @@ app.patch("/users/me", { config: { rateLimit: { max: 10, timeWindow: "1 minute" 
   if (body.name !== undefined) dataToUpdate.name = body.name;
   if (body.avatarUrl !== undefined) dataToUpdate.avatarUrl = body.avatarUrl;
   if (body.theme !== undefined) dataToUpdate.theme = body.theme;
+
+  // When avatarUrl changes, delete the old S3 object (avatars only — keyed under avatars/)
+  if (body.avatarUrl !== undefined) {
+    const existingUser = await prisma.user.findUnique({
+      where: { id: currentUser.id },
+      select: { avatarUrl: true },
+    });
+    const oldUrl = existingUser?.avatarUrl;
+    if (oldUrl && oldUrl !== body.avatarUrl) {
+      // Extract the object key: everything after /{bucket}/
+      const bucketPrefix = `/${s3Bucket}/`;
+      const keyIdx = oldUrl.indexOf(bucketPrefix);
+      if (keyIdx !== -1) {
+        const oldKey = oldUrl.slice(keyIdx + bucketPrefix.length);
+        if (oldKey.startsWith("avatars/")) {
+          try {
+            await s3.send(new DeleteObjectCommand({ Bucket: s3Bucket, Key: oldKey }));
+          } catch (err) {
+            app.log.warn({ err, oldKey }, "Failed to delete old avatar from S3");
+          }
+        }
+      }
+    }
+  }
 
   if (body.username !== undefined) {
     const existing = await prisma.user.findUnique({
@@ -2788,6 +3206,153 @@ app.post("/beta/validate", { config: { rateLimit: { max: 10, timeWindow: "1 minu
 });
 
 // ============================================================================
+// Admin Developer Panel Routes
+// ============================================================================
+
+// ADMIN_EMAILS is defined at module level above
+
+async function requireAdminEmail(request: FastifyRequest, reply: FastifyReply, prisma: PrismaClient) {
+  const currentUser = await requireAuth(request, reply, prisma);
+  if (!ADMIN_EMAILS.includes(currentUser.email.toLowerCase())) {
+    reply.status(403).send({ error: "Access denied. Developer panel is restricted.", code: "FORBIDDEN" });
+    throw new Error("FORBIDDEN");
+  }
+  return currentUser;
+}
+
+const updateDevConfigBodySchema = z.object({
+  registrationInviteCode: z.string().min(1).max(64).optional(),
+  groupCreationInviteCode: z.string().min(1).max(64).optional(),
+});
+
+const createDevGroupCodeBodySchema = z.object({
+  count: z.number().int().min(1).max(20).optional(),
+});
+
+// GET /admin/dev/config — fetch current developer configuration
+app.get("/admin/dev/config", async (request, reply) => {
+  await requireAdminEmail(request, reply, prisma);
+
+  // Registration invite code: Redis override takes priority over env var
+  const redisRegCode = await redis.get("admin:registration_invite_code");
+  const registrationInviteCode = redisRegCode ?? process.env.REGISTRATION_INVITE_CODE ?? "";
+
+  // Group creation persistent code: Redis override takes priority over env var
+  const redisGroupCode = await redis.get("admin:group_creation_invite_code");
+  const groupCreationInviteCode = redisGroupCode ?? process.env.GROUP_CREATION_INVITE_CODE ?? "";
+
+  // Unused one-time group creation codes
+  const groupCodes = await prisma.betaCode.findMany({
+    where: { type: "group_creation", usedAt: null },
+    select: { id: true, code: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+  });
+
+  // Unused one-time registration codes
+  const registrationCodes = await prisma.betaCode.findMany({
+    where: { type: "registration", usedAt: null },
+    select: { id: true, code: true, createdAt: true },
+    orderBy: { createdAt: "desc" },
+    take: 50,
+  });
+
+  return reply.send({
+    registrationInviteCode,
+    groupCreationInviteCode,
+    registrationBetaRequired: process.env.REGISTRATION_BETA_REQUIRED === "true",
+    groupCreationBetaRequired: process.env.GROUP_CREATION_BETA_REQUIRED === "true",
+    groupCodes,
+    registrationCodes,
+  });
+});
+
+// PATCH /admin/dev/config — update registration and/or group creation invite codes
+app.patch("/admin/dev/config", async (request, reply) => {
+  await requireAdminEmail(request, reply, prisma);
+  const body = await validateRequest(updateDevConfigBodySchema, request.body);
+
+  if (body.registrationInviteCode !== undefined) {
+    const code = body.registrationInviteCode.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 64);
+    if (code.length < 4) {
+      return reply.status(400).send({ error: "Code must be at least 4 characters", code: "INVALID_CODE" });
+    }
+    await redis.set("admin:registration_invite_code", code);
+  }
+
+  if (body.groupCreationInviteCode !== undefined) {
+    const code = body.groupCreationInviteCode.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 64);
+    if (code.length < 4) {
+      return reply.status(400).send({ error: "Code must be at least 4 characters", code: "INVALID_CODE" });
+    }
+    await redis.set("admin:group_creation_invite_code", code);
+  }
+
+  // Return updated config
+  const registrationInviteCode = await redis.get("admin:registration_invite_code")
+    ?? process.env.REGISTRATION_INVITE_CODE ?? "";
+  const groupCreationInviteCode = await redis.get("admin:group_creation_invite_code")
+    ?? process.env.GROUP_CREATION_INVITE_CODE ?? "";
+
+  return reply.send({ registrationInviteCode, groupCreationInviteCode });
+});
+
+// POST /admin/dev/group-codes — generate new group creation codes
+app.post("/admin/dev/group-codes", async (request, reply) => {
+  await requireAdminEmail(request, reply, prisma);
+  const body = await validateRequest(createDevGroupCodeBodySchema, request.body);
+
+  const count = body.count ?? 1;
+  const codes = [];
+  for (let i = 0; i < count; i++) {
+    const code = randomBytes(6).toString("hex").toUpperCase().slice(0, 12);
+    const betaCode = await prisma.betaCode.create({
+      data: { code, type: "group_creation" },
+    });
+    codes.push(betaCode);
+  }
+
+  return reply.status(201).send({ codes });
+});
+
+// DELETE /admin/dev/group-codes/:id — delete (revoke) a group creation code
+app.delete("/admin/dev/group-codes/:id", async (request, reply) => {
+  await requireAdminEmail(request, reply, prisma);
+  const params = await validateRequest(z.object({ id: schemas.id }), request.params);
+
+  await prisma.betaCode.delete({ where: { id: params.id } });
+
+  return reply.send({ success: true });
+});
+
+// POST /admin/dev/registration-codes — generate new one-time registration codes
+app.post("/admin/dev/registration-codes", async (request, reply) => {
+  await requireAdminEmail(request, reply, prisma);
+  const body = await validateRequest(createDevGroupCodeBodySchema, request.body);
+
+  const count = body.count ?? 1;
+  const codes = [];
+  for (let i = 0; i < count; i++) {
+    const code = randomBytes(6).toString("hex").toUpperCase().slice(0, 12);
+    const betaCode = await prisma.betaCode.create({
+      data: { code, type: "registration" },
+    });
+    codes.push(betaCode);
+  }
+
+  return reply.status(201).send({ codes });
+});
+
+// DELETE /admin/dev/registration-codes/:id — delete (revoke) a one-time registration code
+app.delete("/admin/dev/registration-codes/:id", async (request, reply) => {
+  await requireAdminEmail(request, reply, prisma);
+  const params = await validateRequest(z.object({ id: schemas.id }), request.params);
+
+  await prisma.betaCode.delete({ where: { id: params.id } });
+
+  return reply.send({ success: true });
+});
+
+// ============================================================================
 // Tags CRUD Routes
 // ============================================================================
 
@@ -2829,7 +3394,8 @@ app.patch("/groups/:groupId/tags/:tagId", async (request, reply) => {
   const params = await validateRequest(tagParamsSchema, request.params);
   const body = await validateRequest(updateTagBodySchema, request.body);
 
-  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(membership.role, ["owner", "admin"]);
 
   const tag = await prisma.tag.findFirst({
     where: { id: params.tagId, groupId: params.groupId },
@@ -3116,27 +3682,77 @@ app.put("/notifications/preferences", { config: { rateLimit: { max: 60, timeWind
 });
 
 // ============================================================================
-// Event Rating Route
+// Event Rating Routes
 // ============================================================================
 
-app.patch("/events/:id/rating", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
+// GET /events/:id/ratings — get aggregate rating + current user's rating
+app.get("/events/:id/ratings", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(updateEventParamsSchema, request.params);
+
+  await canAccessEvent(prisma, params.id, currentUser.id);
+
+  const ratings = await prisma.eventRating.findMany({
+    where: { eventId: params.id },
+    select: { value: true, userId: true },
+  });
+
+  const avgRating = ratings.length > 0
+    ? Math.round((ratings.reduce((s, r) => s + r.value, 0) / ratings.length) * 10) / 10
+    : null;
+  const myRating = ratings.find((r) => r.userId === currentUser.id)?.value ?? null;
+
+  return reply.send({ avgRating, myRating, ratingCount: ratings.length });
+});
+
+// POST /events/:id/ratings — upsert current user's rating (1-5 stars)
+app.post("/events/:id/ratings", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(updateEventParamsSchema, request.params);
   const body = await validateRequest(eventRatingBodySchema, request.body);
 
+  await canAccessEvent(prisma, params.id, currentUser.id);
+
+  const rating = await prisma.eventRating.upsert({
+    where: { eventId_userId: { eventId: params.id, userId: currentUser.id } },
+    create: { eventId: params.id, userId: currentUser.id, value: body.value },
+    update: { value: body.value },
+  });
+
+  return reply.send({ rating });
+});
+
+// PATCH /events/:id/tags — any group member can set tags on an event (existing tags only)
+app.patch("/events/:id/tags", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(updateEventParamsSchema, request.params);
+  const body = await validateRequest(eventTagsBodySchema, request.body);
+
   const access = await canAccessEvent(prisma, params.id, currentUser.id);
+
+  // Validate all tagIds belong to the event's group
+  if (body.tagIds.length > 0) {
+    const validTags = await prisma.tag.findMany({
+      where: { id: { in: body.tagIds }, groupId: access.event.groupId },
+      select: { id: true },
+    });
+    if (validTags.length !== body.tagIds.length) {
+      return reply.status(400).send({ error: "One or more tags do not belong to this group", code: "INVALID_TAG" });
+    }
+  }
 
   const event = await prisma.event.update({
     where: { id: params.id },
     data: {
-      rating: body.rating,
-      isLegendary: body.isLegendary,
+      tags: { set: body.tagIds.map((id: string) => ({ id })) },
     },
     include: { tags: true },
   });
 
   return reply.send({ event });
 });
+
+
 
 // ============================================================================
 // Startup
@@ -3174,6 +3790,22 @@ const io = createChatServer(
       eventId: event.id,
       tagIds: event.tags.map((tag) => tag.id),
       title: `New message in ${event.title}`,
+      body: content.slice(0, 140),
+    });
+  },
+  async ({ channelId, groupId, userId, content }) => {
+    const channel = await prisma.channel.findUnique({
+      where: { id: channelId },
+      select: { id: true, name: true },
+    });
+    if (!channel) return;
+    await notificationQueue.add("fanout", {
+      type: "chat_message",
+      groupId,
+      actorUserId: userId,
+      channelId: channel.id,
+      tagIds: [],
+      title: `New message in #${channel.name}`,
       body: content.slice(0, 140),
     });
   }

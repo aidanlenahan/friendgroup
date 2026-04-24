@@ -41,6 +41,10 @@ model User {
   notificationPreferences    UserNotificationPreference[]
   betaCodesUsed              BetaCode[]
   passwordResetTokens        PasswordResetToken[]
+  auditLogsActed             AuditLog[]                  @relation("AuditActor")
+  auditLogsTargeted          AuditLog[]                  @relation("AuditTarget")
+  eventRatings               EventRating[]
+  mediaAssetLikes            MediaAssetLike[]
 
   @@index([email])
   @@index([username])
@@ -61,6 +65,7 @@ model Group {
   events     Event[]
   channels   Channel[]
   tags       Tag[]
+  auditLogs  AuditLog[]
 
   @@index([ownerId])
 }
@@ -71,6 +76,7 @@ model Membership {
   groupId   String
   role      String   @default("member")  // owner, admin, member
   status    String   @default("active")  // active, pending
+  mutedUntil DateTime?                   // null = not muted; future date = muted until then
   createdAt DateTime @default(now())
 
   // Relations
@@ -99,7 +105,6 @@ model Event {
   location        String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
-  rating          Int?           // 1-10
   isLegendary     Boolean        @default(false)
 
   // Relations
@@ -111,6 +116,7 @@ model Event {
   mediaAssets     MediaAsset[]
   tags            Tag[]          @relation("EventTags")
   notificationEvents NotificationEvent[] @relation("eventNotifications")
+  ratings         EventRating[]
 
   @@index([groupId])
   @@index([createdById])
@@ -126,6 +132,22 @@ model RSVP {
   updatedAt DateTime @updatedAt
 
   // Relations
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, userId])
+  @@index([eventId])
+  @@index([userId])
+}
+
+model EventRating {
+  id        String   @id @default(cuid())
+  eventId   String
+  userId    String
+  value     Int      // 1-5
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
   event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
   user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -295,9 +317,25 @@ model MediaAsset {
   // Relations
   event     Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
   uploader  User  @relation(fields: [uploaderId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  likes     MediaAssetLike[]
 
   @@index([eventId])
   @@index([uploaderId])
+}
+
+model MediaAssetLike {
+  id      String   @id @default(cuid())
+  assetId String
+  userId  String
+  createdAt DateTime @default(now())
+
+  // Relations
+  asset MediaAsset @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([assetId, userId])
+  @@index([assetId])
+  @@index([userId])
 }
 
 model NotificationSubscription {
@@ -368,4 +406,22 @@ model PasswordResetToken {
 
   @@index([userId])
   @@index([token])
+}
+
+model AuditLog {
+  id           String   @id @default(cuid())
+  groupId      String
+  actorId      String
+  action       String   // member_approved, member_denied, member_removed, role_changed, member_joined
+  targetUserId String?
+  meta         Json?
+  createdAt    DateTime @default(now())
+
+  // Relations
+  group      Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  actor      User   @relation("AuditActor", fields: [actorId], references: [id], onDelete: Cascade)
+  targetUser User?  @relation("AuditTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  @@index([groupId, createdAt(sort: Desc)])
+  @@index([actorId])
 }

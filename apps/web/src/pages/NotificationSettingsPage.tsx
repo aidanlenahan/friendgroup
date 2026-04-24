@@ -3,7 +3,10 @@ import {
   useNotificationConfig,
   useNotificationPreferences,
   useUpdateNotificationPreferences,
+  useTagPreferences,
+  useUpdateTagPreference,
 } from '../hooks/useNotifications'
+import { useGroups } from '../hooks/useGroups'
 import { useToast } from '../hooks/useToast'
 import { apiFetch, getApiErrorMessage } from '../lib/api'
 import Spinner from '../components/Spinner'
@@ -36,6 +39,10 @@ export default function NotificationSettingsPage() {
   const { data: config } = useNotificationConfig()
   const { data: prefsData, isLoading, isError, error } = useNotificationPreferences()
   const updatePrefs = useUpdateNotificationPreferences()
+  const updateTagPref = useUpdateTagPreference()
+  const { data: groupsData } = useGroups()
+  const [selectedGroupId, setSelectedGroupId] = useState<string>('')
+  const { data: tagPrefsData } = useTagPreferences(selectedGroupId)
 
   const [pushPermission, setPushPermission] = useState(
     typeof Notification !== 'undefined' ? Notification.permission : 'default',
@@ -245,6 +252,59 @@ export default function NotificationSettingsPage() {
       >
         {updatePrefs.isPending ? 'Saving...' : 'Save Preferences'}
       </button>
+
+      {/* Tag Subscriptions */}
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 mt-6">
+        <h3 className="text-sm font-semibold text-gray-300 mb-1">Tag Subscriptions</h3>
+        <p className="text-xs text-gray-500 mb-4">Subscribe to tags to receive notifications for events and messages tagged with topics you care about.</p>
+
+        {/* Group selector */}
+        {groupsData?.groups && groupsData.groups.length > 0 && (
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-gray-400 mb-1">Select group</label>
+            <select
+              value={selectedGroupId}
+              onChange={(e) => setSelectedGroupId(e.target.value)}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 w-full sm:w-auto"
+            >
+              <option value="">— Choose a group —</option>
+              {groupsData.groups.map((g) => (
+                <option key={g.id} value={g.id}>{g.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {selectedGroupId && (
+          tagPrefsData?.preferences && tagPrefsData.preferences.length > 0 ? (
+            <div className="space-y-2">
+              {tagPrefsData.preferences.map((pref) => (
+                <div key={pref.tagId} className="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
+                  <span className="text-sm text-gray-300">{pref.tagName}</span>
+                  <button
+                    role="switch"
+                    aria-checked={pref.subscribed}
+                    aria-label={`Subscribe to ${pref.tagName}`}
+                    onClick={async () => {
+                      try {
+                        await updateTagPref.mutateAsync({ tagId: pref.tagId, subscribed: !pref.subscribed })
+                      } catch {
+                        toast.error('Failed to update tag subscription')
+                      }
+                    }}
+                    disabled={updateTagPref.isPending}
+                    className={`w-10 h-6 rounded-full relative transition-colors disabled:opacity-50 ${pref.subscribed ? 'bg-indigo-600' : 'bg-gray-700'}`}
+                  >
+                    <span className={`absolute top-1 left-1 w-4 h-4 rounded-full bg-white transition-transform ${pref.subscribed ? 'translate-x-4' : ''}`} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">No tags in this group yet. Admins can create tags from the group management page.</p>
+          )
+        )}
+      </div>
     </div>
   )
 }

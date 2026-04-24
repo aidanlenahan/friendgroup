@@ -1,6 +1,6 @@
 ========================================================
 TASKS.TXT — Friendgroup Feature + Bug Backlog
-Last updated: 2026-04-16
+Last updated: 2026-04-23
 Format: [x] = done, [ ] = pending, [-] = in progress / partial
 Priority order: P1 = blocks any real user from using the app
                 P2 = core UX gaps visible to all users after launch
@@ -9,11 +9,25 @@ Priority order: P1 = blocks any real user from using the app
                 P5 = low priority / future enhancements
 ========================================================
 
-=== P1: Blocking Beta Launch (Auth / Registration) ===
-All pending. Currently the app has NO real authentication — it runs on dev-token
-JWTs only. No real user can register or log in without these tasks.
+=== P0: Must Fix Before Any Public Commit ===
 
-[ ] user registration flow — build POST /auth/register + RegisterPage UI
+[x] remove hardcoded real email addresses from source code — BLOCKS GIT PUSH
+    DONE 2026-04-23 — Removed all hardcoded personal emails from 4 locations:
+    1. apps/api/src/server.ts — ADMIN_EMAILS moved to module-level constant with no
+       fallback (defaults to []). GET /users/me now returns isAdmin flag in response.
+       All 4 auth endpoints (dev-token, verify-email, login, verify-login-code) also
+       return isAdmin in user payload.
+    2. apps/web/src/components/Layout.tsx — replaced email list check with user.isAdmin
+    3. apps/web/src/pages/DeveloperPage.tsx — removed ADMIN_EMAILS const, uses user.isAdmin.
+       Comment updated to remove personal email references.
+    4. apps/api/src/scripts/seed.ts — replaced aidanlenahan@gmail.com with
+       admin@example.com / seedadmin placeholder.
+    App.tsx now runs a GET /users/me on mount to refresh isAdmin for existing sessions.
+
+=== P1: Blocking Beta Launch (Auth / Registration) ===
+All core auth flows are implemented. App uses real JWT authentication.
+
+[x] user registration flow — build POST /auth/register + RegisterPage UI
     DONE 2026-04-16 — Full registration flow implemented. See
     tmp/chat/4-16-user-registration-flow.txt for full implementation notes.
     Summary:
@@ -56,28 +70,25 @@ JWTs only. No real user can register or log in without these tasks.
     env var and consumes a registration BetaCode atomically inside the same
     transaction that creates the user. If required and missing/invalid → 403.
 
-[ ] group creation beta code input — add to Create Group modal UI
-    PARTIAL — Backend is fully done: POST /groups checks
-    GROUP_CREATION_BETA_REQUIRED env var, validates and consumes a
-    group_creation BetaCode atomically. But the frontend Create Group
-    modal has NO beta code input field yet. Small frontend gap.
+[x] group creation beta code input — add to Create Group modal UI
+    DONE 2026-04-16 — GroupsPage.tsx Create Group modal has a betaCode input
+    field with BETA_CODE_REQUIRED / INVALID_BETA_CODE error handling. Backend
+    already validated and consumed the code atomically.
 
-[ ] forgot password functionality
-    PENDING — Depends on having real password auth (registration above).
-    Requires:
-    - POST /auth/forgot-password (generate time-limited token, send email)
-    - PasswordResetToken model in schema
-    - POST /auth/reset-password (validate token, update password hash)
-    - Frontend: ForgotPasswordPage, ResetPasswordPage routes
+[x] forgot password functionality
+    DONE 2026-04-17 — Full implementation:
+    - PasswordResetToken DB model (migration applied)
+    - POST /auth/forgot-password — generates secure token, sends email with link
+    - POST /auth/reset-password — validates token, updates passwordHash
+    - ForgotPasswordPage.tsx at /forgot-password
+    - ResetPasswordPage.tsx at /reset-password?token=...
+    - LoginPage has "Forgot password?" link
 
-[ ] verify email functionality
-    DONE 2026-04-16 (as part of registration flow) — emailVerified and
-    emailVerificationToken fields added to User schema. 6-digit OTP sent
-    via email on registration; VerifyEmailPage handles entry and resend.
-    POST /auth/login returns 403 EMAIL_NOT_VERIFIED if not yet verified.
-    Email-code login path also verifies the user on first use.
-    STILL PENDING: "Please verify your email" banner in the app for users
-    who somehow have emailVerified=false after initial login.
+[x] verify email functionality
+    DONE 2026-04-16 — emailVerified fields added. 6-digit OTP on registration.
+    Password login blocks unverified users (403 EMAIL_NOT_VERIFIED). Email-code
+    login auto-verifies on first use. NOTE: "verify email banner" is a non-issue
+    in practice — no login path produces a verified JWT for an unverified user.
 
 === P2: Core UX — Visible to All Users ===
 
@@ -87,38 +98,55 @@ JWTs only. No real user can register or log in without these tasks.
     defaults. Fixed text-gray-600 usages in EventPage and SettingsPage that were
     illegible (~2:1 contrast). App.css confirmed as dead code (unimported).
 
-[ ] build public user profile page at /u/:username
-    PENDING — Data layer is complete (username stored and unique).
-    Needs:
-    - Frontend route /u/:username → ProfilePage component
-    - GET /users/:username API endpoint (auth-gated)
-    - Show display name, username, avatar, mutual groups
-    - Link from members list and chat messages to this page
+[x] build public user profile page at /u/:username
+    DONE 2026-04-17 — Full implementation:
+    - GET /users/:username API endpoint (auth-gated, returns name/username/
+      avatarUrl/createdAt + mutualGroups list)
+    - UserProfilePage.tsx at /u/:username — shows avatar, display name,
+      @username, member-since year, and all mutual groups (linked)
+    - Route added to App.tsx
+    - Member names in GroupManagePage link to /u/:username
 
-[ ] event invites — add UI to invite specific users
-    PARTIAL — POST /events/:id/invites and GET /events/:id/invites API
-    endpoints exist. Frontend has no UI to use them. Needs:
-    - Invite modal on EventPage / CreateEventPage
-    - User search/add by email or username
-    - Display current invite list with pending/accepted status
+[x] event invites — add UI to invite specific users
+    DONE 2026-04-20 — Full invite modal in EventPage.tsx. "Invite Members"
+    button visible to event creator/admin. Modal shows already-invited members
+    (indigo chips) and uninvited active group members with individual Invite
+    buttons. Calls POST /events/:id/invites per user, refreshes list on success.
+    Invite list fetched from GET /events/:id/invites when modal opens.
 
-[ ] username change: show time remaining when change is blocked
-    PENDING — API already returns nextAllowedAt in the 422
-    USERNAME_CHANGE_TOO_SOON response. SettingsPage just needs to parse
-    this and display "You can change your username again in X months/days".
-    Small, high-impact UX win.
+[x] username change: show time remaining when change is blocked
+    DONE 2026-04-17 — ProfilePage now parses nextAllowedAt from the 422
+    USERNAME_CHANGE_TOO_SOON response body (ApiError.data field added).
+    Shows inline red error: "Username can be changed again on April 14, 2027
+    (12 months from now)" instead of a generic toast.
 
-[ ] profile photo — limit to one per user, overwrite previous on change
-    PENDING — Current flow creates a new MediaAsset on every upload.
-    Fix: when context='avatar', server looks up prior avatar MediaAsset,
-    deletes the S3 object, then saves the new one in its place.
-    Backend change in POST /media/upload-url or new PUT /users/me/avatar.
+[x] profile photo — limit to one per user, overwrite previous on change
+    DONE 2026-04-20 — PATCH /users/me already handles avatar overwrite:
+    when avatarUrl changes, looks up existing avatarUrl on User, extracts
+    the S3 objectKey (paths starting with avatars/), issues DeleteObjectCommand,
+    then saves new avatarUrl. Old object silently ignored if delete fails.
+    Avatar uploads do NOT create MediaAsset rows — they're stored as a URL
+    field on User directly via /media/avatar-upload-url presigned PUT.
 
-[ ] email notifications — wire automatic dispatch on app events
-    PENDING — Resend integration and POST /notifications/test/email exist.
-    Automatic email on event_created / chat_message / invite / rsvp_update
-    is NOT wired. Only push (web push) goes through BullMQ fanout today.
-    Add email path inside the fanout worker gated on UserNotificationPreference.
+[x] email notifications — wire automatic dispatch on app events
+    DONE 2026-04-20 — Email path already present in notificationWorker fanout
+    (server.ts lines ~187-235). After push, checks emailPref (default true)
+    and calls sendTransactionalEmail via buildNotificationEmail if
+    isMailConfigured(). Gated on UserNotificationPreference per type+channel.
+    CTA URL updated 2026-04-20: now uses deep link to /events/:id when
+    eventId is present in the notification job data, falls back to WEB_BASE_URL.
+
+[x] owner must approve users — send email on new join request
+    DONE 2026-04-20 — POST /groups/join sends transactional email to group
+    owner (server.ts lines ~2674-2703) with HTML+text body, CTA button
+    linking to /groups/:id?tab=members. Works in dev (logged) and prod.
+
+[x] invite members via formatted code (XXXX-XXXX-XXXX)
+    DONE 2026-04-17 — Invite code displayed as XXXX-XXXX-XXXX in GroupPage +
+    GroupManagePage. Join Group modal accepts formatted or raw code (dashes
+    stripped before API call). All members (not just admins) can view and
+    copy the invite code; only admins can regenerate it. Profile names in
+    the members tab are clickable links to /u/:username.
 
 === P3: Feature Completeness / Secondary UX ===
 
@@ -130,34 +158,58 @@ JWTs only. No real user can register or log in without these tasks.
       with separate .env.production, MinIO bucket, Redis instance
     - Beta codes already gate access; decision needed before public push
 
-[ ] storage limit enforcement (per user and/or per group)
-    PENDING — No quota enforcement beyond per-event media limit.
-    Decide: per-user total bytes OR per-group total bytes (or both),
-    then track via MediaAsset aggregation and enforce at upload-url time.
+[x] storage limit enforcement (per user and/or per group)
+    DONE 2026-04-20 — Added mediaMaxUserBytes constant (default 1 GB,
+    configurable via MEDIA_MAX_USER_BYTES env var). Per-user aggregate
+    check added to both POST /media/upload-url and POST /media/complete
+    (the latter re-checks at commit time). Returns 413 with code
+    USER_MEDIA_QUOTA_EXCEEDED when user's total uploaded bytes would
+    exceed the limit. Existing per-event cap (MEDIA_MAX_EVENT_BYTES,
+    default 200 MB) and per-file cap (MEDIA_MAX_FILE_BYTES, default 10 MB)
+    are unchanged.
 
-[ ] make debug/dev pages visible in the UI
-    PENDING — Debug and QA route pages exist but may not be reachable
-    from normal navigation. Enable in dev/staging at minimum.
+[x] make debug/dev pages visible in the UI
+    DONE 2026-04-17 — Developer page created at /developer (admin-only,
+    guarded by ADMIN_EMAILS env var). Accessible via sidebar button for
+    admin accounts. Contains Phase 7 + Phase 9 debug tools and config
+    management. Removed from SettingsPage.
 
 [ ] recurring events
     PENDING — No recurrence model in schema. Needs RRULE support
     (rrule npm package), recurrenceRule field on Event, and UI for
     frequency/until/count in CreateEventPage. Not needed for initial beta.
 
-[ ] audit logs for membership and event changes
-    PENDING — No AuditLog model yet. Would log member join/remove, role
-    change, event create/edit/delete, with actor, target, timestamp, diff.
-    Useful for group owner transparency. Not started.
+[x] audit logs for membership and event changes
+    DONE 2026-04-20 — AuditLog model in schema (groupId, actorId, action,
+    targetUserId, meta, createdAt). 5 create calls for member_joined,
+    member_approved, member_denied, member_removed, role_changed actions.
+    GET /groups/:groupId/audit-log endpoint (admin/owner only). Collapsible
+    audit log section in GroupManagePage.tsx.
+
+[x] admin rights to regular users — approve/remove/manage group
+    DONE 2026-04-14/17 — Admin role system fully implemented. Admins can
+    approve/deny join requests, remove members (non-owners), regenerate
+    invite codes, and edit group info. Group management page at
+    /groups/:groupId/manage (admin+ only; destructive actions owner-only).
 
 === P4: Integrations ===
 
-[ ] review and harden ICS / calendar sync
-    PENDING — ICS export (GET /events/:id/calendar.ics), Google Calendar
-    deep-link, and group feed (GET /groups/:groupId/calendar.ics) are
-    implemented (Phase 8). BullMQ calendarSync queue exists. Still needs:
-    - Test ICS import in real clients (Google, Apple, Outlook)
-    - Verify VTIMEZONE blocks are correct
-    - Webhook receiver exists but has no real Google/Apple provider wired up
+[x] review and harden ICS / calendar sync
+    DONE 2026-04-20 — Hardened calendar.ts:
+    - CalendarEventInput type now includes endsAt and location fields
+    - DTEND uses event.endsAt when available (was always computed +2h)
+    - LOCATION: field added to VEVENT when event.location is set
+    - URL: field added to VEVENT linking to /events/:id
+    - SEQUENCE:0 field added for client update tracking
+    - RFC 5545 §3.1 line folding implemented (fold at 75 octets,
+      continuation lines prefixed with SPACE+CRLF)
+    - DESCRIPTION now omitted when empty (was emitting blank field)
+    - All three ICS routes updated to pass endsAt and location:
+      GET /events/:id/calendar.ics, GET /groups/:groupId/calendar.ics
+    - Google Calendar link also now passes endsAt and location param
+    Still not done (not feasible without testing devices):
+    - Manual real-client testing (Google, Apple Calendar, Outlook)
+    - Webhook provider wiring (Google/Apple push notifications)
 
 === P5: Low Priority / Future ===
 
@@ -168,9 +220,15 @@ JWTs only. No real user can register or log in without these tasks.
     Tailwind v4 CSS vars remapped for light mode. Persists across logins.
     WebKit overscroll background set explicitly in both modes.
 
-[ ] event media ratings (per-asset)
-    PENDING — Distinct from event-level rating (1-10, legendary — done).
-    Per-MediaAsset ratings need a new schema field and UI. Very low priority.
+[x] event media ratings (per-asset)
+    DONE 2026-04-23 — Per-media-asset like/unlike system:
+    - DB: MediaAssetLike model added (assetId, userId, unique constraint)
+      MediaAsset.likes relation added. Migration 20260423175521_add_mute_and_media_likes.
+    - API: GET /events/:id/media now includes likeCount and likedByMe per asset.
+      POST /media/:assetId/like toggles like (creates or deletes MediaAssetLike).
+      Validates event access via canAccessEvent before toggling.
+    - Frontend: EventMediaResponse type updated, useLikeMedia hook added to useEvents.ts.
+      EventPage media grid shows ♥ like button overlay per image with count.
 
 [ ] verify account via alternative channel (WhatsApp, Telegram, SMS)
     PENDING — Low priority until core email verify is done. Options:
@@ -240,14 +298,75 @@ JWTs only. No real user can register or log in without these tasks.
     upload, PWA/service worker, calendar integration, testing suite,
     polish/edge cases, frontend UX/accessibility hardening — all done.
 
+[x] get chat to work / have general chat on the group
+    DONE 2026-04-17 — Group channel chat fully implemented. Socket.IO
+    channel rooms (join:channel, leave:channel, channel:message:send,
+    channel:typing). ChannelPage UI with cursor-paginated history, typing
+    indicators, message reactions. Channels listed in GroupPage sidebar.
+    See tmp/chat/4-17-group-channel-chat.txt for full implementation log.
+
+[x] owner can remove users
+    DONE 2026-04-14/17 — DELETE /groups/:groupId/members/:userId endpoint.
+    GroupManagePage Members section: Remove button (with confirm) shown
+    for any non-owner member. Owners can also demote admins before removing.
 
 
-[ ] invite members via 12 digit code in the form of XXXX-XXXX-XXXX
-[ ] owner can remove users
-[ ] owner must approve users, gets email when new member requests to join
-[ ] later implement admin rights to regular users to approve and remove users and have general permissions over the group
-[ ] get chat to work
-[ ] have general chat on the group
-[ ] fine tune notifications
-[ ] get uploads to work - maybe 100 pictures per person and no videos?
-[ ] get profile picture uploads to work - one per person. if new upload profile picture, it overwrites the old one
+
+
+[x] fine tune notifications
+    DONE 2026-04-22 — Tag subscription UI added to NotificationSettingsPage.
+    Group selector dropdown shows user's groups; when selected, lists all group
+    tags as toggle switches. Calls PUT /notifications/preferences/tags/:tagId.
+[x] get uploads to work - maybe 100 pictures per person and no videos?
+    DONE 2026-04-22 — Added image-only MIME type allowlist (jpeg/png/gif/webp/avif)
+    and 100-file per-user cap to both POST /media/upload-url and POST /media/complete.
+    Returns 415 UNSUPPORTED_MEDIA_TYPE for non-images, 413 USER_MEDIA_FILE_LIMIT_EXCEEDED
+    when over 100 files.
+[x] get profile picture uploads to work - one per person. if new upload profile picture, it overwrites the old one
+    DONE 2026-04-22 — Added Profile section to SettingsPage.tsx with avatar preview
+    (shows initial letter if no photo) and Upload Photo button. File input restricted
+    to image/jpeg,image/png,image/gif,image/webp,image/avif; client-side 5 MB cap.
+    Upload flow: POST /media/avatar-upload-url (presigned S3 URL) → PUT to S3 →
+    PATCH /users/me with new publicUrl (server deletes old S3 object automatically).
+    Auth store updated on success so new avatar appears immediately throughout app.
+[x] group auto approves??? fix this
+    DONE 2026-04-22 — requireGroupMembership in authorization.ts now checks
+    membership.status !== 'active' in addition to !membership. Pending members
+    receive 403 instead of being treated as active members.
+[x] mute members
+    DONE 2026-04-23 — Full mute/unmute system implemented:
+    - DB: mutedUntil DateTime? added to Membership model
+      (migration 20260423175521_add_mute_and_media_likes applied)
+    - API: POST /groups/:groupId/members/:userId/mute (admin+, body: { durationHours? })
+      POST /groups/:groupId/members/:userId/unmute (admin+)
+      GET /groups/:groupId/members now returns mutedUntil per member
+    - Chat enforcement: message:send and channel:message:send in chat.ts check
+      mutedUntil > now before persisting; emits MUTED socket error if muted
+    - Frontend: useMuteMember / useUnmuteMember hooks added to useGroups.ts
+      GroupManagePage.tsx shows Mute/Unmute buttons per member (non-owner, non-self)
+      with Confirm/Cancel for Mute. Muted members show amber Unmute button.
+
+Tags
+[x] have any user able to create a tag (modified: owner/admin only per user request)
+    DONE 2026-04-22 — POST /groups/:groupId/tags restricted to owner/admin.
+    PATCH /groups/:groupId/tags/:tagId also restricted to owner/admin.
+    Tags management section moved from GroupPage tabs to GroupManagePage admin section.
+[x] have users able to add tags to their profile (to subscribe to those topics) on the profile settings page
+    DONE 2026-04-23 — Tag Subscriptions section added to SettingsPage.tsx.
+    Group selector dropdown, then toggle switches per tag (indigo = subscribed).
+    Uses existing useTagPreferences/useUpdateTagPreference hooks and
+    PUT /notifications/preferences/tags/:tagId endpoint.
+[x] tags add to events
+    DONE 2026-04-22 — PATCH /events/:id/tags endpoint added; any active group member
+    can set tags on an event (validated tagIds belong to same group). Tag toggle
+    UI added to EventPage for any member.
+
+[x] Google maps API for event location, so location can be opened in google maps, or maybe apple maps or waze
+    DONE 2026-04-23 — EventPage.tsx location row now shows inline links:
+    Google Maps, Apple Maps, Waze — all open in new tab using the event
+    location string as the search query. No API key required (search URLs).
+[x] let's do rating out of 5 stars, and show an average, trunkated at tenths place, i.e. 4.5, 3.2, 1.6, etc.
+    DONE 2026-04-22 — Moved rating from Event.rating Int? to EventRating table (per-user
+    1-5 stars). Migration 20260422121405_event_ratings applied. GET /events/:id now
+    returns avgRating (1 decimal), myRating, ratingCount. POST /events/:id/ratings
+    upserts user rating. EventPage shows 5-star UI with amber fill and running average.

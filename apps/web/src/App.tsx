@@ -1,7 +1,8 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useEffect } from 'react'
 import { useAuthStore } from './stores/authStore'
-import { ApiError } from './lib/api'
+import { ApiError, apiFetch } from './lib/api'
 import { useThemeApplier } from './hooks/useTheme'
 import Layout from './components/Layout'
 import LoginPage from './pages/LoginPage'
@@ -11,12 +12,17 @@ import ForgotPasswordPage from './pages/ForgotPasswordPage'
 import ResetPasswordPage from './pages/ResetPasswordPage'
 import GroupsPage from './pages/GroupsPage'
 import GroupPage from './pages/GroupPage'
+import GroupManagePage from './pages/GroupManagePage'
 import EventPage from './pages/EventPage'
 import CreateEventPage from './pages/CreateEventPage'
 import SettingsPage from './pages/SettingsPage'
+import ProfilePage from './pages/ProfilePage'
+import UserProfilePage from './pages/UserProfilePage'
 import NotificationSettingsPage from './pages/NotificationSettingsPage'
+import ChannelPage from './pages/ChannelPage'
 import { Phase7DebugPage } from './pages/Phase7DebugPage'
 import { Phase9DiagnosticsPage } from './pages/Phase9DiagnosticsPage'
+import DeveloperPage from './pages/DeveloperPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -53,6 +59,17 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 
 export default function App() {
   useThemeApplier()
+  const { token, user, login } = useAuthStore()
+
+  // Refresh user profile on mount so isAdmin and other fields stay in sync
+  useEffect(() => {
+    if (!token || !user) return
+    apiFetch<{ user: typeof user & { isAdmin?: boolean } }>('/users/me')
+      .then((data) => { if (data.user) login(token, data.user) })
+      .catch(() => {/* silently ignore — stale store data is acceptable */})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   return (
     <QueryClientProvider client={queryClient}>
       <Routes>
@@ -75,10 +92,15 @@ export default function App() {
           <Route index element={<Navigate to="/groups" replace />} />
           <Route path="/groups" element={<GroupsPage />} />
           <Route path="/groups/:groupId" element={<GroupPage />} />
+          <Route path="/groups/:groupId/manage" element={<GroupManagePage />} />
           <Route path="/groups/:groupId/events/new" element={<CreateEventPage />} />
           <Route path="/events/:eventId" element={<EventPage />} />
+          <Route path="/groups/:groupId/channels/:channelId" element={<ChannelPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="/settings/notifications" element={<NotificationSettingsPage />} />
+          <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/u/:username" element={<UserProfilePage />} />
+          <Route path="/developer" element={<DeveloperPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

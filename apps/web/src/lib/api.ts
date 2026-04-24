@@ -75,17 +75,20 @@ export class ApiError extends Error {
   status: number
   code: string
   retryAfterSeconds?: number
+  data?: Record<string, unknown>
 
   constructor(
     status: number,
     code: string,
     message: string,
     retryAfterSeconds?: number,
+    data?: Record<string, unknown>,
   ) {
     super(message)
     this.status = status
     this.code = code
     this.retryAfterSeconds = retryAfterSeconds
+    this.data = data
   }
 }
 
@@ -144,7 +147,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     res = await fetch(`${base}${path}`, {
       ...init,
       headers: {
-        'Content-Type': 'application/json',
+        ...(init.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...init.headers,
       },
@@ -167,6 +170,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
       body?.code ?? 'UNKNOWN',
       body?.error ?? message ?? res.statusText,
       Number.isFinite(retryAfterSeconds) ? retryAfterSeconds : undefined,
+      body ?? undefined,
     )
   }
 

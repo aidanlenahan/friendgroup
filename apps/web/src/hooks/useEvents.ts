@@ -12,12 +12,14 @@ export type EventRecord = {
   endsAt?: string | null
   location?: string | null
   isLegendary?: boolean
-  rating?: number | null
+  avgRating?: number | null
+  myRating?: number | null
+  ratingCount?: number
   tags?: EventTag[]
 }
 
 type EventsResponse = { events: EventRecord[] }
-type EventResponse = { event: EventRecord }
+type EventResponse = { event: EventRecord; isAdmin?: boolean; isCreator?: boolean }
 type AttendanceResponse = {
   counts: { yes: number; no: number; maybe: number }
   attendees: Array<{
@@ -32,6 +34,8 @@ type EventMediaResponse = {
     filename: string
     mimeType: string
     sizeBytes: number
+    likeCount: number
+    likedByMe: boolean
   }>
 }
 type CreateEventInput = {
@@ -113,8 +117,17 @@ export function useRsvp(eventId: string) {
 export function useEventRating(eventId: string) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: { rating?: number; isLegendary?: boolean }) =>
-      apiFetch(`/events/${eventId}/rating`, { method: 'PATCH', body: JSON.stringify(data) }),
+    mutationFn: (value: number) =>
+      apiFetch(`/events/${eventId}/ratings`, { method: 'POST', body: JSON.stringify({ value }) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
+  })
+}
+
+export function useSetEventTags(eventId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (tagIds: string[]) =>
+      apiFetch(`/events/${eventId}/tags`, { method: 'PATCH', body: JSON.stringify({ tagIds }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
   })
 }
@@ -124,5 +137,14 @@ export function useEventMedia(eventId: string) {
     queryKey: ['events', eventId, 'media'],
     queryFn: () => apiFetch<EventMediaResponse>(`/events/${eventId}/media`),
     enabled: !!eventId,
+  })
+}
+
+export function useLikeMedia(eventId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (assetId: string) =>
+      apiFetch<{ liked: boolean }>(`/media/${assetId}/like`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['events', eventId, 'media'] }),
   })
 }

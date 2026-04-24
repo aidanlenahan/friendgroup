@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { apiFetch } from '../lib/api'
+import { apiFetch, ApiError } from '../lib/api'
 import { useAuthStore } from '../stores/authStore'
 
 type AuthResponse = {
@@ -15,10 +15,19 @@ type AuthResponse = {
   }
 }
 
-type EmailNotVerifiedError = {
-  code: 'EMAIL_NOT_VERIFIED'
-  userId: string
+type VerifyResponse = {
+  token: string
+  user: {
+    id: string
+    email: string
+    name: string
+    username?: string | null
+    avatarUrl?: string | null
+    theme?: string | null
+  }
 }
+
+const RESEND_COOLDOWN = 60
 
 type Mode = 'password' | 'email-code' | 'email-code-verify'
 
@@ -31,12 +40,41 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [loading, setLoading] = useState(false)
+  // Email-not-verified inline verification
+  const [verifyUserId, setVerifyUserId] = useState('')
+  const [verifyCode, setVerifyCode] = useState('')
+  const [verifyLoading, setVerifyLoading] = useState(false)
+  const [resendCooldown, setResendCooldown] = useState(0)
+  const [resendMessage, setResendMessage] = useState('')
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const { login } = useAuthStore()
   const navigate = useNavigate()
+
+  useEffect(() => {
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current)
+    }
+  }, [])
+
+  const startResendCooldown = () => {
+    setResendCooldown(RESEND_COOLDOWN)
+    intervalRef.current = setInterval(() => {
+      setResendCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(intervalRef.current!)
+          return 0
+        }
+        return prev - 1
+      })
+    }, 1000)
+  }
 
   const handlePasswordLogin = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    setVerifyUserId('')
+    setVerifyCode('')
+    setResendMessage('')
     setLoading(true)
     try {
       const data = await apiFetch<AuthResponse>('/auth/login', {
@@ -46,20 +84,70 @@ export default function LoginPage() {
       login(data.token, { ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
       navigate('/groups')
     } catch (err) {
-      // If email not verified, send user to verify page
-      const raw = err instanceof Error ? err.message : ''
-      try {
-        const parsed: EmailNotVerifiedError = JSON.parse(raw)
-        if (parsed.code === 'EMAIL_NOT_VERIFIED') {
-          navigate(`/verify-email?userId=${parsed.userId}`)
-          return
+      if (err instanceof ApiError && err.code === 'EMAIL_NOT_VERIFIED') {
+        const userId = (err.data?.userId as string) ?? ''
+        setVerifyUserId(userId)
+        // Automatically send a fresh code; ignore cooldown errors (code already sent)
+        try {
+          await apiFetch('/auth/resend-verification', {
+            method: 'POST',
+            body: JSON.stringify({ userId }),
+          })
+          setResendMessage('A verification code has been sent to your email.')
+          startResendCooldown()
+        } catch (resendErr) {
+          if (resendErr instanceof ApiError && resendErr.code === 'RESEND_COOLDOWN') {
+            setResendMessage('A code was recently sent to your email. Check your inbox.')
+            const secs = (resendErr.data?.secondsRemaining as number) ?? RESEND_COOLDOWN
+            setResendCooldown(secs)
+            intervalRef.current = setInterval(() => {
+              setResendCooldown((prev) => {
+                if (prev <= 1) { clearInterval(intervalRef.current!); return 0 }
+                return prev - 1
+              })
+            }, 1000)
+          }
         }
-      } catch {
-        // not JSON, fall through
+        setError('Email not verified. Enter the 6-digit code sent to your inbox.')
+        return
       }
-      setError(raw || 'Sign in failed')
+      setError(err instanceof Error ? err.message : 'Sign in failed')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleVerifyEmail = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setVerifyLoading(true)
+    try {
+      const data = await apiFetch<VerifyResponse>('/auth/verify-email', {
+        method: 'POST',
+        body: JSON.stringify({ userId: verifyUserId, code: verifyCode }),
+      })
+      login(data.token, { ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
+      navigate('/groups')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Verification failed')
+    } finally {
+      setVerifyLoading(false)
+    }
+  }
+
+  const handleResendVerification = async () => {
+    if (resendCooldown > 0) return
+    setResendMessage('')
+    setError('')
+    try {
+      await apiFetch('/auth/resend-verification', {
+        method: 'POST',
+        body: JSON.stringify({ userId: verifyUserId }),
+      })
+      setResendMessage('A new code has been sent to your email.')
+      startResendCooldown()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not resend code')
     }
   }
 
@@ -142,23 +230,64 @@ export default function LoginPage() {
                 className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               {error && <p className="text-red-400 text-sm">{error}</p>}
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-colors"
-              >
-                {loading ? 'Signing in...' : 'Sign in'}
-              </button>
+              {!verifyUserId && (
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-colors"
+                >
+                  {loading ? 'Signing in...' : 'Sign in'}
+                </button>
+              )}
             </form>
-            <div className="text-center">
-              <button
-                type="button"
-                onClick={switchToEmailCode}
-                className="text-sm text-gray-400 hover:text-indigo-300 transition-colors"
-              >
-                Other methods →
-              </button>
-            </div>
+
+            {/* Inline email verification after EMAIL_NOT_VERIFIED error */}
+            {verifyUserId && (
+              <form onSubmit={handleVerifyEmail} className="space-y-3">
+                <p className="text-gray-400 text-sm">Enter the 6-digit code from your email:</p>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  pattern="\d{6}"
+                  value={verifyCode}
+                  onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  maxLength={6}
+                  autoFocus
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white text-center text-2xl tracking-widest placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+                {resendMessage && <p className="text-green-400 text-sm">{resendMessage}</p>}
+                <button
+                  type="submit"
+                  disabled={verifyLoading || verifyCode.length !== 6}
+                  className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-colors"
+                >
+                  {verifyLoading ? 'Verifying...' : 'Verify email'}
+                </button>
+                <div className="text-center">
+                  <button
+                    type="button"
+                    onClick={handleResendVerification}
+                    disabled={resendCooldown > 0}
+                    className="text-sm text-indigo-400 hover:text-indigo-300 disabled:text-gray-600 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : 'Resend code'}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {!verifyUserId && (
+              <div className="text-center">
+                <button
+                  type="button"
+                  onClick={switchToEmailCode}
+                  className="text-sm text-gray-400 hover:text-indigo-300 transition-colors"
+                >
+                  Other methods →
+                </button>
+              </div>
+            )}
             <div className="text-center">
               <Link to="/forgot-password" className="text-sm text-gray-500 hover:text-indigo-300 transition-colors">
                 Forgot password?

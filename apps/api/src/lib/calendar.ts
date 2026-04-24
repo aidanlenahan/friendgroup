@@ -3,6 +3,8 @@ export type CalendarEventInput = {
   title: string;
   details?: string | null;
   dateTime: Date;
+  endsAt?: Date | null;
+  location?: string | null;
   updatedAt: Date;
 };
 
@@ -22,6 +24,26 @@ function escapeIcsText(value: string) {
 
 function toUtcIcsDate(date: Date) {
   return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
+/**
+ * RFC 5545 §3.1 — fold long content lines at 75 octets.
+ * Each continuation line must start with a single HTAB or SPACE.
+ */
+function foldLine(line: string): string {
+  const MAX = 75;
+  if (line.length <= MAX) return line;
+  let result = "";
+  let remaining = line;
+  // First chunk: up to 75 chars
+  result += remaining.slice(0, MAX);
+  remaining = remaining.slice(MAX);
+  // Subsequent chunks: 74 chars each (1 char used by the leading space)
+  while (remaining.length > 0) {
+    result += "\r\n " + remaining.slice(0, 74);
+    remaining = remaining.slice(74);
+  }
+  return result;
 }
 
 function eventLink(eventId: string, webBaseUrl?: string) {
@@ -54,22 +76,38 @@ function buildEventBlock(
   defaultDurationMinutes: number
 ) {
   const start = event.dateTime;
-  const end = new Date(start.getTime() + defaultDurationMinutes * 60 * 1000);
+  const end = event.endsAt ?? new Date(start.getTime() + defaultDurationMinutes * 60 * 1000);
   const uid = `${event.id}@friendgroup.dev`;
   const summary = escapeIcsText(event.title);
   const description = escapeIcsText(eventDescription(event, webBaseUrl));
+  const link = eventLink(event.id, webBaseUrl);
 
-  return [
+  const lines = [
     "BEGIN:VEVENT",
     `UID:${uid}`,
     `DTSTAMP:${toUtcIcsDate(event.updatedAt)}`,
     `LAST-MODIFIED:${toUtcIcsDate(event.updatedAt)}`,
     `DTSTART:${toUtcIcsDate(start)}`,
     `DTEND:${toUtcIcsDate(end)}`,
+    `SEQUENCE:0`,
     `SUMMARY:${summary}`,
-    `DESCRIPTION:${description}`,
-    "END:VEVENT",
   ];
+
+  if (description) {
+    lines.push(`DESCRIPTION:${description}`);
+  }
+
+  if (event.location) {
+    lines.push(`LOCATION:${escapeIcsText(event.location)}`);
+  }
+
+  if (link) {
+    lines.push(`URL:${link}`);
+  }
+
+  lines.push("END:VEVENT");
+
+  return lines;
 }
 
 export function buildIcsCalendar(
@@ -94,7 +132,7 @@ export function buildIcsCalendar(
   }
 
   lines.push("END:VCALENDAR");
-  return `${lines.join("\r\n")}\r\n`;
+  return lines.map(foldLine).join("\r\n") + "\r\n";
 }
 
 export function buildGoogleCalendarLink(
@@ -103,7 +141,7 @@ export function buildGoogleCalendarLink(
   defaultDurationMinutes = 120
 ) {
   const start = event.dateTime;
-  const end = new Date(start.getTime() + defaultDurationMinutes * 60 * 1000);
+  const end = event.endsAt ?? new Date(start.getTime() + defaultDurationMinutes * 60 * 1000);
 
   const params = new URLSearchParams({
     action: "TEMPLATE",
@@ -116,5 +154,10 @@ export function buildGoogleCalendarLink(
     params.set("details", details);
   }
 
+  if (event.location) {
+    params.set("location", event.location);
+  }
+
   return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }
+

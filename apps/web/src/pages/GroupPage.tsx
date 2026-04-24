@@ -3,7 +3,6 @@ import { useParams, Link } from 'react-router-dom'
 import {
   useGroup,
   useGroupMembers,
-  useGroupTags,
   useGroupChannels,
   useSubscribeGroupChannel,
   useUnsubscribeGroupChannel,
@@ -16,16 +15,15 @@ import {
 } from '../hooks/useGroups'
 import { useEvents, useDeleteEvent } from '../hooks/useEvents'
 import EventCard from '../components/EventCard'
-import TagBadge from '../components/TagBadge'
 import Avatar from '../components/Avatar'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
-import { getApiErrorMessage } from '../lib/api'
+import { getApiErrorMessage, ApiError } from '../lib/api'
 import { useToast } from '../hooks/useToast'
 import { useIsOnline } from '../hooks/useIsOnline'
 import { useAuthStore } from '../stores/authStore'
 
-type Tab = 'events' | 'members' | 'tags' | 'channels'
+type Tab = 'events' | 'members' | 'channels'
 
 type EventSummary = {
   id: string
@@ -103,7 +101,6 @@ export default function GroupPage() {
     refetch: refetchGroup,
   } = useGroup(groupId!)
   const { data: membersData } = useGroupMembers(groupId!)
-  const { data: tagsData } = useGroupTags(groupId!)
   const { data: channelsData } = useGroupChannels(groupId!)
   const { data: eventsData, isLoading: eventsLoading } = useEvents(groupId!)
   const { data: inviteCodeData, refetch: refetchInviteCode } = useGroupInviteCode(groupId!)
@@ -166,7 +163,21 @@ export default function GroupPage() {
     const code = inviteCodeData?.inviteCode
     if (!code) return
     try {
-      await navigator.clipboard.writeText(code)
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(code)
+      } else {
+        // Fallback for HTTP / non-secure contexts
+        const el = document.createElement('textarea')
+        el.value = code
+        el.style.position = 'fixed'
+        el.style.opacity = '0'
+        document.body.appendChild(el)
+        el.focus()
+        el.select()
+        const ok = document.execCommand('copy')
+        document.body.removeChild(el)
+        if (!ok) throw new Error('execCommand failed')
+      }
       setCopiedCode(true)
       setTimeout(() => setCopiedCode(false), 2000)
     } catch {
@@ -177,6 +188,7 @@ export default function GroupPage() {
   const handleRegenerateCode = async () => {
     try {
       await regenerateCode.mutateAsync()
+      await refetchInviteCode()
       toast.success('Invite code regenerated')
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Failed to regenerate code'))
@@ -214,7 +226,7 @@ export default function GroupPage() {
   if (groupError && !group) {
     return (
       <div className="flex flex-col items-center py-16 gap-3 text-gray-400">
-        <p>{!isOnline ? 'You are offline and there is no cached data.' : getApiErrorMessage(groupErrorDetails, 'Failed to load group.')}</p>
+        <p>{!isOnline ? 'You are offline and there is no cached data.' : (groupErrorDetails instanceof ApiError && groupErrorDetails.code === 'MEMBERSHIP_PENDING' ? groupErrorDetails.message : getApiErrorMessage(groupErrorDetails, 'Failed to load group.'))}</p>
         {isOnline && (
           <button
             onClick={() => refetchGroup()}
@@ -236,7 +248,6 @@ export default function GroupPage() {
   const tabs: { key: Tab; label: string }[] = [
     { key: 'events', label: 'Events' },
     { key: 'members', label: `Members (${group._count?.memberships ?? 0})` },
-    { key: 'tags', label: 'Tags' },
     { key: 'channels', label: 'Channels' },
   ]
 
@@ -248,12 +259,26 @@ export default function GroupPage() {
         </div>
       )}
       {/* Group Header */}
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-white">{group.name}</h2>
-        {group.description && <p className="text-gray-400 mt-1">{group.description}</p>}
-        <p className="text-gray-500 text-sm mt-1">
-          {group._count?.memberships ?? 0} members
-        </p>
+      <div className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-2xl font-bold text-white">{group.name}</h2>
+          {group.description && <p className="text-gray-400 mt-1">{group.description}</p>}
+          <p className="text-gray-500 text-sm mt-1">
+            {group._count?.memberships ?? 0} members
+          </p>
+        </div>
+        {isAdmin && (
+          <Link
+            to={`/groups/${groupId}/manage`}
+            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 hover:border-indigo-600 hover:text-white text-xs font-medium transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            Manage
+          </Link>
+        )}
       </div>
 
       {/* Tab Bar */}
@@ -318,25 +343,25 @@ export default function GroupPage() {
       {/* Members Tab */}
       {activeTab === 'members' && (
         <div className="space-y-4">
-          {/* Invite Users button + invite code panel — owner/admin only */}
-          {isAdmin && (
-            <div className="flex justify-end">
-              <button
-                onClick={handleShowInviteCode}
-                className="text-xs px-3 py-1.5 rounded-lg bg-indigo-900/50 border border-indigo-700 text-indigo-300 hover:bg-indigo-800/50 transition-colors font-medium"
-              >
-                Invite Users
-              </button>
-            </div>
-          )}
+          {/* Invite Users button + invite code panel — all members */}
+          <div className="flex justify-end">
+            <button
+              onClick={handleShowInviteCode}
+              className="text-xs px-3 py-1.5 rounded-lg bg-indigo-900/50 border border-indigo-700 text-indigo-300 hover:bg-indigo-800/50 transition-colors font-medium"
+            >
+              Invite Users
+            </button>
+          </div>
 
-          {/* Invite code panel */}
-          {showInviteCode && isAdmin && (
+          {/* Invite code panel — all members can view/copy; only admins can regen */}
+          {showInviteCode && (
             <div className="bg-gray-900 rounded-xl border border-indigo-800 p-4 space-y-3">
               <p className="text-sm text-gray-400">Share this code with people you want to invite. They can use it from the Groups page.</p>
               <div className="flex items-center gap-2">
                 <code className="flex-1 font-mono text-lg tracking-widest text-indigo-300 bg-gray-800 rounded-lg px-4 py-2 select-all">
-                  {inviteCodeData?.inviteCode ?? '————————————'}
+                  {inviteCodeData?.inviteCode
+                    ? inviteCodeData.inviteCode.match(/.{1,4}/g)?.join('-')
+                    : '————————————'}
                 </code>
                 <button
                   onClick={handleCopyCode}
@@ -347,7 +372,7 @@ export default function GroupPage() {
                 </button>
               </div>
               <div className="flex items-center justify-between">
-                {isOwner && (
+                {isAdmin && (
                   <button
                     onClick={handleRegenerateCode}
                     disabled={regenerateCode.isPending}
@@ -419,14 +444,32 @@ export default function GroupPage() {
                   Active Members ({activeMembers.length})
                 </h4>
               )}
-              {activeMembers.map((m) => (
+              {activeMembers.map((m) => {
+                const isSelf = m.userId === currentUser?.id
+                return (
                 <div
                   key={m.userId}
                   className="flex items-center gap-3 bg-gray-900 rounded-xl p-3 border border-gray-800"
                 >
                   <Avatar name={m.name} avatarUrl={m.avatarUrl} size="sm" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white truncate">{m.name}</p>
+                    {isSelf ? (
+                      <Link
+                        to="/profile"
+                        className="text-sm font-medium text-white hover:text-indigo-300 transition-colors truncate block"
+                      >
+                        {m.name}<span className="text-xs text-gray-500 ml-1">(you)</span>
+                      </Link>
+                    ) : m.username ? (
+                      <Link
+                        to={`/u/${m.username}`}
+                        className="text-sm font-medium text-white hover:text-indigo-300 transition-colors truncate block"
+                      >
+                        {m.name}
+                      </Link>
+                    ) : (
+                      <p className="text-sm font-medium text-white truncate">{m.name}</p>
+                    )}
                     {m.username && (
                       <p className="text-xs text-indigo-400">@{m.username}</p>
                     )}
@@ -478,22 +521,7 @@ export default function GroupPage() {
                     </div>
                   )}
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Tags Tab */}
-      {activeTab === 'tags' && (
-        <div>
-          {!tagsData?.tags?.length ? (
-            <EmptyState title="No tags" description="Tags help categorize events in this group." />
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {tagsData.tags.map((tag) => (
-                <TagBadge key={tag.id} name={tag.name} color={tag.color} />
-              ))}
+              )})}
             </div>
           )}
         </div>
@@ -503,19 +531,24 @@ export default function GroupPage() {
       {activeTab === 'channels' && (
         <div className="space-y-2">
           {!channelsData?.channels?.length ? (
-            <EmptyState title="No channels" description="Channels are for group discussions." />
+            <EmptyState title="No channels" description="Channels are for group discussions. Admins can create channels from the Channels page." />
           ) : (
             channelsData.channels.map((ch) => (
               <div
                 key={ch.id}
                 className="flex items-center justify-between gap-3 bg-gray-900 rounded-xl p-3 border border-gray-800"
               >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-white truncate"># {ch.name}</p>
-                  <p className="text-xs text-gray-500">
-                    {ch.subscriberCount} subscribers, {ch.messageCount} messages
+                <Link
+                  to={`/groups/${groupId}/channels/${ch.id}`}
+                  className="min-w-0 flex-1 group"
+                >
+                  <p className="text-sm font-medium text-white truncate group-hover:text-indigo-300 transition-colors">
+                    # {ch.name}
                   </p>
-                </div>
+                  <p className="text-xs text-gray-500">
+                    {ch.subscriberCount} subscribers · {ch.messageCount} messages · tap to chat
+                  </p>
+                </Link>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <span
                     className={`text-xs px-2 py-1 rounded-full ${
@@ -536,11 +569,22 @@ export default function GroupPage() {
                     }`}
                     title={ch.isInviteOnly && !ch.isSubscribed ? 'This channel requires an invite to subscribe' : undefined}
                   >
-                    {ch.isSubscribed ? 'Unsubscribe' : 'Subscribe'}
+                    {ch.isSubscribed ? 'Subscribed' : 'Subscribe'}
                   </button>
                 </div>
               </div>
             ))
+          )}
+          {/* Open channel chat button — always visible if channels exist */}
+          {channelsData?.channels && channelsData.channels.length > 0 && (
+            <div className="pt-2">
+              <Link
+                to={`/groups/${groupId}/channels/${channelsData.channels[0].id}`}
+                className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-indigo-900/40 border border-indigo-800/60 text-indigo-300 hover:bg-indigo-900/60 transition-colors text-sm font-medium"
+              >
+                Open #{channelsData.channels[0].name} →
+              </Link>
+            </div>
           )}
         </div>
       )}

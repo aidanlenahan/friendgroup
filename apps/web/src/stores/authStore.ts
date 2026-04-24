@@ -9,6 +9,7 @@ interface User {
   username?: string | null
   avatarUrl?: string | null
   theme?: string | null
+  isAdmin?: boolean
 }
 
 interface AuthState {

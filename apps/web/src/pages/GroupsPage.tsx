@@ -37,9 +37,9 @@ export default function GroupsPage() {
       setBetaCodeError('')
     } catch (err: unknown) {
       if (err instanceof ApiError && err.code === 'INVALID_BETA_CODE') {
-        setBetaCodeError('Invalid or already used beta code.')
+        setBetaCodeError('Invalid or already used invite code.')
       } else if (err instanceof ApiError && err.code === 'BETA_CODE_REQUIRED') {
-        setBetaCodeError('A beta invite code is required.')
+        setBetaCodeError('An invite code is required.')
       } else {
         setBetaCodeError('')
         throw err
@@ -51,8 +51,9 @@ export default function GroupsPage() {
     e.preventDefault()
     setJoinError('')
     setJoinSuccess('')
+    const rawCode = joinCode.replace(/-/g, '').trim()
     try {
-      const result = await joinGroup.mutateAsync(joinCode.trim())
+      const result = await joinGroup.mutateAsync(rawCode)
       setJoinSuccess(`Join request sent for "${result.groupName}". The owner will review it shortly.`)
       setJoinCode('')
     } catch (err: unknown) {
@@ -109,12 +110,20 @@ export default function GroupsPage() {
           title="No groups yet"
           description="Create your first friend group to get started."
           action={
-            <button
-              onClick={() => setShowModal(true)}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-semibold"
-            >
-              Create Group
-            </button>
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setShowJoinModal(true); setJoinError(''); setJoinSuccess(''); setJoinCode('') }}
+                className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+              >
+                Join Group
+              </button>
+              <button
+                onClick={() => setShowModal(true)}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-semibold"
+              >
+                Create Group
+              </button>
+            </div>
           }
         />
       ) : (
@@ -170,7 +179,7 @@ export default function GroupsPage() {
             <input
               value={betaCode}
               onChange={(e) => { setBetaCode(e.target.value); setBetaCodeError('') }}
-              placeholder="Beta invite code"
+              placeholder="Invite code"
               required
               className={`w-full bg-gray-800 border rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 ${betaCodeError ? 'border-red-500' : 'border-gray-700'}`}
             />
@@ -199,7 +208,7 @@ export default function GroupsPage() {
 
       <Modal open={showJoinModal} onClose={() => { setShowJoinModal(false); setJoinError(''); setJoinSuccess(''); setJoinCode('') }}>
         <h3 className="text-lg font-bold text-white mb-1">Join a Group</h3>
-        <p className="text-gray-400 text-sm mb-4">Enter the 12-character invite code shared by the group owner.</p>
+        <p className="text-gray-400 text-sm mb-4">Enter the invite code shared by the group owner (e.g. <span className="font-mono text-gray-300">XXXX-XXXX-XXXX</span>).</p>
         {joinSuccess ? (
           <div className="space-y-4">
             <div className="px-4 py-3 rounded-xl bg-emerald-900/40 border border-emerald-700 text-emerald-300 text-sm">
@@ -219,9 +228,14 @@ export default function GroupsPage() {
             <div>
               <input
                 value={joinCode}
-                onChange={(e) => { setJoinCode(e.target.value); setJoinError('') }}
-                placeholder="e.g. a1b2c3d4e5f6"
-                maxLength={12}
+                onChange={(e) => {
+                  // Allow alphanumeric and dashes; auto-uppercase
+                  const raw = e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 16)
+                  setJoinCode(raw)
+                  setJoinError('')
+                }}
+                placeholder="e.g. XXXX-XXXX-XXXX"
+                maxLength={16}
                 required
                 className={`w-full bg-gray-800 border rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono tracking-wider ${joinError ? 'border-red-500' : 'border-gray-700'}`}
               />
@@ -239,7 +253,7 @@ export default function GroupsPage() {
               </button>
               <button
                 type="submit"
-                disabled={joinGroup.isPending || joinCode.trim().length !== 12}
+                disabled={joinGroup.isPending || joinCode.replace(/-/g, '').trim().length !== 12}
                 className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-semibold disabled:opacity-50"
               >
                 {joinGroup.isPending ? 'Sending...' : 'Request to Join'}
