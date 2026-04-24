@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useCreateEvent } from '../hooks/useEvents'
 import { useGroupTags } from '../hooks/useGroups'
 import { useToast } from '../hooks/useToast'
+import DurationPicker from '../components/DurationPicker'
 
 type CreateEventResult = { event: { id: string } }
 
@@ -16,7 +17,7 @@ export default function CreateEventPage() {
   const [title, setTitle] = useState('')
   const [details, setDetails] = useState('')
   const [dateTime, setDateTime] = useState('')
-  const [endsAt, setEndsAt] = useState('')
+  const [durationMinutes, setDurationMinutes] = useState(60)
   const [location, setLocation] = useState('')
   const [maxAttendees, setMaxAttendees] = useState('')
   const [isPrivate, setIsPrivate] = useState(false)
@@ -41,7 +42,7 @@ export default function CreateEventPage() {
         title,
         details: details || undefined,
         dateTime: new Date(dateTime).toISOString(),
-        endsAt: endsAt ? new Date(endsAt).toISOString() : undefined,
+        endsAt: dateTime ? new Date(new Date(dateTime).getTime() + durationMinutes * 60000).toISOString() : undefined,
         location: location || undefined,
         maxAttendees: maxAttendees ? Number(maxAttendees) : undefined,
         isPrivate,
@@ -90,12 +91,11 @@ export default function CreateEventPage() {
             />
           </div>
           <div>
-            <label className="block text-sm text-gray-400 mb-1">End Date/Time</label>
-            <input
-              type="datetime-local"
-              value={endsAt}
-              onChange={(e) => setEndsAt(e.target.value)}
-              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            <label className="block text-sm text-gray-400 mb-1">Duration</label>
+            <DurationPicker
+              durationMinutes={durationMinutes}
+              onChange={setDurationMinutes}
+              disabled={createEvent.isPending}
             />
           </div>
         </div>

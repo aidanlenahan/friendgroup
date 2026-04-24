@@ -160,6 +160,17 @@ const notificationWorker = new Worker<NotificationFanoutJobData>(
       recipientIds = new Set(prefs.map((pref) => pref.userId));
     }
 
+    // Filter out recipients who have muted the actor
+    if (data.actorUserId && recipientIds.size > 0) {
+      const mutes = await prisma.userMute.findMany({
+        where: { mutedId: data.actorUserId, muterId: { in: Array.from(recipientIds) } },
+        select: { muterId: true },
+      });
+      for (const { muterId } of mutes) {
+        recipientIds.delete(muterId);
+      }
+    }
+
     const users = await prisma.user.findMany({
       where: { id: { in: Array.from(recipientIds) } },
       select: { id: true, email: true },
@@ -3161,6 +3172,62 @@ app.patch("/users/me", { config: { rateLimit: { max: 10, timeWindow: "1 minute" 
   });
 
   return reply.send({ user });
+});
+
+// ============================================================================
+// User Mute Routes (per-user notification silencing)
+// ============================================================================
+
+// POST /users/:userId/mute — current user mutes another user
+app.post("/users/:userId/mute", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { userId } = request.params as { userId: string };
+
+  if (userId === currentUser.id) {
+    return reply.status(400).send({ error: "Cannot mute yourself.", code: "CANNOT_MUTE_SELF" });
+  }
+
+  const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+  if (!target) {
+    return reply.status(404).send({ error: "User not found.", code: "USER_NOT_FOUND" });
+  }
+
+  await prisma.userMute.upsert({
+    where: { muterId_mutedId: { muterId: currentUser.id, mutedId: userId } },
+    create: { muterId: currentUser.id, mutedId: userId },
+    update: {},
+  });
+
+  return reply.status(200).send({ muted: true });
+});
+
+// DELETE /users/:userId/mute — current user unmutes another user
+app.delete("/users/:userId/mute", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { userId } = request.params as { userId: string };
+
+  await prisma.userMute.deleteMany({
+    where: { muterId: currentUser.id, mutedId: userId },
+  });
+
+  return reply.status(200).send({ muted: false });
+});
+
+// GET /users/muted — list users that the current user has muted
+app.get("/users/muted", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+
+  const mutes = await prisma.userMute.findMany({
+    where: { muterId: currentUser.id },
+    select: {
+      mutedId: true,
+      createdAt: true,
+      muted: { select: { id: true, name: true, username: true, avatarUrl: true } },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return reply.send({ mutedUsers: mutes.map((m) => ({ ...m.muted, mutedAt: m.createdAt })) });
 });
 
 // ============================================================================

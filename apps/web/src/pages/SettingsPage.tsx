@@ -1,10 +1,13 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
+import { useDurationPresetsStore, formatDuration, MAX_PRESETS_COUNT } from '../stores/durationPresetsStore'
 import { apiFetch } from '../lib/api'
 import { useToast } from '../hooks/useToast'
 import { useGroups } from '../hooks/useGroups'
 import { useTagPreferences, useUpdateTagPreference } from '../hooks/useNotifications'
+import Avatar from '../components/Avatar'
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>
@@ -29,9 +32,18 @@ type AvatarUploadUrlResponse = {
   objectKey: string
 }
 
+interface MutedUser {
+  id: string
+  name: string
+  username: string | null
+  avatarUrl: string | null
+  mutedAt: string
+}
+
 export default function SettingsPage() {
   const { user, login, token } = useAuthStore()
   const toast = useToast()
+  const qc = useQueryClient()
 
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
   const [themeSaving, setThemeSaving] = useState(false)
@@ -44,6 +56,39 @@ export default function SettingsPage() {
   const [tagGroupId, setTagGroupId] = useState('')
   const { data: tagPrefsData } = useTagPreferences(tagGroupId)
   const updateTagPref = useUpdateTagPreference()
+
+  // Muted users
+  const { data: mutedData } = useQuery({
+    queryKey: ['users', 'muted'],
+    queryFn: () => apiFetch<{ mutedUsers: MutedUser[] }>('/users/muted'),
+  })
+  const unmuteUser = useMutation({
+    mutationFn: (userId: string) =>
+      apiFetch<{ muted: boolean }>(`/users/${userId}/mute`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users', 'muted'] }),
+    onError: () => toast.error('Failed to unmute user'),
+  })
+
+  // Duration presets
+  const { presets: durationPresets, addPreset, removePreset } = useDurationPresetsStore()
+  const [addPresetHr, setAddPresetHr] = useState(0)
+  const [addPresetMin, setAddPresetMin] = useState(30)
+
+  const handleAddPreset = (e: React.FormEvent) => {
+    e.preventDefault()
+    const total = addPresetHr * 60 + addPresetMin
+    if (total < 1) {
+      toast.error('Duration must be at least 1 minute')
+      return
+    }
+    if (durationPresets.includes(total)) {
+      toast.error('That duration already exists')
+      return
+    }
+    addPreset(total)
+    setAddPresetHr(0)
+    setAddPresetMin(30)
+  }
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -286,6 +331,91 @@ export default function SettingsPage() {
                 ))
               )}
             </div>
+          )}
+        </div>
+      </div>
+
+      {/* Muted Users */}
+      <div className="space-y-4 mt-8">
+        <h3 className="text-lg font-semibold text-gray-200">Muted Users</h3>
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+          <p className="text-xs text-gray-500">You won't receive notifications from muted users.</p>
+          {!mutedData?.mutedUsers?.length ? (
+            <p className="text-sm text-gray-500">No muted users.</p>
+          ) : (
+            mutedData.mutedUsers.map((u) => (
+              <div key={u.id} className="flex items-center gap-3">
+                <Avatar name={u.name} avatarUrl={u.avatarUrl} size="sm" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-white truncate">{u.name}</p>
+                  {u.username && (
+                    <p className="text-xs text-gray-500 truncate">@{u.username}</p>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => unmuteUser.mutate(u.id)}
+                  disabled={unmuteUser.isPending}
+                  className="text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  Unmute
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+
+      {/* Duration Presets */}
+      <div className="space-y-4 mt-8">
+        <h3 className="text-lg font-semibold text-gray-200">Event Duration Presets</h3>
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
+          <p className="text-xs text-gray-500">
+            Customize the duration options shown when creating or editing events. Maximum {MAX_PRESETS_COUNT} presets.
+          </p>
+          <div className="space-y-2">
+            {durationPresets.map((p) => (
+              <div key={p} className="flex items-center justify-between py-1">
+                <span className="text-sm text-gray-300">{formatDuration(p)}</span>
+                <button
+                  type="button"
+                  onClick={() => removePreset(p)}
+                  className="text-xs text-gray-500 hover:text-red-400 transition-colors"
+                >
+                  Remove
+                </button>
+              </div>
+            ))}
+          </div>
+          {durationPresets.length < MAX_PRESETS_COUNT ? (
+            <form onSubmit={handleAddPreset} className="flex items-center gap-2 pt-2 border-t border-gray-800">
+              <input
+                type="number"
+                min="0"
+                max="23"
+                value={addPresetHr}
+                onChange={(e) => setAddPresetHr(Math.max(0, Number(e.target.value)))}
+                className="w-16 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-white text-sm text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <span className="text-gray-400 text-sm">hr</span>
+              <input
+                type="number"
+                min="0"
+                max="59"
+                value={addPresetMin}
+                onChange={(e) => setAddPresetMin(Math.max(0, Math.min(59, Number(e.target.value))))}
+                className="w-16 bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-white text-sm text-center focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <span className="text-gray-400 text-sm">min</span>
+              <button
+                type="submit"
+                className="ml-2 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
+              >
+                Add
+              </button>
+            </form>
+          ) : (
+            <p className="text-xs text-gray-500 pt-2 border-t border-gray-800">Maximum of {MAX_PRESETS_COUNT} presets reached.</p>
           )}
         </div>
       </div>

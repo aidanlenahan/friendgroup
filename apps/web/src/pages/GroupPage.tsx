@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   useGroup,
   useGroupMembers,
@@ -18,7 +19,7 @@ import EventCard from '../components/EventCard'
 import Avatar from '../components/Avatar'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
-import { getApiErrorMessage, ApiError } from '../lib/api'
+import { getApiErrorMessage, ApiError, apiFetch } from '../lib/api'
 import { useToast } from '../hooks/useToast'
 import { useIsOnline } from '../hooks/useIsOnline'
 import { useAuthStore } from '../stores/authStore'
@@ -111,6 +112,26 @@ export default function GroupPage() {
   const regenerateCode = useRegenerateInviteCode(groupId!)
   const approveMember = useApproveMember(groupId!)
   const denyMember = useDenyMember(groupId!)
+
+  // Per-user mute
+  const qc = useQueryClient()
+  const { data: mutedData } = useQuery({
+    queryKey: ['users', 'muted'],
+    queryFn: () => apiFetch<{ mutedUsers: { id: string }[] }>('/users/muted'),
+  })
+  const mutedSet = new Set(mutedData?.mutedUsers.map((u) => u.id) ?? [])
+  const muteUser = useMutation({
+    mutationFn: (userId: string) =>
+      apiFetch<{ muted: boolean }>(`/users/${userId}/mute`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users', 'muted'] }),
+    onError: () => toast.error('Failed to mute user'),
+  })
+  const unmuteUser = useMutation({
+    mutationFn: (userId: string) =>
+      apiFetch<{ muted: boolean }>(`/users/${userId}/mute`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users', 'muted'] }),
+    onError: () => toast.error('Failed to unmute user'),
+  })
 
   // Determine current user's role in this group
   const myMembership = membersData?.members?.find((m) => m.userId === currentUser?.id)
@@ -484,6 +505,31 @@ export default function GroupPage() {
                   }`}>
                     {m.role}
                   </span>
+                  {/* Per-user mute bell — shown for all non-self members */}
+                  {!isSelf && (
+                    <button
+                      onClick={() =>
+                        mutedSet.has(m.userId)
+                          ? unmuteUser.mutate(m.userId)
+                          : muteUser.mutate(m.userId)
+                      }
+                      disabled={muteUser.isPending || unmuteUser.isPending}
+                      title={mutedSet.has(m.userId) ? 'Unmute notifications' : 'Mute notifications'}
+                      className="p-1.5 rounded-lg text-gray-500 hover:text-gray-200 hover:bg-gray-800 transition-colors disabled:opacity-40"
+                    >
+                      {mutedSet.has(m.userId) ? (
+                        /* Bell with slash */
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9.143 17.082a24.248 24.248 0 003.714 0M3 3l18 18M10.584 10.587a2 2 0 002.828 2.83M7.843 7.84A6.002 6.002 0 006 13v3l-1.256 1.148A1 1 0 005.5 19h13a1 1 0 00.756-1.652l-.256-.234" />
+                        </svg>
+                      ) : (
+                        /* Bell */
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
                   {isOwner && m.userId !== currentUser?.id && m.role !== 'owner' && (
                     <div className="flex items-center gap-1">
                       <button

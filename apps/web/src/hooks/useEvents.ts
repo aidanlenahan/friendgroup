@@ -11,6 +11,8 @@ export type EventRecord = {
   dateTime: string
   endsAt?: string | null
   location?: string | null
+  isPrivate?: boolean
+  maxAttendees?: number | null
   isLegendary?: boolean
   avgRating?: number | null
   myRating?: number | null
@@ -49,7 +51,16 @@ type CreateEventInput = {
   isPrivate?: boolean
   tagIds?: string[]
 }
-type UpdateEventInput = Partial<Omit<CreateEventInput, 'groupId'>>
+type UpdateEventInput = {
+  title?: string
+  details?: string
+  dateTime?: string
+  endsAt?: string | null
+  location?: string | null
+  maxAttendees?: number | null
+  isPrivate?: boolean
+  tagIds?: string[]
+}
 
 export function useEvents(groupId: string, params?: { from?: string; to?: string }) {
   const qs = new URLSearchParams({ groupId, ...params }).toString()

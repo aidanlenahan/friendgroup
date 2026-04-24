@@ -45,6 +45,8 @@ model User {
   auditLogsTargeted          AuditLog[]                  @relation("AuditTarget")
   eventRatings               EventRating[]
   mediaAssetLikes            MediaAssetLike[]
+  mutedUsers                 UserMute[]                  @relation("MuterMutes")
+  mutedBy                    UserMute[]                  @relation("MutedByOthers")
 
   @@index([email])
   @@index([username])
@@ -424,4 +426,23 @@ model AuditLog {
 
   @@index([groupId, createdAt(sort: Desc)])
   @@index([actorId])
+}
+
+// ============================================================================
+// User Mutes (per-user notification silencing)
+// ============================================================================
+
+model UserMute {
+  id        String   @id @default(cuid())
+  muterId   String   // user doing the muting
+  mutedId   String   // user being muted
+  createdAt DateTime @default(now())
+
+  // Relations
+  muter User @relation("MuterMutes", fields: [muterId], references: [id], onDelete: Cascade)
+  muted User @relation("MutedByOthers", fields: [mutedId], references: [id], onDelete: Cascade)
+
+  @@unique([muterId, mutedId])
+  @@index([muterId])
+  @@index([mutedId])
 }

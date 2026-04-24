@@ -1,6 +1,6 @@
 ========================================================
 TASKS.TXT — Friendgroup Feature + Bug Backlog
-Last updated: 2026-04-23
+Last updated: 2026-04-24
 Format: [x] = done, [ ] = pending, [-] = in progress / partial
 Priority order: P1 = blocks any real user from using the app
                 P2 = core UX gaps visible to all users after launch
@@ -9,7 +9,103 @@ Priority order: P1 = blocks any real user from using the app
                 P5 = low priority / future enhancements
 ========================================================
 
-=== P0: Must Fix Before Any Public Commit ===
+=== TOP PRIORITY — Must Do Next ===
+
+[ ] avatar proxy endpoint — mobile avatars are broken without this
+    CONTEXT: broken-session.md (2026-04-24) documented this fix but it was
+    never actually applied to the codebase. S3_PUBLIC_BASE_URL is not in .env;
+    no /media/proxy/* route exists in server.ts. Without this fix:
+    - Mobile devices and non-localhost clients cannot load any user avatar
+      because http://localhost:9000 is inaccessible from other network interfaces
+    - CORS may block direct MinIO access from the browser
+    WHAT TO DO:
+    1. In apps/api/.env, add:
+         S3_PUBLIC_BASE_URL=http://localhost:4000/media/proxy
+    2. In apps/api/src/server.ts, add GetObjectCommand to the @aws-sdk/client-s3
+       import (line 30).
+    3. Add GET /media/proxy/* endpoint after the avatar-upload-url route (~line 1660):
+       - Parse bucket + key from URL path
+       - Security: only allow avatars/* keys (return 403 otherwise)
+       - Fetch from S3 via GetObjectCommand, stream response with correct headers
+       - Return 1-year Cache-Control for versioned URLs
+       - Return 404 for NoSuchKey, 500 for other S3 errors
+    4. Existing avatar URLs in DB that point to localhost:9000 will need to be
+       updated — affected users will need to re-upload their avatar OR a one-time
+       migration script can rewrite existing URLs.
+    5. Restart API: kill tsx process and relaunch (or send SIGHUP)
+    See: tmp/broken-session.md for the full implementation specification.
+
+[ ] restart API service to pick up per-user mute routes (4-24-per-user-mute)
+    CONTEXT: The per-user mute feature was fully implemented in code and the
+    migration was applied (20260424121802_add_user_mutes). However, the tsx
+    dev process may need a restart to ensure the new routes are live.
+    - Routes: POST /users/:userId/mute, DELETE /users/:userId/mute, GET /users/muted
+    - Also: notification fanout worker now filters muted actors
+    WHAT TO DO: kill and restart the tsx process (PID visible via ps aux)
+    or run: cd apps/api && npx tsx src/server.ts
+
+=== P2: Core UX — Visible to All Users ===
+
+[ ] implement dev email
+    CONTEXT: Noted in phases.txt pre-Phase 1. Email is required for verification,
+    password reset, and notification flows. In dev, email is currently only logged
+    to console. A dev SMTP capture tool (e.g. Mailpit or MailHog) should be wired
+    to test the full auth and notification flows end-to-end without relying on a
+    live email provider.
+
+=== P3: Feature Completeness / Secondary UX ===
+
+[ ] persist user settings server-side for cross-device consistency
+    CONTEXT: Currently, user settings that live in Zustand persisted stores
+    (e.g. fg-duration-presets for event duration presets) are stored in
+    localStorage only. They do not sync across devices — a user who configures
+    their duration presets on mobile will not see them on desktop.
+    WHAT TO DO:
+    - Add a UserSettings model (or JSONB column on User) in Prisma schema to
+      store arbitrary per-user preference blobs (e.g. { durationPresets: number[] })
+    - Add API endpoints:
+        GET  /users/me/settings  → returns settings blob
+        PUT  /users/me/settings  → replaces/merges settings (validate shape with Zod)
+    - On app load (after auth), fetch /users/me/settings and hydrate the
+      relevant Zustand stores (overriding localStorage defaults)
+    - On store mutation (addPreset / removePreset), write-through to the API
+      so changes persist server-side immediately
+    - Scope initially to durationPresets; design the schema generically so
+      other future per-user prefs (e.g. notification defaults, default RSVP view)
+      can be stored in the same blob without migrations
+    EFFORT: small — JSONB on User is a 1-line migration; endpoints + store
+    write-through are the bulk of the work.
+
+[ ] dev vs prod instance — decide on deployment strategy
+    DISCUSSION — Not a code task. Points to consider:
+    - Current: single friendgroup_dev DB, local MinIO, local Redis
+    - infra/docker-compose.yml + systemd services exist for deployment
+    - Recommend: keep dev (friendgroup_dev), add prod (friendgroup_prod)
+      with separate .env.production, MinIO bucket, Redis instance
+    - Beta codes already gate access; decision needed before public push
+
+[ ] recurring events
+    PENDING — No recurrence model in schema. Needs RRULE support
+    (rrule npm package), recurrenceRule field on Event, and UI for
+    frequency/until/count in CreateEventPage. Not needed for initial beta.
+
+=== P5: Low Priority / Future ===
+
+[ ] verify account via alternative channel (WhatsApp, Telegram, SMS)
+    PENDING — Low priority until core email verify is done. Options:
+    WhatsApp Business API (paid), Telegram bot (free), SMS via Twilio.
+    Design decision needed before any implementation.
+
+[ ] Phase 7 manual device matrix
+    PENDING — iOS Safari, Android Chrome, desktop installability and push
+    UX validation. Needed before production launch but not blocking dev.
+    Also covers Phase 11 cross-browser installability and push UX validation.
+
+========================================================
+Completed
+========================================================
+
+=== P0 ===
 
 [x] remove hardcoded real email addresses from source code — BLOCKS GIT PUSH
     DONE 2026-04-23 — Removed all hardcoded personal emails from 4 locations:
@@ -24,8 +120,7 @@ Priority order: P1 = blocks any real user from using the app
        admin@example.com / seedadmin placeholder.
     App.tsx now runs a GET /users/me on mount to refresh isAdmin for existing sessions.
 
-=== P1: Blocking Beta Launch (Auth / Registration) ===
-All core auth flows are implemented. App uses real JWT authentication.
+=== P1 ===
 
 [x] user registration flow — build POST /auth/register + RegisterPage UI
     DONE 2026-04-16 — Full registration flow implemented. See
@@ -90,7 +185,7 @@ All core auth flows are implemented. App uses real JWT authentication.
     login auto-verifies on first use. NOTE: "verify email banner" is a non-issue
     in practice — no login path produces a verified JWT for an unverified user.
 
-=== P2: Core UX — Visible to All Users ===
+=== P2 ===
 
 [x] fix CSS — too dark, some text illegible
     DONE 2026-04-16 — Audited all components. Root cause was :root CSS vars using
@@ -148,15 +243,7 @@ All core auth flows are implemented. App uses real JWT authentication.
     copy the invite code; only admins can regenerate it. Profile names in
     the members tab are clickable links to /u/:username.
 
-=== P3: Feature Completeness / Secondary UX ===
-
-[ ] dev vs prod instance — decide on deployment strategy
-    DISCUSSION — Not a code task. Points to consider:
-    - Current: single friendgroup_dev DB, local MinIO, local Redis
-    - infra/docker-compose.yml + systemd services exist for deployment
-    - Recommend: keep dev (friendgroup_dev), add prod (friendgroup_prod)
-      with separate .env.production, MinIO bucket, Redis instance
-    - Beta codes already gate access; decision needed before public push
+=== P3 ===
 
 [x] storage limit enforcement (per user and/or per group)
     DONE 2026-04-20 — Added mediaMaxUserBytes constant (default 1 GB,
@@ -174,11 +261,6 @@ All core auth flows are implemented. App uses real JWT authentication.
     admin accounts. Contains Phase 7 + Phase 9 debug tools and config
     management. Removed from SettingsPage.
 
-[ ] recurring events
-    PENDING — No recurrence model in schema. Needs RRULE support
-    (rrule npm package), recurrenceRule field on Event, and UI for
-    frequency/until/count in CreateEventPage. Not needed for initial beta.
-
 [x] audit logs for membership and event changes
     DONE 2026-04-20 — AuditLog model in schema (groupId, actorId, action,
     targetUserId, meta, createdAt). 5 create calls for member_joined,
@@ -192,7 +274,7 @@ All core auth flows are implemented. App uses real JWT authentication.
     invite codes, and edit group info. Group management page at
     /groups/:groupId/manage (admin+ only; destructive actions owner-only).
 
-=== P4: Integrations ===
+=== P4 ===
 
 [x] review and harden ICS / calendar sync
     DONE 2026-04-20 — Hardened calendar.ts:
@@ -211,7 +293,7 @@ All core auth flows are implemented. App uses real JWT authentication.
     - Manual real-client testing (Google, Apple Calendar, Outlook)
     - Webhook provider wiring (Google/Apple push notifications)
 
-=== P5: Low Priority / Future ===
+=== P5 ===
 
 [x] dark mode
     DONE 2026-04-16 — Per-user dark/light theme setting added. User.theme field
@@ -230,16 +312,7 @@ All core auth flows are implemented. App uses real JWT authentication.
     - Frontend: EventMediaResponse type updated, useLikeMedia hook added to useEvents.ts.
       EventPage media grid shows ♥ like button overlay per image with count.
 
-[ ] verify account via alternative channel (WhatsApp, Telegram, SMS)
-    PENDING — Low priority until core email verify is done. Options:
-    WhatsApp Business API (paid), Telegram bot (free), SMS via Twilio.
-    Design decision needed before any implementation.
-
-[ ] Phase 7 manual device matrix
-    PENDING — iOS Safari, Android Chrome, desktop installability and push
-    UX validation. Needed before production launch but not blocking dev.
-
-=== Completed Tasks (Archive) ===
+=== Archive / Early Phases ===
 
 [x] fix event page — clicking a created event showed "not found"
     DONE 2026-04-14 — API was missing GET /events/:id (only list existed).
@@ -293,7 +366,7 @@ All core auth flows are implemented. App uses real JWT authentication.
     admins/owners. Member removal: Remove button (confirm) for owners on
     non-owner members. Calls DELETE /groups/:groupId/members/:userId.
 
-[x] Phase 1–11 core infrastructure (see TODO.txt for full phase record)
+[x] Phase 1–11 core infrastructure (see phases.txt for full phase record)
     Foundation, events CRUD, auth middleware, chat, notifications, media
     upload, PWA/service worker, calendar integration, testing suite,
     polish/edge cases, frontend UX/accessibility hardening — all done.
@@ -310,18 +383,17 @@ All core auth flows are implemented. App uses real JWT authentication.
     GroupManagePage Members section: Remove button (with confirm) shown
     for any non-owner member. Owners can also demote admins before removing.
 
-
-
-
 [x] fine tune notifications
     DONE 2026-04-22 — Tag subscription UI added to NotificationSettingsPage.
     Group selector dropdown shows user's groups; when selected, lists all group
     tags as toggle switches. Calls PUT /notifications/preferences/tags/:tagId.
+
 [x] get uploads to work - maybe 100 pictures per person and no videos?
     DONE 2026-04-22 — Added image-only MIME type allowlist (jpeg/png/gif/webp/avif)
     and 100-file per-user cap to both POST /media/upload-url and POST /media/complete.
     Returns 415 UNSUPPORTED_MEDIA_TYPE for non-images, 413 USER_MEDIA_FILE_LIMIT_EXCEEDED
     when over 100 files.
+
 [x] get profile picture uploads to work - one per person. if new upload profile picture, it overwrites the old one
     DONE 2026-04-22 — Added Profile section to SettingsPage.tsx with avatar preview
     (shows initial letter if no photo) and Upload Photo button. File input restricted
@@ -329,10 +401,12 @@ All core auth flows are implemented. App uses real JWT authentication.
     Upload flow: POST /media/avatar-upload-url (presigned S3 URL) → PUT to S3 →
     PATCH /users/me with new publicUrl (server deletes old S3 object automatically).
     Auth store updated on success so new avatar appears immediately throughout app.
+
 [x] group auto approves??? fix this
     DONE 2026-04-22 — requireGroupMembership in authorization.ts now checks
     membership.status !== 'active' in addition to !membership. Pending members
     receive 403 instead of being treated as active members.
+
 [x] mute members
     DONE 2026-04-23 — Full mute/unmute system implemented:
     - DB: mutedUntil DateTime? added to Membership model
@@ -347,15 +421,18 @@ All core auth flows are implemented. App uses real JWT authentication.
       with Confirm/Cancel for Mute. Muted members show amber Unmute button.
 
 Tags
+
 [x] have any user able to create a tag (modified: owner/admin only per user request)
     DONE 2026-04-22 — POST /groups/:groupId/tags restricted to owner/admin.
     PATCH /groups/:groupId/tags/:tagId also restricted to owner/admin.
     Tags management section moved from GroupPage tabs to GroupManagePage admin section.
+
 [x] have users able to add tags to their profile (to subscribe to those topics) on the profile settings page
     DONE 2026-04-23 — Tag Subscriptions section added to SettingsPage.tsx.
     Group selector dropdown, then toggle switches per tag (indigo = subscribed).
     Uses existing useTagPreferences/useUpdateTagPreference hooks and
     PUT /notifications/preferences/tags/:tagId endpoint.
+
 [x] tags add to events
     DONE 2026-04-22 — PATCH /events/:id/tags endpoint added; any active group member
     can set tags on an event (validated tagIds belong to same group). Tag toggle
@@ -365,6 +442,7 @@ Tags
     DONE 2026-04-23 — EventPage.tsx location row now shows inline links:
     Google Maps, Apple Maps, Waze — all open in new tab using the event
     location string as the search query. No API key required (search URLs).
+
 [x] let's do rating out of 5 stars, and show an average, trunkated at tenths place, i.e. 4.5, 3.2, 1.6, etc.
     DONE 2026-04-22 — Moved rating from Event.rating Int? to EventRating table (per-user
     1-5 stars). Migration 20260422121405_event_ratings applied. GET /events/:id now

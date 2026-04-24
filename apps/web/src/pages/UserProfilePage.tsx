@@ -1,6 +1,7 @@
 import { useParams, Link } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../lib/api'
+import { useAuthStore } from '../stores/authStore'
 import Avatar from '../components/Avatar'
 import Spinner from '../components/Spinner'
 
@@ -28,9 +29,42 @@ function useUserProfile(username: string) {
   })
 }
 
+function useMutedUsers() {
+  return useQuery({
+    queryKey: ['users', 'muted'],
+    queryFn: () => apiFetch<{ mutedUsers: { id: string }[] }>('/users/muted'),
+  })
+}
+
+function useMuteUser(targetUserId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiFetch<{ muted: boolean }>(`/users/${targetUserId}/mute`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users', 'muted'] }),
+  })
+}
+
+function useUnmuteUser(targetUserId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiFetch<{ muted: boolean }>(`/users/${targetUserId}/mute`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['users', 'muted'] }),
+  })
+}
+
 export default function UserProfilePage() {
   const { username } = useParams<{ username: string }>()
   const { data, isLoading, error } = useUserProfile(username ?? '')
+  const { user: currentUser } = useAuthStore()
+
+  const { data: mutedData } = useMutedUsers()
+  const userId = data?.user?.id ?? ''
+  const isMuted = mutedData?.mutedUsers.some((u) => u.id === userId) ?? false
+
+  const muteUser = useMuteUser(userId)
+  const unmuteUser = useUnmuteUser(userId)
+
+  const isOwnProfile = Boolean(currentUser && data?.user && currentUser.id === data.user.id)
 
   if (isLoading) {
     return (
@@ -55,6 +89,16 @@ export default function UserProfilePage() {
   const { user } = data
   const joinedYear = new Date(user.createdAt).getFullYear()
 
+  const handleMuteToggle = () => {
+    if (isMuted) {
+      unmuteUser.mutate()
+    } else {
+      muteUser.mutate()
+    }
+  }
+
+  const muteLoading = muteUser.isPending || unmuteUser.isPending
+
   return (
     <div className="px-4 py-6 sm:p-6 max-w-xl mx-auto">
       {/* Back */}
@@ -78,8 +122,29 @@ export default function UserProfilePage() {
             <p className="text-indigo-400 text-sm">@{user.username}</p>
           )}
           <p className="text-gray-500 text-xs mt-1">Member since {joinedYear}</p>
+
+          {!isOwnProfile && (
+            <button
+              type="button"
+              onClick={handleMuteToggle}
+              disabled={muteLoading}
+              className={`mt-3 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
+                isMuted
+                  ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+              }`}
+            >
+              {muteLoading ? '…' : isMuted ? 'Unmute' : 'Mute'}
+            </button>
+          )}
         </div>
       </div>
+
+      {isMuted && (
+        <p className="mt-2 text-xs text-amber-500 pl-1">
+          You won't receive notifications from this user.
+        </p>
+      )}
 
       {/* Mutual groups */}
       <div className="mt-6">
@@ -108,3 +173,4 @@ export default function UserProfilePage() {
     </div>
   )
 }
+

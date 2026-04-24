@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { useEvent, useEventAttendance, useRsvp, useEventRating, useEventMedia, useSetEventTags, useLikeMedia } from '../hooks/useEvents'
+import { useEvent, useEventAttendance, useRsvp, useEventRating, useEventMedia, useLikeMedia, useUpdateEvent } from '../hooks/useEvents'
 import type { EventRecord, EventTag } from '../hooks/useEvents'
 import { useGroupMembers, useGroupTags } from '../hooks/useGroups'
 import { useEventMessages } from '../hooks/useMessages'
@@ -13,8 +13,33 @@ import { useToast } from '../hooks/useToast'
 import TagBadge from '../components/TagBadge'
 import Avatar from '../components/Avatar'
 import Spinner from '../components/Spinner'
+import DurationPicker from '../components/DurationPicker'
 import { apiFetch, getApiErrorMessage } from '../lib/api'
 import { useIsOnline } from '../hooks/useIsOnline'
+
+function PencilIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+      aria-hidden="true"
+    >
+      <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+    </svg>
+  )
+}
+
+function isoToDatetimeLocal(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString(undefined, {
@@ -90,7 +115,8 @@ export default function EventPage() {
   const { data: messagesData } = useEventMessages(eventId!)
   const rsvp = useRsvp(eventId!)
   const rating = useEventRating(eventId!)
-  const setEventTags = useSetEventTags(eventId!)
+
+  const updateEvent = useUpdateEvent(eventId!)
 
   const isOnline = useIsOnline()
   const { messages: chatMessages, typingUsers, connected, sendMessage, sendTyping } = useChat(eventId!)
@@ -98,6 +124,15 @@ export default function EventPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [invitingUserId, setInvitingUserId] = useState<string | null>(null)
+  const [showEditModal, setShowEditModal] = useState(false)
+  const [editTitle, setEditTitle] = useState('')
+  const [editDetails, setEditDetails] = useState('')
+  const [editDateTime, setEditDateTime] = useState('')
+  const [editDurationMinutes, setEditDurationMinutes] = useState(60)
+  const [editTagIds, setEditTagIds] = useState<string[]>([])
+  const [editLocation, setEditLocation] = useState('')
+  const [editMaxAttendees, setEditMaxAttendees] = useState('')
+  const [editIsPrivate, setEditIsPrivate] = useState(false)
 
   const event = eventResponse?.event
   const isAdmin = eventResponse?.isAdmin ?? false
@@ -131,25 +166,51 @@ export default function EventPage() {
   }
 
   const eventTags = event?.tags ?? []
-  const [showTagEditor, setShowTagEditor] = useState(false)
-  const selectedTagIds = eventTags.map((t: EventTag) => t.id)
 
-  const handleToggleTag = async (tagId: string) => {
-    const next = selectedTagIds.includes(tagId)
-      ? selectedTagIds.filter((id: string) => id !== tagId)
-      : [...selectedTagIds, tagId]
-    try {
-      await setEventTags.mutateAsync(next)
-    } catch {
-      toast.error('Failed to update tags')
-    }
-  }
 
   const handleRating = async (value: number) => {
     try {
       await rating.mutateAsync(value)
     } catch {
       toast.error('Failed to save rating')
+    }
+  }
+
+  const handleOpenEditModal = () => {
+    if (!event) return
+    setEditTitle(event.title)
+    setEditDetails(event.details ?? '')
+    setEditDateTime(isoToDatetimeLocal(event.dateTime))
+    setEditDurationMinutes(
+      event.endsAt
+        ? Math.max(1, Math.round((new Date(event.endsAt).getTime() - new Date(event.dateTime).getTime()) / 60000))
+        : 60
+    )
+    setEditTagIds(event.tags?.map((t) => t.id) ?? [])
+    setEditLocation(event.location ?? '')
+    setEditMaxAttendees(event.maxAttendees != null ? String(event.maxAttendees) : '')
+    setEditIsPrivate(event.isPrivate ?? false)
+    setShowEditModal(true)
+  }
+
+  const handleSaveEvent = async (e: React.FormEvent) => {
+    e.preventDefault()
+    try {
+      await updateEvent.mutateAsync({
+        title: editTitle,
+        details: editDetails || undefined,
+        dateTime: new Date(editDateTime).toISOString(),
+        endsAt: new Date(new Date(editDateTime).getTime() + editDurationMinutes * 60000).toISOString(),
+        location: editLocation || undefined,
+        maxAttendees: editMaxAttendees ? Number(editMaxAttendees) : undefined,
+        isPrivate: editIsPrivate,
+        tagIds: editTagIds,
+      })
+      toast.success('Event updated')
+      setShowEditModal(false)
+      refetchEvent()
+    } catch {
+      toast.error('Failed to update event')
     }
   }
 
@@ -272,7 +333,18 @@ export default function EventPage() {
       )}
       {/* Event Header */}
       <div className="mb-6">
-        <h2 className="text-2xl font-bold text-white">{event.title}</h2>
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-2xl font-bold text-white">{event.title}</h2>
+          {(isAdmin || isCreator) && (
+            <button
+              onClick={handleOpenEditModal}
+              className="shrink-0 p-2 rounded-xl bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+              aria-label="Edit event"
+            >
+              <PencilIcon />
+            </button>
+          )}
+        </div>
         <p className="text-gray-400 mt-1">{formatDate(event.dateTime)}</p>
         {event.endsAt && (
           <p className="text-gray-500 text-sm">Until {formatDate(event.endsAt)}</p>
@@ -315,45 +387,6 @@ export default function EventPage() {
             {eventTags.map((tag: EventTag) => (
               <TagBadge key={tag.id} name={tag.name} color={tag.color} />
             ))}
-          </div>
-        )}
-        {/* Tag editor — any group member can add/remove existing tags */}
-        {groupTagsData?.tags && groupTagsData.tags.length > 0 && (
-          <div className="mt-3">
-            {!showTagEditor ? (
-              <button
-                onClick={() => setShowTagEditor(true)}
-                className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
-              >
-                {eventTags.length > 0 ? '✏️ Edit tags' : '+ Add tags'}
-              </button>
-            ) : (
-              <div className="flex flex-wrap gap-2 items-center">
-                {groupTagsData.tags.map((tag) => {
-                  const selected = selectedTagIds.includes(tag.id)
-                  return (
-                    <button
-                      key={tag.id}
-                      onClick={() => handleToggleTag(tag.id)}
-                      disabled={setEventTags.isPending}
-                      className={`px-2 py-1 rounded-full text-xs font-medium transition-colors disabled:opacity-50 ${
-                        selected
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
-                      }`}
-                    >
-                      {selected ? '✓ ' : ''}{tag.name}
-                    </button>
-                  )
-                })}
-                <button
-                  onClick={() => setShowTagEditor(false)}
-                  className="text-xs text-gray-500 hover:text-gray-300 transition-colors ml-1"
-                >
-                  Done
-                </button>
-              </div>
-            )}
           </div>
         )}
         {event.isLegendary && (
@@ -425,6 +458,140 @@ export default function EventPage() {
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Edit Event Modal */}
+      {showEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-lg font-semibold text-white">Edit Event</h3>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="text-gray-400 hover:text-white text-xl leading-none"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <form onSubmit={handleSaveEvent} className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Title *</label>
+                <input
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  required
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Details</label>
+                <textarea
+                  value={editDetails}
+                  onChange={(e) => setEditDetails(e.target.value)}
+                  rows={4}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Start Date/Time *</label>
+                  <input
+                    type="datetime-local"
+                    value={editDateTime}
+                    onChange={(e) => setEditDateTime(e.target.value)}
+                    required
+                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1">Duration</label>
+                  <DurationPicker
+                    durationMinutes={editDurationMinutes}
+                    onChange={setEditDurationMinutes}
+                    disabled={updateEvent.isPending}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Location</label>
+                <input
+                  value={editLocation}
+                  onChange={(e) => setEditLocation(e.target.value)}
+                  placeholder="e.g., Central Park"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1">Max Attendees</label>
+                <input
+                  type="number"
+                  value={editMaxAttendees}
+                  onChange={(e) => setEditMaxAttendees(e.target.value)}
+                  min="1"
+                  placeholder="No limit"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  id="editIsPrivate"
+                  checked={editIsPrivate}
+                  onChange={(e) => setEditIsPrivate(e.target.checked)}
+                  className="w-4 h-4 rounded bg-gray-800 border-gray-700 text-indigo-600 focus:ring-indigo-500"
+                />
+                <label htmlFor="editIsPrivate" className="text-sm text-gray-300">
+                  Private event (invite-only)
+                </label>
+              </div>
+              {groupTagsData?.tags && groupTagsData.tags.length > 0 && (
+                <div>
+                  <label className="block text-sm text-gray-400 mb-2">Tags</label>
+                  <div className="flex flex-wrap gap-2">
+                    {groupTagsData.tags.map((tag) => {
+                      const selected = editTagIds.includes(tag.id)
+                      return (
+                        <button
+                          key={tag.id}
+                          type="button"
+                          onClick={() =>
+                            setEditTagIds((prev) =>
+                              selected ? prev.filter((id) => id !== tag.id) : [...prev, tag.id]
+                            )
+                          }
+                          className={`px-3 py-1 rounded-full text-sm transition-colors ${
+                            selected
+                              ? 'bg-indigo-600 text-white'
+                              : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+                          }`}
+                        >
+                          {tag.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="px-4 py-3 text-gray-400 hover:text-white text-sm transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={updateEvent.isPending}
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-colors"
+                >
+                  {updateEvent.isPending ? 'Saving...' : 'Save Changes'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
