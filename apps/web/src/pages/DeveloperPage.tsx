@@ -11,6 +11,8 @@
  */
 
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import PageToolbar from '../components/PageToolbar'
 import { useAuthStore } from '../stores/authStore'
 import { apiFetch } from '../lib/api'
 import { Phase7DebugPage } from './Phase7DebugPage'
@@ -47,13 +49,17 @@ export default function DeveloperPage() {
 }
 
 function DeveloperContent() {
+  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<Tab>('config')
 
   return (
     <div className="px-4 py-6 sm:p-6 max-w-3xl mx-auto">
-      <div className="mb-6">
-        <h2 className="text-2xl font-bold text-white">Developer Panel</h2>
-        <p className="text-gray-400 text-sm mt-1">Admin-only tools for managing app configuration.</p>
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-2xl font-bold text-white">Developer Panel</h2>
+          <p className="text-gray-400 text-sm mt-1">Admin-only tools for managing app configuration.</p>
+        </div>
+        <PageToolbar />
       </div>
 
       {/* Tab bar */}

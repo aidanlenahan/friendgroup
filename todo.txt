@@ -1,0 +1,5 @@
+[x] denote admins with badge glyph in members page — DONE 2026-04-26: GroupPage members rows now show minimal role glyphs (shield for admin, crown for owner, user for member) in the old mute slot, and mute moved into the overflow actions menu.
+[ ] {"error":"No Authorization was found in request.headers","code":"FST_JWT_NO_AUTHORIZATION_IN_HEADER"} when i try to download .ics for event
+[ ] make live subscription to calendar
+[ ] when hover over initials on event page, alt text shows display name and (going), only have this logic for Yes RSVP
+can we add a Good Morning, Good Evening, Hello, [name] message on the root page at the top depending on the time? have multiple phrases per time slot.

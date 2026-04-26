@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
+import PageToolbar from '../components/PageToolbar'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
 import { useDurationPresetsStore, formatDuration, MAX_PRESETS_COUNT } from '../stores/durationPresetsStore'
@@ -42,6 +43,7 @@ interface MutedUser {
 
 export default function SettingsPage() {
   const { user, login, token } = useAuthStore()
+  const navigate = useNavigate()
   const toast = useToast()
   const qc = useQueryClient()
 
@@ -191,7 +193,10 @@ export default function SettingsPage() {
 
   return (
     <div className="px-4 py-6 sm:p-6 max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold text-white mb-6">Settings</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold text-white">Settings</h2>
+        <PageToolbar backTo="/groups" />
+      </div>
 
       {/* Profile */}
       <div className="space-y-4 mb-8">

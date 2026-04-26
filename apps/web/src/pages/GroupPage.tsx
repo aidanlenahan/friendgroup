@@ -1,5 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import PageToolbar from '../components/PageToolbar'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   useGroup,
@@ -29,10 +30,32 @@ type Tab = 'events' | 'members' | 'channels'
 type EventSummary = {
   id: string
   title: string
+  details?: string | null
   dateTime: string
+  endsAt?: string | null
   location?: string | null
   tags?: Array<{ id: string; name: string; color?: string | null }>
   rsvps?: Array<{ status: string }>
+}
+
+function RoleGlyph({ role }: { role: 'owner' | 'admin' | 'member' }) {
+  if (role === 'owner') {
+    return (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-[1.35rem] w-[1.35rem]" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 18h14l-1-9-4 3-2-5-2 5-4-3-1 9Z" />
+      </svg>
+    )
+  }
+
+  if (role === 'admin') {
+    return (
+      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M12 3 6 6v5c0 4.5 2.4 7.7 6 10 3.6-2.3 6-5.5 6-10V6l-6-3Z" />
+      </svg>
+    )
+  }
+
+  return null
 }
 
 function AdminEventCard({ event, canDelete }: { event: EventSummary; canDelete: boolean }) {
@@ -88,8 +111,12 @@ export default function GroupPage() {
   const { groupId } = useParams<{ groupId: string }>()
   const [activeTab, setActiveTab] = useState<Tab>('events')
   const [confirmRemoveMember, setConfirmRemoveMember] = useState<string | null>(null)
+  const [memberActionMenuUserId, setMemberActionMenuUserId] = useState<string | null>(null)
+  const [showPastEvents, setShowPastEvents] = useState(false)
+  const [eventSearch, setEventSearch] = useState('')
   const [showInviteCode, setShowInviteCode] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
+  const memberActionMenuRef = useRef<HTMLDivElement>(null)
   const toast = useToast()
   const isOnline = useIsOnline()
   const currentUser = useAuthStore((s) => s.user)
@@ -169,11 +196,32 @@ export default function GroupPage() {
     try {
       await removeMember.mutateAsync(userId)
       setConfirmRemoveMember(null)
+      setMemberActionMenuUserId(null)
       toast.success('Member removed')
     } catch (error) {
       toast.error(getApiErrorMessage(error, 'Failed to remove member'))
     }
   }
+
+  const handleMuteToggle = (userId: string) => {
+    setMemberActionMenuUserId(null)
+    if (mutedSet.has(userId)) {
+      unmuteUser.mutate(userId)
+      return
+    }
+    muteUser.mutate(userId)
+  }
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (memberActionMenuRef.current && !memberActionMenuRef.current.contains(event.target as Node)) {
+        setMemberActionMenuUserId(null)
+      }
+    }
+
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const handleShowInviteCode = () => {
     setShowInviteCode(true)
@@ -288,18 +336,21 @@ export default function GroupPage() {
             {group._count?.memberships ?? 0} members
           </p>
         </div>
-        {isAdmin && (
-          <Link
-            to={`/groups/${groupId}/manage`}
-            className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 hover:border-indigo-600 hover:text-white text-xs font-medium transition-colors"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-            </svg>
-            Manage
-          </Link>
-        )}
+        <div className="flex items-center gap-2 shrink-0">
+          {isAdmin && (
+            <Link
+              to={`/groups/${groupId}/manage`}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 hover:border-indigo-600 hover:text-white text-xs font-medium transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Manage
+            </Link>
+          )}
+          <PageToolbar backTo="/groups" />
+        </div>
       </div>
 
       {/* Tab Bar */}
@@ -320,12 +371,44 @@ export default function GroupPage() {
       </div>
 
       {/* Events Tab */}
-      {activeTab === 'events' && (
+      {activeTab === 'events' && (() => {
+        const now = new Date()
+        const q = eventSearch.trim().toLowerCase()
+        const filterEvent = (e: EventSummary) => {
+          if (!q) return true
+          const dateStr = new Date(e.dateTime).toLocaleDateString(undefined, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }).toLowerCase()
+          return (
+            e.title.toLowerCase().includes(q) ||
+            (e.details?.toLowerCase().includes(q) ?? false) ||
+            dateStr.includes(q) ||
+            (e.tags?.some((t) => t.name.toLowerCase().includes(q)) ?? false)
+          )
+        }
+        const upcomingEvents = (eventsData?.events ?? []).filter((e) =>
+          (e.endsAt ? new Date(e.endsAt) > now : new Date(e.dateTime) > now) && filterEvent(e)
+        )
+        const pastEvents = (eventsData?.events ?? []).filter((e) =>
+          (e.endsAt ? new Date(e.endsAt) <= now : new Date(e.dateTime) <= now) && filterEvent(e)
+        )
+        return (
         <div>
-          <div className="flex justify-end mb-4">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="relative flex-1">
+              <svg xmlns="http://www.w3.org/2000/svg" className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                <circle cx="11" cy="11" r="8" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="m21 21-4.35-4.35" />
+              </svg>
+              <input
+                type="search"
+                value={eventSearch}
+                onChange={(e) => setEventSearch(e.target.value)}
+                placeholder="Search by name, tag, date…"
+                className="w-full pl-9 pr-3 py-2 rounded-xl bg-gray-900 border border-gray-700 text-gray-200 placeholder-gray-500 text-sm focus:outline-none focus:border-indigo-500"
+              />
+            </div>
             <Link
               to={`/groups/${groupId}/events/new`}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+              className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors whitespace-nowrap"
             >
               + Create Event
             </Link>
@@ -348,18 +431,54 @@ export default function GroupPage() {
               }
             />
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {eventsData.events.map((event) => (
-                <AdminEventCard
-                  key={event.id}
-                  event={event}
-                  canDelete={isAdmin}
-                />
-              ))}
-            </div>
+            <>
+              {upcomingEvents.length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {upcomingEvents.map((event) => (
+                    <AdminEventCard
+                      key={event.id}
+                      event={event}
+                      canDelete={isAdmin}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500 text-sm mb-4">No upcoming events.</p>
+              )}
+              {pastEvents.length > 0 && (
+                <div className="mt-6">
+                  <button
+                    type="button"
+                    onClick={() => setShowPastEvents((s) => !s)}
+                    className="flex items-center gap-2 text-sm text-gray-400 hover:text-gray-200 transition-colors mb-3"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className={`h-4 w-4 transition-transform ${showPastEvents ? 'rotate-180' : ''}`}
+                      viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" d="m6 9 6 6 6-6" />
+                    </svg>
+                    Past Events ({pastEvents.length})
+                  </button>
+                  {showPastEvents && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 opacity-60">
+                      {pastEvents.map((event) => (
+                        <AdminEventCard
+                          key={event.id}
+                          event={event}
+                          canDelete={isAdmin}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
-      )}
+        )
+      })()}
 
       {/* Members Tab */}
       {activeTab === 'members' && (
@@ -467,6 +586,7 @@ export default function GroupPage() {
               )}
               {activeMembers.map((m) => {
                 const isSelf = m.userId === currentUser?.id
+                const canOwnerManageMember = isOwner && !isSelf && m.role !== 'owner'
                 return (
                 <div
                   key={m.userId}
@@ -496,73 +616,110 @@ export default function GroupPage() {
                     )}
                     <p className="text-xs text-gray-500">{m.email}</p>
                   </div>
-                  <span className={`text-xs px-2 py-1 rounded-full ${
-                    m.role === 'owner'
-                      ? 'bg-indigo-900 text-indigo-300'
-                      : m.role === 'admin'
-                      ? 'bg-amber-900 text-amber-300'
-                      : 'bg-gray-800 text-gray-400'
-                  }`}>
-                    {m.role}
-                  </span>
-                  {/* Per-user mute bell — shown for all non-self members */}
-                  {!isSelf && (
-                    <button
-                      onClick={() =>
-                        mutedSet.has(m.userId)
-                          ? unmuteUser.mutate(m.userId)
-                          : muteUser.mutate(m.userId)
-                      }
-                      disabled={muteUser.isPending || unmuteUser.isPending}
-                      title={mutedSet.has(m.userId) ? 'Unmute notifications' : 'Mute notifications'}
-                      className="p-1.5 rounded-lg text-gray-500 hover:text-gray-200 hover:bg-gray-800 transition-colors disabled:opacity-40"
+                  {(m.role === 'owner' || m.role === 'admin') && (
+                    <span
+                      className="flex h-8 w-8 items-center justify-center rounded-lg text-amber-300"
+                      title={m.role === 'owner' ? 'Owner' : 'Admin'}
+                      aria-label={m.role === 'owner' ? 'Owner' : 'Admin'}
                     >
-                      {mutedSet.has(m.userId) ? (
-                        /* Bell with slash */
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M9.143 17.082a24.248 24.248 0 003.714 0M3 3l18 18M10.584 10.587a2 2 0 002.828 2.83M7.843 7.84A6.002 6.002 0 006 13v3l-1.256 1.148A1 1 0 005.5 19h13a1 1 0 00.756-1.652l-.256-.234" />
-                        </svg>
-                      ) : (
-                        /* Bell */
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                        </svg>
-                      )}
-                    </button>
+                      <RoleGlyph role={m.role} />
+                    </span>
                   )}
-                  {isOwner && m.userId !== currentUser?.id && m.role !== 'owner' && (
-                    <div className="flex items-center gap-1">
+                  {!isSelf && (
+                    <div className="relative" ref={memberActionMenuUserId === m.userId ? memberActionMenuRef : null}>
                       <button
-                        onClick={() => handleRoleToggle(m.userId, m.role)}
-                        disabled={updateMemberRole.isPending}
-                        className="text-xs px-2 py-1 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors disabled:opacity-50"
-                        title={m.role === 'admin' ? 'Demote to member' : 'Promote to admin'}
+                        type="button"
+                        aria-label={`Open member actions for ${m.name}`}
+                        aria-expanded={memberActionMenuUserId === m.userId}
+                        onClick={() => {
+                          setConfirmRemoveMember((current) => (current === m.userId ? current : null))
+                          setMemberActionMenuUserId((current) => current === m.userId ? null : m.userId)
+                        }}
+                        className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-800 text-gray-300 transition-colors hover:bg-gray-700"
                       >
-                        {m.role === 'admin' ? 'Demote' : 'Promote'}
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                          <circle cx="12" cy="5" r="1.8" />
+                          <circle cx="12" cy="12" r="1.8" />
+                          <circle cx="12" cy="19" r="1.8" />
+                        </svg>
                       </button>
-                      {confirmRemoveMember === m.userId ? (
-                        <>
+                      {memberActionMenuUserId === m.userId && (
+                        <div className="absolute right-0 top-11 z-20 min-w-[11rem] rounded-xl border border-gray-800 bg-gray-950 p-1.5 shadow-2xl shadow-black/40">
                           <button
-                            onClick={() => handleRemoveMember(m.userId)}
-                            disabled={removeMember.isPending}
-                            className="text-xs px-2 py-1 rounded-lg bg-red-900 text-red-300 hover:bg-red-800 transition-colors disabled:opacity-50"
+                            type="button"
+                            onClick={() => handleMuteToggle(m.userId)}
+                            disabled={muteUser.isPending || unmuteUser.isPending}
+                            className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-200 transition-colors hover:bg-gray-900 disabled:opacity-50"
                           >
-                            Confirm
+                            {mutedSet.has(m.userId) ? (
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M9.143 17.082a24.248 24.248 0 0 0 3.714 0M3 3l18 18M10.584 10.587a2 2 0 0 0 2.828 2.83M7.843 7.84A6.002 6.002 0 0 0 6 13v3l-1.256 1.148A1 1 0 0 0 5.5 19h13a1 1 0 0 0 .756-1.652l-.256-.234" />
+                              </svg>
+                            ) : (
+                              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0 1 18 14.158V11a6.002 6.002 0 0 0-4-5.659V5a2 2 0 1 0-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 1 1-6 0v-1m6 0H9" />
+                              </svg>
+                            )}
+                            <span>{mutedSet.has(m.userId) ? 'Unmute notifications' : 'Mute notifications'}</span>
                           </button>
-                          <button
-                            onClick={() => setConfirmRemoveMember(null)}
-                            className="text-xs px-2 py-1 rounded-lg bg-gray-800 text-gray-400 hover:bg-gray-700 transition-colors"
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => setConfirmRemoveMember(m.userId)}
-                          className="text-xs px-2 py-1 rounded-lg bg-gray-800 text-red-400 hover:bg-red-900/30 transition-colors"
-                        >
-                          Remove
-                        </button>
+                          {canOwnerManageMember && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setMemberActionMenuUserId(null)
+                                  handleRoleToggle(m.userId, m.role)
+                                }}
+                                disabled={updateMemberRole.isPending}
+                                className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-200 transition-colors hover:bg-gray-900 disabled:opacity-50"
+                              >
+                                {m.role === 'admin' ? (
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14m0 0-5-5m5 5 5-5" />
+                                  </svg>
+                                ) : (
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 19V5m0 0-5 5m5-5 5 5" />
+                                  </svg>
+                                )}
+                                <span>{m.role === 'admin' ? 'Demote to member' : 'Promote to admin'}</span>
+                              </button>
+                              {confirmRemoveMember === m.userId ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleRemoveMember(m.userId)}
+                                    disabled={removeMember.isPending}
+                                    className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-300 transition-colors hover:bg-red-950/50 disabled:opacity-50"
+                                  >
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4h8v2m-7 4v6m4-6v6m-7 4h10a1 1 0 0 0 1-1V6H6v13a1 1 0 0 0 1 1Z" />
+                                    </svg>
+                                    <span>Confirm remove</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmRemoveMember(null)}
+                                    className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-gray-400 transition-colors hover:bg-gray-900"
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmRemoveMember(m.userId)}
+                                  className="mt-1 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm text-red-300 transition-colors hover:bg-red-950/50"
+                                >
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-red-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4h8v2m-7 4v6m4-6v6m-7 4h10a1 1 0 0 0 1-1V6H6v13a1 1 0 0 0 1 1Z" />
+                                  </svg>
+                                  <span>Remove</span>
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
                   )}

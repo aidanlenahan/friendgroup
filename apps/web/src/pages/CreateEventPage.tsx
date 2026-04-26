@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import PageToolbar from '../components/PageToolbar'
 import { useCreateEvent } from '../hooks/useEvents'
 import { useGroupTags } from '../hooks/useGroups'
 import { useToast } from '../hooks/useToast'
@@ -57,7 +58,10 @@ export default function CreateEventPage() {
 
   return (
     <div className="px-4 py-6 sm:p-6 max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold text-white mb-6">Create Event</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold text-white">Create Event</h2>
+        <PageToolbar />
+      </div>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm text-gray-400 mb-1">Title *</label>

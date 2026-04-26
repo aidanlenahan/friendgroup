@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import PageToolbar from '../components/PageToolbar'
 import { useChannelMessages } from '../hooks/useMessages'
 import type { ChannelMessage } from '../hooks/useMessages'
 import { useChannelChat } from '../hooks/useChat'
@@ -159,9 +160,12 @@ export default function ChannelPage() {
         <header className="flex items-center gap-3 px-4 py-3 border-b border-gray-800 bg-gray-950 flex-shrink-0">
           <Link
             to={`/groups/${groupId}`}
-            className="md:hidden text-gray-400 hover:text-white mr-1"
+            className="md:hidden p-1 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+            aria-label="Back to group"
           >
-            ←
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
           </Link>
           <span className="text-gray-400 text-lg">#</span>
           <h1 className="font-semibold text-white truncate">
@@ -185,6 +189,7 @@ export default function ChannelPage() {
                 + Channel
               </button>
             )}
+            <PageToolbar />
           </div>
         </header>
 

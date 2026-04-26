@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
+import PageToolbar from '../components/PageToolbar'
 import { useQuery } from '@tanstack/react-query'
 import { useEvent, useEventAttendance, useRsvp, useEventRating, useEventMedia, useLikeMedia, useUpdateEvent } from '../hooks/useEvents'
 import type { EventRecord, EventTag } from '../hooks/useEvents'
@@ -335,15 +336,18 @@ export default function EventPage() {
       <div className="mb-6">
         <div className="flex items-start justify-between gap-3">
           <h2 className="text-2xl font-bold text-white">{event.title}</h2>
-          {(isAdmin || isCreator) && (
-            <button
-              onClick={handleOpenEditModal}
-              className="shrink-0 p-2 rounded-xl bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
-              aria-label="Edit event"
-            >
-              <PencilIcon />
-            </button>
-          )}
+          <div className="flex items-center gap-1 shrink-0">
+            {(isAdmin || isCreator) && (
+              <button
+                onClick={handleOpenEditModal}
+                className="p-2 rounded-xl bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+                aria-label="Edit event"
+              >
+                <PencilIcon />
+              </button>
+            )}
+            <PageToolbar backTo={`/groups/${event.groupId}`} />
+          </div>
         </div>
         <p className="text-gray-400 mt-1">{formatDate(event.dateTime)}</p>
         {event.endsAt && (

@@ -1,4 +1,5 @@
 import { useParams, Link } from 'react-router-dom'
+import PageToolbar from '../components/PageToolbar'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiFetch } from '../lib/api'
 import { useAuthStore } from '../stores/authStore'
@@ -101,17 +102,9 @@ export default function UserProfilePage() {
 
   return (
     <div className="px-4 py-6 sm:p-6 max-w-xl mx-auto">
-      {/* Back */}
-      <Link
-        to={-1 as unknown as string}
-        onClick={(e) => { e.preventDefault(); window.history.back() }}
-        className="inline-flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-300 transition-colors mb-6"
-      >
-        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-        </svg>
-        Back
-      </Link>
+      <div className="flex justify-end mb-4">
+        <PageToolbar />
+      </div>
 
       {/* Profile card */}
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 flex items-start gap-5">

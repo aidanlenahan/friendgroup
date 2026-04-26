@@ -1,4 +1,6 @@
 import { useState, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
+import PageToolbar from '../components/PageToolbar'
 import { useAuthStore } from '../stores/authStore'
 import { apiFetch, ApiError } from '../lib/api'
 import { useToast } from '../hooks/useToast'
@@ -24,6 +26,7 @@ type UploadUrlResponse = {
 
 export default function ProfilePage() {
   const { user, login, token } = useAuthStore()
+  const navigate = useNavigate()
   const toast = useToast()
   const avatarInputRef = useRef<HTMLInputElement>(null)
 
@@ -112,7 +115,10 @@ export default function ProfilePage() {
 
   return (
     <div className="px-4 py-6 sm:p-6 max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold text-white mb-6">Profile</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold text-white">Profile</h2>
+        <PageToolbar backTo="/groups" />
+      </div>
 
       <form onSubmit={handleSave} className="space-y-6">
         {/* Avatar */}

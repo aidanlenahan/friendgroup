@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import PageToolbar from '../components/PageToolbar'
 import {
   useNotificationConfig,
   useNotificationPreferences,
@@ -35,6 +37,7 @@ function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
 }
 
 export default function NotificationSettingsPage() {
+  const navigate = useNavigate()
   const toast = useToast()
   const { data: config } = useNotificationConfig()
   const { data: prefsData, isLoading, isError, error } = useNotificationPreferences()
@@ -159,7 +162,10 @@ export default function NotificationSettingsPage() {
 
   return (
     <div className="px-4 py-6 sm:p-6 max-w-2xl mx-auto">
-      <h2 className="text-2xl font-bold text-white mb-6">Notification Settings</h2>
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold text-white">Notification Settings</h2>
+        <PageToolbar />
+      </div>
 
       {/* Push Permission */}
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 mb-6">
