@@ -1,0 +1,59 @@
+# Auto-detect text files and normalize line endings
+* text=auto eol=lf
+
+# Source code
+*.ts        text eol=lf
+*.tsx       text eol=lf
+*.js        text eol=lf
+*.jsx       text eol=lf
+*.mjs       text eol=lf
+*.cjs       text eol=lf
+*.json      text eol=lf
+*.jsonc     text eol=lf
+
+# Styles and markup
+*.css       text eol=lf
+*.html      text eol=lf
+*.svg       text eol=lf
+
+# Config and data
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.env       text eol=lf
+*.env.*     text eol=lf
+*.toml      text eol=lf
+*.ini       text eol=lf
+
+# Shell scripts
+*.sh        text eol=lf
+*.bash      text eol=lf
+
+# Docs
+*.md        text eol=lf
+*.txt       text eol=lf
+
+# Prisma
+*.prisma    text eol=lf
+
+# Docker
+Dockerfile  text eol=lf
+*.dockerfile text eol=lf
+
+# systemd unit files
+*.service   text eol=lf
+
+# Binary files — no diff, no merge
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.webp      binary
+*.ico       binary
+*.svg       binary -diff
+*.woff      binary
+*.woff2     binary
+*.ttf       binary
+*.eot       binary
+*.pdf       binary
+*.zip       binary
+*.tar.gz    binary
