@@ -8,6 +8,8 @@ import DurationPicker from '../components/DurationPicker'
 
 type CreateEventResult = { event: { id: string } }
 
+const MAX_EVENT_TAGS = 3
+
 export default function CreateEventPage() {
   const { groupId } = useParams<{ groupId: string }>()
   const navigate = useNavigate()
@@ -30,9 +32,16 @@ export default function CreateEventPage() {
   }
 
   const toggleTag = (tagId: string) => {
-    setSelectedTagIds((prev) =>
-      prev.includes(tagId) ? prev.filter((id) => id !== tagId) : [...prev, tagId],
-    )
+    setSelectedTagIds((prev) => {
+      if (prev.includes(tagId)) {
+        return prev.filter((id) => id !== tagId)
+      }
+      if (prev.length >= MAX_EVENT_TAGS) {
+        toast.error(`You can add up to ${MAX_EVENT_TAGS} tags per event`)
+        return prev
+      }
+      return [...prev, tagId]
+    })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -141,7 +150,7 @@ export default function CreateEventPage() {
 
         {tags.length > 0 && (
           <div>
-            <label className="block text-sm text-gray-400 mb-2">Tags</label>
+            <label className="block text-sm text-gray-400 mb-2">Tags ({selectedTagIds.length}/{MAX_EVENT_TAGS})</label>
             <div className="flex flex-wrap gap-2">
               {tags.map((tag) => (
                 <button

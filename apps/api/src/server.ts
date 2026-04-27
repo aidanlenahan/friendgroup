@@ -371,7 +371,7 @@ const createEventBodySchema = z.object({
   isPrivate: z.boolean().optional(),
   maxAttendees: z.number().int().positive().optional(),
   location: z.string().max(500).optional(),
-  tagIds: z.array(schemas.id).optional(),
+  tagIds: z.array(schemas.id).max(3, "You can add up to 3 tags per event").optional(),
 });
 
 const updateEventParamsSchema = z.object({
@@ -387,7 +387,7 @@ const updateEventBodySchema = z.object({
   maxAttendees: z.number().int().positive().nullable().optional(),
   location: z.string().max(500).nullable().optional(),
   isLegendary: z.boolean().optional(),
-  tagIds: z.array(schemas.id).optional(),
+  tagIds: z.array(schemas.id).max(3, "You can add up to 3 tags per event").optional(),
 });
 
 const rsvpBodySchema = z.object({
@@ -444,6 +444,11 @@ const verifyLoginCodeBodySchema = z.object({
 
 const forgotPasswordBodySchema = z.object({
   email: schemas.email,
+});
+
+const verifyResetCodeBodySchema = z.object({
+  email: schemas.email,
+  code: z.string().length(6).regex(/^\d{6}$/),
 });
 
 const resetPasswordBodySchema = z.object({
@@ -655,7 +660,7 @@ const eventRatingBodySchema = z.object({
 });
 
 const eventTagsBodySchema = z.object({
-  tagIds: z.array(schemas.id),
+  tagIds: z.array(schemas.id).max(3, "You can add up to 3 tags per event"),
 });
 
 type NotificationFanoutJobData = {
@@ -1214,6 +1219,10 @@ app.post("/auth/forgot-password", { config: { rateLimit: { max: 5, timeWindow: "
       data: { userId: user.id, token: rawToken, expiresAt },
     });
 
+    // Also generate a 6-digit OTP so the user can verify directly on the page
+    const otpCode = generateOtpCode();
+    await redis.setex(`reset:code:${user.id}`, 3600, otpCode);
+
     const resetUrl = `${process.env.WEB_BASE_URL}/reset-password?token=${rawToken}`;
 
     await sendTransactionalEmail({
@@ -1222,23 +1231,61 @@ app.post("/auth/forgot-password", { config: { rateLimit: { max: 5, timeWindow: "
       html: `
         <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
           <h2 style="margin:0 0 12px 0;">Friendgroup</h2>
-          <p style="margin:0 0 20px 0;">We received a request to reset your password. Click the button below to choose a new one. This link expires in 1 hour.</p>
-          <p style="margin:0 0 20px 0;">
+          <p style="margin:0 0 20px 0;">We received a request to reset your password. You can reset it by clicking the button below <strong>or</strong> by entering the 6-digit code on the reset page. Both expire in 1 hour.</p>
+          <p style="margin:0 0 8px 0;">
             <a href="${resetUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:600;">Reset Password</a>
           </p>
-          <p style="color:#64748b;font-size:12px;margin:0;">If you did not request a password reset, you can safely ignore this email. The link will expire automatically.</p>
+          <p style="margin:0 0 20px 0;color:#64748b;font-size:13px;">Or enter this 6-digit code on the page where you requested the reset:</p>
+          <div style="font-size:36px;font-weight:700;letter-spacing:12px;color:#ffffff;background:#1e293b;padding:16px 24px;border-radius:8px;display:inline-block;margin:0 0 20px 0;">${otpCode}</div>
+          <p style="color:#64748b;font-size:12px;margin:0;">If you did not request a password reset, you can safely ignore this email. The link and code will expire automatically.</p>
         </div>
       `,
-      text: `Reset your Friendgroup password\n\nClick this link to reset your password (expires in 1 hour):\n${resetUrl}\n\nIf you did not request this, ignore this email.`,
+      text: `Reset your Friendgroup password\n\nClick this link to reset your password (expires in 1 hour):\n${resetUrl}\n\nOr enter this 6-digit code on the page where you requested the reset: ${otpCode}\n\nIf you did not request this, ignore this email.`,
     });
 
     if (process.env.NODE_ENV !== "production") {
-      app.log.info({ to: user.email, resetUrl }, "[DEV] Password reset link");
+      app.log.info({ to: user.email, resetUrl, otpCode }, "[DEV] Password reset link + code");
     }
   }
 
   // Anti-enumeration: always return 200 regardless of whether email exists
   return reply.send({ message: "If that email is registered, a reset link has been sent." });
+});
+
+app.post("/auth/verify-reset-code", { config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
+  const body = await validateRequest(verifyResetCodeBodySchema, request.body);
+
+  const invalidError = { error: "Invalid or expired code", code: "INVALID_CODE" };
+
+  const user = await prisma.user.findUnique({
+    where: { email: body.email },
+    select: { id: true },
+  });
+
+  if (!user) {
+    return reply.status(401).send(invalidError);
+  }
+
+  const stored = await redis.get(`reset:code:${user.id}`);
+  if (!stored || stored !== body.code) {
+    return reply.status(401).send(invalidError);
+  }
+
+  // Find the active reset token to hand back to the client
+  const record = await prisma.passwordResetToken.findFirst({
+    where: { userId: user.id, usedAt: null, expiresAt: { gt: new Date() } },
+    select: { token: true },
+    orderBy: { expiresAt: "desc" },
+  });
+
+  if (!record) {
+    return reply.status(401).send(invalidError);
+  }
+
+  // Consume the Redis code so it can't be reused
+  await redis.del(`reset:code:${user.id}`);
+
+  return reply.send({ token: record.token });
 });
 
 app.post("/auth/reset-password", { config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {

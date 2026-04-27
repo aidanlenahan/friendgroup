@@ -69,6 +69,7 @@ function buildGoogleCalLink(event: EventRecord): string {
 }
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '🎉', '😮', '👎']
+const MAX_EVENT_TAGS = 3
 
 function ReactionPicker({ messageId: _messageId, onReact }: { messageId: string; onReact: (emoji: string) => void }) {
   const [open, setOpen] = useState(false)
@@ -192,6 +193,19 @@ export default function EventPage() {
     setEditMaxAttendees(event.maxAttendees != null ? String(event.maxAttendees) : '')
     setEditIsPrivate(event.isPrivate ?? false)
     setShowEditModal(true)
+  }
+
+  const toggleEditTag = (tagId: string) => {
+    setEditTagIds((prev) => {
+      if (prev.includes(tagId)) {
+        return prev.filter((id) => id !== tagId)
+      }
+      if (prev.length >= MAX_EVENT_TAGS) {
+        toast.error(`You can add up to ${MAX_EVENT_TAGS} tags per event`)
+        return prev
+      }
+      return [...prev, tagId]
+    })
   }
 
   const handleSaveEvent = async (e: React.FormEvent) => {
@@ -566,7 +580,7 @@ export default function EventPage() {
               </div>
               {groupTagsData?.tags && groupTagsData.tags.length > 0 && (
                 <div>
-                  <label className="block text-sm text-gray-400 mb-2">Tags</label>
+                  <label className="block text-sm text-gray-400 mb-2">Tags ({editTagIds.length}/{MAX_EVENT_TAGS})</label>
                   <div className="flex flex-wrap gap-2">
                     {groupTagsData.tags.map((tag) => {
                       const selected = editTagIds.includes(tag.id)
@@ -574,11 +588,7 @@ export default function EventPage() {
                         <button
                           key={tag.id}
                           type="button"
-                          onClick={() =>
-                            setEditTagIds((prev) =>
-                              selected ? prev.filter((id) => id !== tag.id) : [...prev, tag.id]
-                            )
-                          }
+                          onClick={() => toggleEditTag(tag.id)}
                           className={`px-3 py-1 rounded-full text-sm transition-colors ${
                             selected
                               ? 'bg-indigo-600 text-white'
