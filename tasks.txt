@@ -1,6 +1,6 @@
 ========================================================
 TASKS.TXT — Friendgroup Feature + Bug Backlog
-Last updated: 2026-04-26
+Last updated: 2026-04-24
 Format: [x] = done, [ ] = pending, [-] = in progress / partial
 Priority order: P1 = blocks any real user from using the app
                 P2 = core UX gaps visible to all users after launch
@@ -9,103 +9,11 @@ Priority order: P1 = blocks any real user from using the app
                 P5 = low priority / future enhancements
 ========================================================
 
-=== POST URL MIGRATION — Blocked until permanent subdomain is live ===
-CONTEXT: The app currently runs behind a temporary ngrok URL. Many features
-depend on WEB_BASE_URL and API_BASE_URL being set to permanent, publicly
-accessible HTTPS URLs. The todo.txt has the infra steps (subdomain on
-aidanlenahan.com, Cloudflare tunnel, etc.). Until those are done and the
-.env values are updated to the real URLs, the following features are either
-broken or incomplete for real users:
-
-[ ] calendar feed URLs are ngrok-scoped and will break when tunnel restarts
-    CONTEXT: GET /calendar/group-feed/:token.ics returns a URL built from
-    API_BASE_URL. Currently this is http://localhost:4000 (or the ngrok URL).
-    Once the subdomain is live:
-    - Set API_BASE_URL=https://api.subdomain.aidanlenahan.com in apps/api/.env
-    - Any already-generated calendarToken feed URLs in DB will still work —
-      the token is permanent, only the host prefix changes. Users will need to
-      re-copy the new feed URL (or you can regenerate all tokens).
-    - webcal:// links in the GroupPage UI will also reflect the new host automatically.
-
-[ ] ICS event links inside calendar files point to wrong host
-    CONTEXT: buildIcsCalendar() uses WEB_BASE_URL to embed a "Open in Friendgroup"
-    link in each VEVENT DESCRIPTION. Currently this is localhost:5173.
-    Once subdomain is live: Set WEB_BASE_URL=https://subdomain.aidanlenahan.com
-
-[ ] password reset emails contain localhost link
-    CONTEXT: POST /auth/forgot-password builds resetUrl from WEB_BASE_URL.
-    The link in the email will be http://localhost:5173/reset-password?token=...
-    which is useless to anyone not on the dev machine. Fixed by updating WEB_BASE_URL.
-
-[ ] join-request notification emails contain localhost group link
-    CONTEXT: When a user joins a group, the owner receives an email with a link
-    to /groups/:groupId?tab=members. This URL is built from WEB_BASE_URL.
-    Same fix: update WEB_BASE_URL.
-
-[ ] member approval notification emails contain localhost group link
-    CONTEXT: Same as above — the "you've been approved" email links to
-    WEB_BASE_URL/groups/:groupId. Useless until WEB_BASE_URL is real.
-
-[ ] noreply email address is still Gmail SMTP — needs @subdomain address
-    CONTEXT: Noted in todo.txt. Currently SMTP_USER is a Gmail address.
-    After subdomain is live, set up noreply@subdomain.aidanlenaiah.com
-    via Cloudflare Email Routing or a transactional mail provider.
-    Update SMTP_USER, SMTP_PASS, EMAIL_FROM, SMTP_HOST, SMTP_PORT, SMTP_SECURE.
-
-[ ] Google Calendar deep-link in EventPage embeds localhost in event URL
-    CONTEXT: buildGoogleCalendarLink() includes webBaseUrl in the event details.
-    Not a hard break (Google Calendar still works), but the "Open in Friendgroup"
-    link inside the created GCal event goes to localhost. Fixed by WEB_BASE_URL.
-
-[ ] group invite links (when built) must use permanent URL
-    CONTEXT: todo.txt lists "make group invite link" as pending. When implemented,
-    the shareable invite link must use the permanent subdomain, not ngrok/localhost.
-
-WHAT TO DO (all at once after subdomain + tunnel are live):
-    1. apps/api/.env:
-         WEB_BASE_URL=https://subdomain.aidanlenahan.com
-         API_BASE_URL=https://api.subdomain.aidanlenahan.com
-         (or same domain if API is behind the same tunnel on a /api prefix)
-    2. apps/web/.env (or .env.production):
-         VITE_API_BASE_URL=https://api.subdomain.aidanlenahan.com
-    3. Restart API and rebuild web (npm run build in apps/web)
-    4. Notify any existing beta users to re-copy their calendar feed URLs
-       from GroupPage (the token stays the same, only the host changes)
-
 === TOP PRIORITY — Must Do Next ===
 
-[ ] avatar proxy endpoint — mobile avatars are broken without this
-    CONTEXT: broken-session.md (2026-04-24) documented this fix but it was
-    never actually applied to the codebase. S3_PUBLIC_BASE_URL is not in .env;
-    no /media/proxy/* route exists in server.ts. Without this fix:
-    - Mobile devices and non-localhost clients cannot load any user avatar
-      because http://localhost:9000 is inaccessible from other network interfaces
-    - CORS may block direct MinIO access from the browser
-    WHAT TO DO:
-    1. In apps/api/.env, add:
-         S3_PUBLIC_BASE_URL=http://localhost:4000/media/proxy
-    2. In apps/api/src/server.ts, add GetObjectCommand to the @aws-sdk/client-s3
-       import (line 30).
-    3. Add GET /media/proxy/* endpoint after the avatar-upload-url route (~line 1660):
-       - Parse bucket + key from URL path
-       - Security: only allow avatars/* keys (return 403 otherwise)
-       - Fetch from S3 via GetObjectCommand, stream response with correct headers
-       - Return 1-year Cache-Control for versioned URLs
-       - Return 404 for NoSuchKey, 500 for other S3 errors
-    4. Existing avatar URLs in DB that point to localhost:9000 will need to be
-       updated — affected users will need to re-upload their avatar OR a one-time
-       migration script can rewrite existing URLs.
-    5. Restart API: kill tsx process and relaunch (or send SIGHUP)
-    See: tmp/broken-session.md for the full implementation specification.
+[x] avatar proxy endpoint — DONE 2026-04-27: Added GetObjectCommand to @aws-sdk/client-s3 import; added GET /media/proxy/* route in server.ts (avatars-only restriction, 1-yr cache, streams S3 body); added S3_PUBLIC_BASE_URL=http://localhost:4000/media/proxy to apps/api/.env and .env.example. Existing users with localhost:9000 avatar URLs will need to re-upload. API restarted.
 
-[ ] restart API service to pick up per-user mute routes (4-24-per-user-mute)
-    CONTEXT: The per-user mute feature was fully implemented in code and the
-    migration was applied (20260424121802_add_user_mutes). However, the tsx
-    dev process may need a restart to ensure the new routes are live.
-    - Routes: POST /users/:userId/mute, DELETE /users/:userId/mute, GET /users/muted
-    - Also: notification fanout worker now filters muted actors
-    WHAT TO DO: kill and restart the tsx process (PID visible via ps aux)
-    or run: cd apps/api && npx tsx src/server.ts
+[x] restart API service to pick up per-user mute routes — DONE 2026-04-27: Killed old tsx watch PIDs (2560260, 2560261, 3457402) and relaunched; new API confirmed healthy on /health.
 
 === P2: Core UX — Visible to All Users ===
 
@@ -117,27 +25,6 @@ WHAT TO DO (all at once after subdomain + tunnel are live):
     live email provider.
 
 === P3: Feature Completeness / Secondary UX ===
-
-[ ] persist user settings server-side for cross-device consistency
-    CONTEXT: Currently, user settings that live in Zustand persisted stores
-    (e.g. fg-duration-presets for event duration presets) are stored in
-    localStorage only. They do not sync across devices — a user who configures
-    their duration presets on mobile will not see them on desktop.
-    WHAT TO DO:
-    - Add a UserSettings model (or JSONB column on User) in Prisma schema to
-      store arbitrary per-user preference blobs (e.g. { durationPresets: number[] })
-    - Add API endpoints:
-        GET  /users/me/settings  → returns settings blob
-        PUT  /users/me/settings  → replaces/merges settings (validate shape with Zod)
-    - On app load (after auth), fetch /users/me/settings and hydrate the
-      relevant Zustand stores (overriding localStorage defaults)
-    - On store mutation (addPreset / removePreset), write-through to the API
-      so changes persist server-side immediately
-    - Scope initially to durationPresets; design the schema generically so
-      other future per-user prefs (e.g. notification defaults, default RSVP view)
-      can be stored in the same blob without migrations
-    EFFORT: small — JSONB on User is a 1-line migration; endpoints + store
-    write-through are the bulk of the work.
 
 [ ] dev vs prod instance — decide on deployment strategy
     DISCUSSION — Not a code task. Points to consider:

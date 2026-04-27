@@ -11,7 +11,6 @@
  */
 
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import PageToolbar from '../components/PageToolbar'
 import { useAuthStore } from '../stores/authStore'
 import { apiFetch } from '../lib/api'
@@ -49,7 +48,6 @@ export default function DeveloperPage() {
 }
 
 function DeveloperContent() {
-  const navigate = useNavigate()
   const [activeTab, setActiveTab] = useState<Tab>('config')
 
   return (

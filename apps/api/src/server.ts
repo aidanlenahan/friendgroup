@@ -27,7 +27,7 @@ async function verifyPassword(password: string, hash: string): Promise<boolean> 
   const storedBuf = Buffer.from(storedKey, "hex");
   return derivedKey.length === storedBuf.length && timingSafeEqual(derivedKey, storedBuf);
 }
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Queue, Worker } from "bullmq";
 import { errorHandler } from "./lib/errors.js";
@@ -664,7 +664,7 @@ const eventTagsBodySchema = z.object({
 });
 
 type NotificationFanoutJobData = {
-  type: "chat_message" | "event_created" | "event_changed" | "invite";
+  type: "chat_message" | "event_created" | "event_changed" | "invite" | "rsvp_update";
   groupId: string;
   actorUserId?: string;
   eventId?: string;
@@ -1702,6 +1702,43 @@ app.post("/media/avatar-upload-url", { config: { rateLimit: { max: 10, timeWindo
   return reply.send({ uploadUrl, publicUrl, objectKey });
 });
 
+// GET /media/proxy/* — proxy media objects from S3/MinIO through the API
+// Needed for mobile and cross-network access where MinIO is not directly reachable.
+app.get("/media/proxy/*", async (request, reply) => {
+  const fullPath = (request.params as Record<string, string>)["*"];
+  if (!fullPath) {
+    return reply.status(400).send({ error: "Invalid media path" });
+  }
+
+  const [bucket, ...keyParts] = fullPath.split("/");
+  const key = keyParts.join("/");
+
+  if (!bucket || !key) {
+    return reply.status(400).send({ error: "Invalid media path" });
+  }
+
+  // Security: only allow avatars to be proxied
+  if (!key.startsWith("avatars/")) {
+    return reply.status(403).send({ error: "Access denied" });
+  }
+
+  try {
+    const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+    reply.type(object.ContentType || "application/octet-stream");
+    if (object.ContentLength) {
+      reply.header("Content-Length", object.ContentLength);
+    }
+    reply.header("Cache-Control", "public, max-age=31536000");
+    return reply.send(object.Body);
+  } catch (err) {
+    if ((err as { name?: string }).name === "NoSuchKey") {
+      return reply.status(404).send({ error: "Not found" });
+    }
+    app.log.error({ err }, "Error proxying media object");
+    return reply.status(500).send({ error: "Failed to proxy media" });
+  }
+});
+
 app.get("/events/:id/media", async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(updateEventParamsSchema, request.params);
@@ -1978,7 +2015,7 @@ app.post("/events/:id/rsvps", { config: { rateLimit: { max: 30, timeWindow: "1 m
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(updateEventParamsSchema, request.params);
   const body = await validateRequest(rsvpBodySchema, request.body);
-  await canAccessEvent(prisma, params.id, currentUser.id);
+  const access = await canAccessEvent(prisma, params.id, currentUser.id);
 
   const where = {
     eventId_userId: {
@@ -2000,6 +2037,18 @@ app.post("/events/:id/rsvps", { config: { rateLimit: { max: 30, timeWindow: "1 m
         status: body.status,
       },
     });
+
+    if (access.event.createdById !== currentUser.id) {
+      await notificationQueue.add("fanout", {
+        type: "rsvp_update",
+        groupId: access.event.groupId,
+        actorUserId: currentUser.id,
+        eventId: params.id,
+        recipientUserIds: [access.event.createdById],
+        title: `RSVP on ${access.event.title}`,
+        body: `${currentUser.name} responded ${body.status} to your event.`,
+      });
+    }
 
     return reply.status(201).send({ rsvp: created });
   }
@@ -2030,6 +2079,17 @@ app.post("/events/:id/rsvps", { config: { rateLimit: { max: 30, timeWindow: "1 m
     }
 
     const updated = await prisma.rSVP.findUnique({ where });
+    if (access.event.createdById !== currentUser.id) {
+      await notificationQueue.add("fanout", {
+        type: "rsvp_update",
+        groupId: access.event.groupId,
+        actorUserId: currentUser.id,
+        eventId: params.id,
+        recipientUserIds: [access.event.createdById],
+        title: `RSVP updated on ${access.event.title}`,
+        body: `${currentUser.name} changed their RSVP to ${body.status}.`,
+      });
+    }
     return reply.status(201).send({ rsvp: updated });
   }
 
@@ -2039,6 +2099,18 @@ app.post("/events/:id/rsvps", { config: { rateLimit: { max: 30, timeWindow: "1 m
       status: body.status,
     },
   });
+
+  if (access.event.createdById !== currentUser.id) {
+    await notificationQueue.add("fanout", {
+      type: "rsvp_update",
+      groupId: access.event.groupId,
+      actorUserId: currentUser.id,
+      eventId: params.id,
+      recipientUserIds: [access.event.createdById],
+      title: `RSVP updated on ${access.event.title}`,
+      body: `${currentUser.name} changed their RSVP to ${body.status}.`,
+    });
+  }
 
   return reply.status(201).send({ rsvp });
 });
@@ -4018,7 +4090,7 @@ app.patch("/events/:id/tags", { config: { rateLimit: { max: 30, timeWindow: "1 m
 // ============================================================================
 
 const port = Number(process.env.PORT || 4000);
-const host = "0.0.0.0";
+const host = process.env.API_HOST || (process.env.NODE_ENV === "production" ? "127.0.0.1" : "0.0.0.0");
 
 // Attach Socket.IO to the underlying HTTP server before listening
 const io = createChatServer(

@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
 import PageToolbar from '../components/PageToolbar'
 import {
   useNotificationConfig,
@@ -37,7 +36,6 @@ function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
 }
 
 export default function NotificationSettingsPage() {
-  const navigate = useNavigate()
   const toast = useToast()
   const { data: config } = useNotificationConfig()
   const { data: prefsData, isLoading, isError, error } = useNotificationPreferences()

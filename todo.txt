@@ -3,9 +3,9 @@
 [x] make live subscription to calendar — DONE 2026-04-26: Per-group ICS feed subscription via secret token. Added calendarToken to Membership (migration). New routes: GET/POST/DELETE /groups/:groupId/calendar-token (auth required) and GET /calendar/group-feed/:token.ics (public, token = auth). Events filtered by user's tag subscriptions and private event access. UI: calendar icon button in GroupPage events toolbar opens a panel to generate/copy/revoke the feed URL + webcal:// deep-link. schema.prisma, server.ts, GroupPage.tsx.
 [x] when hover over initials on event page, alt text shows display name and (going), only have this logic for Yes RSVP — DONE 2026-04-26: Added title prop to Avatar component; EventPage attendees section now shows yes/maybe/no RSVPs each with "Name (going/maybe/can't go)" tooltip. Avatar.tsx, EventPage.tsx.
 [x] can we add a Good Morning, Good Evening, Hello, [name] message on the root page at the top depending on the time? have multiple phrases per time slot. — DONE 2026-04-26: Added getGreeting() to GroupsPage with 4 phrases per time slot (morning/afternoon/evening/night), deterministic pick by name+hour. GroupsPage.tsx.
-[ ] refine on notifications
-    [ ] notis for tags
-    [ ] notis select for push and email
+[x] refine on notifications — DONE 2026-04-27: Wired rsvp_update notification fanout in POST /events/:id/rsvps (all three write paths), added GetObjectCommand import, added /media/proxy/* endpoint, set S3_PUBLIC_BASE_URL in .env. server.ts.
+    [x] notis for tags — DONE: UserTagPreference model, GET/PUT /notifications/preferences/tags, and tag subscription toggles in NotificationSettingsPage.tsx were already fully implemented.
+    [x] notis select for push and email — DONE: UserNotificationPreference model, GET/PUT /notifications/preferences, and per-channel toggle table in NotificationSettingsPage.tsx were already fully implemented. rsvp_update type added to NotificationFanoutJobData and now fired from RSVP routes.
 
 
 

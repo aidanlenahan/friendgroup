@@ -1,5 +1,4 @@
 import { useState, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
 import PageToolbar from '../components/PageToolbar'
 import { useAuthStore } from '../stores/authStore'
 import { apiFetch, ApiError } from '../lib/api'
@@ -26,7 +25,6 @@ type UploadUrlResponse = {
 
 export default function ProfilePage() {
   const { user, login, token } = useAuthStore()
-  const navigate = useNavigate()
   const toast = useToast()
   const avatarInputRef = useRef<HTMLInputElement>(null)
 

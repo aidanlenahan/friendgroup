@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import PageToolbar from '../components/PageToolbar'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
@@ -43,7 +43,6 @@ interface MutedUser {
 
 export default function SettingsPage() {
   const { user, login, token } = useAuthStore()
-  const navigate = useNavigate()
   const toast = useToast()
   const qc = useQueryClient()
 

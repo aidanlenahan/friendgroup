@@ -1,0 +1,24 @@
+[Unit]
+Description=Friendgroup Web (production preview)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aidan
+Group=devs
+WorkingDirectory=/var/www/friendgroup
+Environment=NODE_ENV=production
+ExecStartPre=/usr/bin/npm --workspace apps/web run build
+ExecStart=/usr/bin/npm --workspace apps/web run preview -- --host 127.0.0.1 --port 4173 --strictPort
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/www/friendgroup /tmp
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
