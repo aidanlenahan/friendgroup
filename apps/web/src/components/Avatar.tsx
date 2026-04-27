@@ -11,6 +11,7 @@ interface AvatarProps {
   name: string
   avatarUrl?: string | null
   size?: 'sm' | 'md' | 'lg'
+  title?: string
 }
 
 const sizeClasses = {
@@ -19,14 +20,15 @@ const sizeClasses = {
   lg: 'w-14 h-14 text-lg',
 }
 
-export default function Avatar({ name, avatarUrl, size = 'md' }: AvatarProps) {
+export default function Avatar({ name, avatarUrl, size = 'md', title }: AvatarProps) {
   const cls = sizeClasses[size]
 
   if (avatarUrl) {
     return (
       <img
         src={avatarUrl}
-        alt={name}
+        alt={title ?? name}
+        title={title ?? name}
         className={`${cls} rounded-full object-cover`}
       />
     )
@@ -34,6 +36,7 @@ export default function Avatar({ name, avatarUrl, size = 'md' }: AvatarProps) {
 
   return (
     <div
+      title={title ?? name}
       className={`${cls} rounded-full bg-indigo-900 flex items-center justify-center font-bold text-indigo-200`}
     >
       {getInitials(name)}

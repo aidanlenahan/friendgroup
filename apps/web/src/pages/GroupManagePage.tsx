@@ -16,6 +16,7 @@ import {
   useDenyMember,
   useCreateTag,
   useDeleteTag,
+  useUpdateTag,
   useMuteMember,
   useUnmuteMember,
 } from '../hooks/useGroups'
@@ -25,7 +26,6 @@ import { apiFetch, getApiErrorMessage } from '../lib/api'
 import Avatar from '../components/Avatar'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
-import TagBadge from '../components/TagBadge'
 
 function RoleGlyph({ role }: { role: 'owner' | 'admin' | 'member' }) {
   if (role === 'owner') {
@@ -87,13 +87,32 @@ export default function GroupManagePage() {
   const denyMember = useDenyMember(groupId!)
   const createTag = useCreateTag(groupId!)
   const deleteTag = useDeleteTag(groupId!)
+  const updateTag = useUpdateTag(groupId!)
   const muteMember = useMuteMember(groupId!)
   const unmuteMember = useUnmuteMember(groupId!)
 
   // Tag creation state
   const [newTagName, setNewTagName] = useState('')
   const [newTagColor, setNewTagColor] = useState('#6366f1')
-  const [confirmDeleteTag, setConfirmDeleteTag] = useState<string | null>(null)
+
+  /**
+   * Tag action overlay state.
+   *
+   * tagMenuId         — id of the tag whose action overlay is currently open,
+   *                     or null when no overlay is shown.
+   * tagDeleteConfirmId — id of the tag that is in the delete-confirmation
+   *                     sub-state within the overlay.  Always null when
+   *                     tagMenuId is null.
+   * editingTagColor   — color value currently shown in the hidden color
+   *                     input while the overlay is open; pre-seeded from
+   *                     the tag's existing color when the overlay opens.
+   */
+  const [tagMenuId, setTagMenuId] = useState<string | null>(null)
+  const [tagDeleteConfirmId, setTagDeleteConfirmId] = useState<string | null>(null)
+  const [editingTagColor, setEditingTagColor] = useState('#6366f1')
+
+  // Ref used to detect clicks outside the open tag overlay so it can be dismissed.
+  const tagMenuRef = useRef<HTMLDivElement>(null)
 
   // Group info edit state
   const group = groupData?.group
@@ -126,6 +145,18 @@ export default function GroupManagePage() {
     const handleClickOutside = (e: MouseEvent) => {
       if (memberActionMenuRef.current && !memberActionMenuRef.current.contains(e.target as Node)) {
         setMemberActionMenuUserId(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Close the tag action overlay when the user clicks anywhere outside it.
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (tagMenuRef.current && !tagMenuRef.current.contains(e.target as Node)) {
+        setTagMenuId(null)
+        setTagDeleteConfirmId(null)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -290,13 +321,31 @@ export default function GroupManagePage() {
     }
   }
 
+  /**
+   * handleDeleteTag — deletes the tag identified by tagId.
+   * Closes the action overlay and the delete-confirm sub-state on success.
+   */
   const handleDeleteTag = async (tagId: string) => {
     try {
       await deleteTag.mutateAsync(tagId)
-      setConfirmDeleteTag(null)
+      setTagMenuId(null)
+      setTagDeleteConfirmId(null)
       toast.success('Tag deleted')
     } catch (err) {
       toast.error(getApiErrorMessage(err, 'Failed to delete tag'))
+    }
+  }
+
+  /**
+   * handleUpdateTagColor — PATCHes only the color field of a tag.
+   * Called when the hidden color input inside the overlay changes.
+   * Does not close the overlay so the user can see the updated badge color.
+   */
+  const handleUpdateTagColor = async (tagId: string, color: string) => {
+    try {
+      await updateTag.mutateAsync({ tagId, color })
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, 'Failed to update tag color'))
     }
   }
 
@@ -589,45 +638,165 @@ export default function GroupManagePage() {
       {/* ── Tags ── */}
       <section className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
         <h3 className="text-base font-semibold text-white">Tags</h3>
-        <p className="text-xs text-gray-500">Tags are used to categorize events and let members subscribe to topics.</p>
+        <p className="text-xs text-gray-500">Tags categorize events and let members subscribe to topics. Click a tag to edit its color or delete it.</p>
 
-        {/* Existing tags */}
+        {/* Existing tags — each tag is a relative container that can show an action overlay */}
         <div className="flex flex-wrap gap-2">
           {!tagsData?.tags?.length ? (
             <p className="text-sm text-gray-500">No tags yet.</p>
           ) : (
-            tagsData.tags.map((tag) => (
-              <div key={tag.id} className="flex items-center gap-1 group">
-                <TagBadge name={tag.name} color={tag.color} />
-                {confirmDeleteTag === tag.id ? (
-                  <>
-                    <button
-                      onClick={() => handleDeleteTag(tag.id)}
-                      disabled={deleteTag.isPending}
-                      className="text-xs px-1.5 py-0.5 rounded bg-red-900 text-red-300 hover:bg-red-800 transition-colors disabled:opacity-50"
-                    >
-                      Delete
-                    </button>
-                    <button
-                      onClick={() => setConfirmDeleteTag(null)}
-                      className="text-xs px-1.5 py-0.5 rounded bg-gray-800 text-gray-400 hover:bg-gray-700 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                <button
-                    onClick={() => setConfirmDeleteTag(tag.id)}
-                    className="h-5 w-5 flex items-center justify-center rounded text-gray-500 hover:text-red-400 transition-colors"
-                    aria-label={`Delete ${tag.name} tag`}
+            tagsData.tags.map((tag) => {
+              const isOpen = tagMenuId === tag.id
+              const isConfirmingDelete = tagDeleteConfirmId === tag.id
+              return (
+                /*
+                 * Tag wrapper — position:relative anchors the absolute overlay.
+                 * min-w-[8.5rem] ensures there is always enough horizontal space
+                 * for the three action buttons (palette · trash · ×) when the
+                 * overlay is displayed, even if the tag name is very short.
+                 */
+                <div
+                  key={tag.id}
+                  ref={isOpen ? tagMenuRef : null}
+                  className="relative inline-flex min-w-[8.5rem]"
+                >
+                  {/*
+                   * Clickable tag pill — opens the action overlay.
+                   * Styled as a full-width pill so the overlay can be
+                   * inset-0 and perfectly centered over it.
+                   * Background uses the tag's theme color at full opacity;
+                   * text-white resolves to white (dark mode) or near-black
+                   * (light mode) via the CSS variable remap in index.css.
+                   */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (isOpen) {
+                        setTagMenuId(null)
+                        setTagDeleteConfirmId(null)
+                      } else {
+                        setTagMenuId(tag.id)
+                        setTagDeleteConfirmId(null)
+                        setEditingTagColor(tag.color ?? '#6366f1')
+                      }
+                    }}
+                    aria-label={`Open actions for tag ${tag.name}`}
+                    aria-expanded={isOpen}
+                    className="flex w-full items-center justify-center rounded-full px-2.5 py-1 text-xs font-medium text-white transition-opacity hover:opacity-90"
+                    style={{ backgroundColor: tag.color ?? '#6b7280' }}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" />
-                    </svg>
+                    {tag.name}
                   </button>
-                )}
-              </div>
-            ))
+
+                  {/*
+                   * Action overlay — absolutely covers the tag pill.
+                   * Semi-transparent dark background keeps the pill shape
+                   * visible while the action buttons are centered on top.
+                   *
+                   * Two sub-states:
+                   *   default        — palette icon · trash icon · × icon
+                   *   delete-confirm — checkmark (confirm) · × (cancel)
+                   */}
+                  {isOpen && (
+                    <div
+                      className="absolute inset-0 z-20 flex items-center justify-center gap-1 rounded-full bg-black/75"
+                      role="group"
+                      aria-label={`Actions for tag ${tag.name}`}
+                    >
+                      {isConfirmingDelete ? (
+                        /* ── Delete confirmation sub-state ── */
+                        <>
+                          {/* Confirm delete — checkmark turns red to signal danger */}
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTag(tag.id)}
+                            disabled={deleteTag.isPending}
+                            className="flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white hover:bg-red-500 disabled:opacity-50 transition-colors"
+                            aria-label={`Confirm delete tag ${tag.name}`}
+                            title="Confirm delete"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                          </button>
+                          {/* Cancel — returns to default action state */}
+                          <button
+                            type="button"
+                            onClick={() => setTagDeleteConfirmId(null)}
+                            className="flex h-6 w-6 items-center justify-center rounded-full bg-gray-700 text-gray-200 hover:bg-gray-600 transition-colors"
+                            aria-label="Cancel delete"
+                            title="Cancel"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </>
+                      ) : (
+                        /* ── Default action state ── */
+                        <>
+                          {/*
+                           * Color palette button — a visually hidden <input type="color">
+                           * is linked via htmlFor/id so clicking the label icon opens the
+                           * native color picker.  On change the tag color is PATCHed
+                           * immediately and editingTagColor is updated to keep the input
+                           * value in sync.
+                           */}
+                          <label
+                            htmlFor={`tag-color-input-${tag.id}`}
+                            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-full text-gray-200 hover:text-indigo-300 transition-colors"
+                            title="Change color"
+                            aria-label="Change tag color"
+                          >
+                            {/* Heroicons 24/outline — swatch (paint-brush palette) */}
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.75} stroke="currentColor" aria-hidden="true">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.098 19.902a3.75 3.75 0 0 0 5.304 0l6.401-6.402M6.75 21A3.75 3.75 0 0 1 3 17.25V4.125C3 3.504 3.504 3 4.125 3h5.25c.621 0 1.125.504 1.125 1.125v4.072M6.75 21a3.75 3.75 0 0 0 3.75-3.75V8.197M6.75 21h13.125c.621 0 1.125-.504 1.125-1.125v-5.25c0-.621-.504-1.125-1.125-1.125h-4.072M10.5 8.197l2.88-2.88c.438-.439 1.15-.439 1.59 0l3.712 3.713c.44.44.44 1.152 0 1.59l-2.879 2.88M6.75 17.25h.008v.008H6.75v-.008Z" />
+                            </svg>
+                            <input
+                              id={`tag-color-input-${tag.id}`}
+                              type="color"
+                              value={editingTagColor}
+                              onChange={(e) => {
+                                setEditingTagColor(e.target.value)
+                                handleUpdateTagColor(tag.id, e.target.value)
+                              }}
+                              className="sr-only"
+                              aria-hidden="true"
+                            />
+                          </label>
+
+                          {/* Trash — transitions to delete-confirm sub-state */}
+                          <button
+                            type="button"
+                            onClick={() => setTagDeleteConfirmId(tag.id)}
+                            className="flex h-6 w-6 items-center justify-center rounded-full text-gray-200 hover:text-red-400 transition-colors"
+                            aria-label={`Delete tag ${tag.name}`}
+                            title="Delete tag"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} aria-hidden="true">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18M8 6V4h8v2m-7 4v6m4-6v6m-7 4h10a1 1 0 0 0 1-1V6H6v13a1 1 0 0 0 1 1Z" />
+                            </svg>
+                          </button>
+
+                          {/* × — closes the overlay without any action */}
+                          <button
+                            type="button"
+                            onClick={() => setTagMenuId(null)}
+                            className="flex h-6 w-6 items-center justify-center rounded-full text-gray-200 hover:text-white transition-colors"
+                            aria-label="Close tag menu"
+                            title="Close"
+                          >
+                            <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} aria-hidden="true">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })
           )}
         </div>
 

@@ -15,7 +15,7 @@ import TagBadge from '../components/TagBadge'
 import Avatar from '../components/Avatar'
 import Spinner from '../components/Spinner'
 import DurationPicker from '../components/DurationPicker'
-import { apiFetch, getApiErrorMessage } from '../lib/api'
+import { apiFetch, getApiErrorMessage, getToken } from '../lib/api'
 import { useIsOnline } from '../hooks/useIsOnline'
 
 function PencilIcon({ className = 'w-4 h-4' }: { className?: string }) {
@@ -323,7 +323,20 @@ export default function EventPage() {
 
   const counts = attendance?.counts ?? { yes: 0, no: 0, maybe: 0 }
 
-  const icsUrl = `/api/events/${eventId}/calendar.ics`
+  const handleIcsDownload = async () => {
+    const token = getToken()
+    const res = await fetch(`/api/events/${eventId}/calendar.ics`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    })
+    if (!res.ok) { toast.error('Failed to download calendar file'); return }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `friendgroup-event-${eventId}.ics`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   return (
     <div className="w-full min-w-0 px-4 py-6 sm:p-6 max-w-5xl mx-auto">
@@ -634,19 +647,30 @@ export default function EventPage() {
             {attendance.attendees
               .filter((a) => a.status === 'yes')
               .map((a) => (
-                <Avatar key={a.user.id} name={a.user.name} size="sm" />
+                <Avatar key={a.user.id} name={a.user.name} avatarUrl={a.user.avatarUrl} size="sm" title={`${a.user.name} (going)`} />
+              ))}
+            {attendance.attendees
+              .filter((a) => a.status === 'maybe')
+              .map((a) => (
+                <Avatar key={a.user.id} name={a.user.name} avatarUrl={a.user.avatarUrl} size="sm" title={`${a.user.name} (maybe)`} />
+              ))}
+            {attendance.attendees
+              .filter((a) => a.status === 'no')
+              .map((a) => (
+                <Avatar key={a.user.id} name={a.user.name} avatarUrl={a.user.avatarUrl} size="sm" title={`${a.user.name} (can't go)`} />
               ))}
           </div>
         )}
       </section>
       {/* Calendar Links */}
       <div className="flex flex-wrap gap-3 mb-6">
-        <a
-          href={icsUrl}
+        <button
+          type="button"
+          onClick={handleIcsDownload}
           className="px-3 py-2 rounded-xl bg-gray-800 text-gray-300 text-sm hover:bg-gray-700 transition-colors"
         >
           Download .ics
-        </a>
+        </button>
         <a
           href={buildGoogleCalLink(event)}
           target="_blank"

@@ -116,6 +116,8 @@ export default function GroupPage() {
   const [eventSearch, setEventSearch] = useState('')
   const [showInviteCode, setShowInviteCode] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
+  const [showCalendarSubscribe, setShowCalendarSubscribe] = useState(false)
+  const [copiedFeedUrl, setCopiedFeedUrl] = useState(false)
   const memberActionMenuRef = useRef<HTMLDivElement>(null)
   const toast = useToast()
   const isOnline = useIsOnline()
@@ -159,6 +161,24 @@ export default function GroupPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users', 'muted'] }),
     onError: () => toast.error('Failed to unmute user'),
   })
+
+  // Calendar feed subscription
+  const { data: calendarTokenData, refetch: refetchCalendarToken } = useQuery({
+    queryKey: ['groups', groupId, 'calendar-token'],
+    queryFn: () => apiFetch<{ feedUrl: string | null }>(`/groups/${groupId}/calendar-token`),
+    enabled: !!groupId,
+  })
+  const generateFeedToken = useMutation({
+    mutationFn: () => apiFetch<{ feedUrl: string }>(`/groups/${groupId}/calendar-token`, { method: 'POST' }),
+    onSuccess: () => refetchCalendarToken(),
+    onError: () => toast.error('Failed to generate feed URL'),
+  })
+  const revokeFeedToken = useMutation({
+    mutationFn: () => apiFetch(`/groups/${groupId}/calendar-token`, { method: 'DELETE' }),
+    onSuccess: () => { refetchCalendarToken(); setShowCalendarSubscribe(false) },
+    onError: () => toast.error('Failed to revoke feed URL'),
+  })
+  const feedUrl = calendarTokenData?.feedUrl ?? null
 
   // Determine current user's role in this group
   const myMembership = membersData?.members?.find((m) => m.userId === currentUser?.id)
@@ -412,7 +432,75 @@ export default function GroupPage() {
             >
               + Create Event
             </Link>
+            <button
+              type="button"
+              onClick={() => setShowCalendarSubscribe((s) => !s)}
+              title="Subscribe to calendar"
+              aria-label="Subscribe to calendar"
+              className="h-9 w-9 flex items-center justify-center rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-gray-200 transition-colors shrink-0"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+            </button>
           </div>
+          {showCalendarSubscribe && (
+            <div className="mb-4 bg-gray-900 border border-gray-700 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-gray-200">Subscribe to Calendar</p>
+                <button type="button" onClick={() => setShowCalendarSubscribe(false)} className="text-gray-500 hover:text-gray-300 text-xs">✕</button>
+              </div>
+              <p className="text-xs text-gray-400">
+                Get a personal feed URL you can subscribe to in Apple Calendar, Google Calendar, Outlook, or any app that supports webcal/ICS feeds. Events are filtered by your tag subscriptions. The URL is private — revoke it any time.
+              </p>
+              {feedUrl ? (
+                <>
+                  <div className="flex items-center gap-2">
+                    <input
+                      readOnly
+                      value={feedUrl}
+                      className="flex-1 min-w-0 text-xs bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-gray-300 font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => { navigator.clipboard.writeText(feedUrl); setCopiedFeedUrl(true); setTimeout(() => setCopiedFeedUrl(false), 2000) }}
+                      className="shrink-0 px-3 py-2 rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white text-xs font-medium transition-colors"
+                    >
+                      {copiedFeedUrl ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                  <a
+                    href={feedUrl.replace(/^https?:/, 'webcal:')}
+                    className="inline-block text-xs text-indigo-400 hover:text-indigo-300 underline"
+                  >
+                    Open in calendar app
+                  </a>
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => revokeFeedToken.mutate()}
+                      disabled={revokeFeedToken.isPending}
+                      className="text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+                    >
+                      Revoke URL
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => generateFeedToken.mutate()}
+                  disabled={generateFeedToken.isPending}
+                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+                >
+                  {generateFeedToken.isPending ? 'Generating…' : 'Generate feed URL'}
+                </button>
+              )}
+            </div>
+          )}
           {eventsLoading ? (
             <div className="flex justify-center py-8">
               <Spinner className="text-indigo-400" />

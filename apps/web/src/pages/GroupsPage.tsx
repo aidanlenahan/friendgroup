@@ -7,10 +7,49 @@ import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
 import { getApiErrorMessage, ApiError } from '../lib/api'
 import { useIsOnline } from '../hooks/useIsOnline'
+import { useAuthStore } from '../stores/authStore'
+
+function getGreeting(name: string): string {
+  const hour = new Date().getHours()
+  let phrases: string[]
+  if (hour >= 5 && hour < 12) {
+    phrases = [
+      `Good morning, ${name}`,
+      `Rise and shine, ${name}`,
+      `Morning, ${name}`,
+      `Hey ${name}, top of the mornin'`,
+    ]
+  } else if (hour >= 12 && hour < 17) {
+    phrases = [
+      `Good afternoon, ${name}`,
+      `Hey ${name}, good day!`,
+      `Hello, ${name}`,
+      `Hey there, ${name}`,
+    ]
+  } else if (hour >= 17 && hour < 22) {
+    phrases = [
+      `Good evening, ${name}`,
+      `Hey ${name}, hope you had a great day`,
+      `Evening, ${name}`,
+      `Hi ${name}`,
+    ]
+  } else {
+    phrases = [
+      `Hey ${name}, burning the midnight oil?`,
+      `Still up, ${name}?`,
+      `Hello, ${name}!`,
+      `Hey night owl, ${name}!`,
+    ]
+  }
+  // Pick a phrase deterministically per name+hour so it doesn't jump on re-render
+  const idx = (name.length + hour) % phrases.length
+  return phrases[idx]
+}
 
 export default function GroupsPage() {
   const { data, isLoading, isError, error, refetch } = useGroups()
   const isOnline = useIsOnline()
+  const { user } = useAuthStore()
   const createGroup = useCreateGroup()
   const joinGroup = useJoinGroup()
   const [showModal, setShowModal] = useState(false)
@@ -71,6 +110,9 @@ export default function GroupsPage() {
 
   return (
     <div className="w-full min-w-0 px-4 py-6 sm:p-6 max-w-4xl mx-auto">
+      {user && (
+        <p className="text-gray-400 text-sm mb-4">{getGreeting(user.name.split(' ')[0])}</p>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <h2 className="text-2xl font-bold text-white">Your Groups</h2>
         <div className="flex gap-2">

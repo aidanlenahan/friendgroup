@@ -249,3 +249,22 @@ export function useUnmuteMember(groupId: string) {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'members'] }),
   })
 }
+
+/**
+ * useUpdateTag — PATCH /groups/:groupId/tags/:tagId
+ *
+ * Allows owners/admins to update a tag's name or color.
+ * Invalidates the group's tags query on success so the UI reflects
+ * the change immediately.
+ */
+export function useUpdateTag(groupId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ tagId, name, color }: { tagId: string; name?: string; color?: string }) =>
+      apiFetch(`/groups/${groupId}/tags/${tagId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name, color }),
+      }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'tags'] }),
+  })
+}

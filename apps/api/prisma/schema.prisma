@@ -79,6 +79,7 @@ model Membership {
   role      String   @default("member")  // owner, admin, member
   status    String   @default("active")  // active, pending
   mutedUntil DateTime?                   // null = not muted; future date = muted until then
+  calendarToken String? @unique          // secret token for ICS feed subscription
   createdAt DateTime @default(now())
 
   // Relations

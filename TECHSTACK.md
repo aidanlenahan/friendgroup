@@ -6,15 +6,15 @@
 - Realtime: Socket.IO for chat and live event updates
 - Database: PostgreSQL (primary relational store)
 - Cache/queues: Redis (presence, rate limits, background jobs)
-- File storage: S3-compatible object storage for event media
+- File storage: S3-compatible object storage for event media (AWS SDK v3: `@aws-sdk/client-s3` + `@aws-sdk/s3-request-presigner`)
 
 ## Frontend
 - React 19 + TypeScript
 - Vite for fast builds/dev server
-- React Router for app navigation
+- React Router v7 for app navigation
 - TanStack Query for server-state caching and sync
 - Zustand for lightweight client UI state
-- Tailwind CSS + Headless UI for accessible components
+- Tailwind CSS v4 (via `@tailwindcss/vite` plugin, no PostCSS config needed)
 
 ## PWA and Notifications
 - Service worker + manifest via Workbox/Vite PWA plugin
@@ -23,13 +23,15 @@
 
 ## Backend
 - Fastify for HTTP API
+- `@fastify/jwt` for token auth, `@fastify/cors`, `@fastify/helmet`, `@fastify/rate-limit`
 - Zod for request/response schema validation
 - Socket.IO namespaces/rooms for event chat + tag channels
 - BullMQ (Redis-backed) for async jobs (email sends, notification fanout)
+- ioredis as the Redis client
 
 ## Data and Persistence
-- PostgreSQL + Prisma ORM
-- Core tables: users, groups, memberships, events, event_invites, rsvps, channels, messages, tags, user_tag_prefs, media_assets, notification_subscriptions, notification_events
+- PostgreSQL + Prisma ORM (using `@prisma/adapter-pg` driver adapter with `pg`)
+- Core tables: users, groups, memberships, events, event_invites, rsvps, channels, messages, tags, user_tag_prefs, media_assets, notification_subscriptions, notification_events, password_reset_tokens, beta_codes, audit_logs, event_ratings, media_asset_likes, user_mutes, user_notification_preferences, message_reactions, channel_subscriptions
 - Redis for ephemeral presence/session helpers and queue transport
 
 ## Authentication and Authorization
@@ -37,9 +39,9 @@
 - Authorization: role-based access (owner/admin/member) at group and channel level
 
 ## Calendar Integration
-- ICS generation/export using `ical-generator`
+- Per-membership secret `calendarToken` for private ICS feed URLs
 - Google Calendar deep-links for one-click add
-- Webhook/job strategy for keeping updated ICS feeds in sync
+- ICS feed served directly from the API (no external library)
 
 ## Email
 - Transactional transport: Nodemailer via direct SMTP

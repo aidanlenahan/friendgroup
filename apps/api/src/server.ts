@@ -865,6 +865,7 @@ app.get("/", async (request, reply) => {
       "/events/:id/calendar.ics",
       "/events/:id/calendar/google-link",
       "/groups/:groupId/calendar.ics",
+      "/calendar/group-feed/:token.ics",
       "/calendar/sync/webhook",
     ],
   });
@@ -2345,6 +2346,150 @@ app.get("/groups/:groupId/calendar.ics", async (request, reply) => {
   if (syncMeta.lastSyncedAt) {
     reply.header("X-Friendgroup-Calendar-Last-Synced-At", syncMeta.lastSyncedAt);
   }
+  return reply.send(ics);
+});
+
+// ============================================================================
+// Calendar Feed Subscription Routes
+// ============================================================================
+
+// POST /groups/:groupId/calendar-token — generate (or return existing) feed token
+const calendarTokenParamsSchema = z.object({ groupId: z.string() });
+
+app.post("/groups/:groupId/calendar-token", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(calendarTokenParamsSchema, request.params);
+  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+
+  // Upsert: generate a new token and save it
+  const token = randomBytes(32).toString("hex");
+  const membership = await prisma.membership.update({
+    where: { userId_groupId: { userId: currentUser.id, groupId: params.groupId } },
+    data: { calendarToken: token },
+    select: { calendarToken: true },
+  });
+
+  const apiBase = (process.env.API_BASE_URL || "").replace(/\/$/, "");
+  const feedUrl = `${apiBase}/calendar/group-feed/${membership.calendarToken}.ics`;
+  return reply.send({ feedUrl });
+});
+
+// DELETE /groups/:groupId/calendar-token — revoke feed token
+app.delete("/groups/:groupId/calendar-token", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(calendarTokenParamsSchema, request.params);
+  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+
+  await prisma.membership.update({
+    where: { userId_groupId: { userId: currentUser.id, groupId: params.groupId } },
+    data: { calendarToken: null },
+  });
+
+  return reply.status(204).send();
+});
+
+// GET /groups/:groupId/calendar-token — return existing token (if any)
+app.get("/groups/:groupId/calendar-token", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(calendarTokenParamsSchema, request.params);
+  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+
+  if (!membership.calendarToken) {
+    return reply.send({ feedUrl: null });
+  }
+
+  const apiBase = (process.env.API_BASE_URL || "").replace(/\/$/, "");
+  const feedUrl = `${apiBase}/calendar/group-feed/${membership.calendarToken}.ics`;
+  return reply.send({ feedUrl });
+});
+
+// GET /calendar/group-feed/:token.ics — public feed endpoint (token = auth, no JWT)
+const groupFeedParamsSchema = z.object({ token: z.string().min(64).max(64) });
+
+app.get("/calendar/group-feed/:token.ics", async (request, reply) => {
+  const params = await validateRequest(groupFeedParamsSchema, request.params);
+
+  const membership = await prisma.membership.findUnique({
+    where: { calendarToken: params.token },
+    select: {
+      userId: true,
+      groupId: true,
+      role: true,
+      status: true,
+    },
+  });
+
+  if (!membership || membership.status !== "active") {
+    return reply.status(404).send("Not found");
+  }
+
+  const group = await prisma.group.findUnique({
+    where: { id: membership.groupId },
+    select: { id: true, name: true },
+  });
+  if (!group) return reply.status(404).send("Not found");
+
+  // Fetch user's subscribed tag IDs for this group
+  const tagPrefs = await prisma.userTagPreference.findMany({
+    where: { userId: membership.userId, tag: { groupId: membership.groupId }, subscribed: true },
+    select: { tagId: true },
+  });
+  const subscribedTagIds = new Set(tagPrefs.map((p) => p.tagId));
+
+  const isAdmin = ["owner", "admin"].includes(membership.role);
+
+  const events = await prisma.event.findMany({
+    where: { groupId: membership.groupId },
+    include: {
+      invites: { select: { userId: true } },
+      tags: { select: { id: true } },
+    },
+    orderBy: { dateTime: "asc" },
+  });
+
+  const filtered = events.filter((event) => {
+    // Access control: private events only for invited users / admins / creator
+    if (event.isPrivate) {
+      const hasAccess =
+        isAdmin ||
+        event.createdById === membership.userId ||
+        event.invites.some((inv) => inv.userId === membership.userId);
+      if (!hasAccess) return false;
+    }
+
+    // Tag filter: if user has any tag subscriptions, only include events that
+    // have at least one subscribed tag, OR have no tags at all.
+    if (subscribedTagIds.size > 0) {
+      if (event.tags.length > 0 && !event.tags.some((t) => subscribedTagIds.has(t.id))) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  const ics = buildIcsCalendar(
+    filtered.map((event) => ({
+      id: event.id,
+      title: event.title,
+      details: event.details,
+      dateTime: event.dateTime,
+      endsAt: event.endsAt,
+      location: event.location,
+      updatedAt: event.updatedAt,
+    })),
+    {
+      calendarName: `Friendgroup - ${group.name}`,
+      webBaseUrl: process.env.WEB_BASE_URL,
+    }
+  );
+
+  reply.header("Content-Type", "text/calendar; charset=utf-8");
+  reply.header("Cache-Control", "no-cache, no-store");
+  reply.header(
+    "Content-Disposition",
+    `inline; filename="friendgroup-${group.id}.ics"`
+  );
   return reply.send(ics);
 });
 

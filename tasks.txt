@@ -1,6 +1,6 @@
 ========================================================
 TASKS.TXT — Friendgroup Feature + Bug Backlog
-Last updated: 2026-04-24
+Last updated: 2026-04-26
 Format: [x] = done, [ ] = pending, [-] = in progress / partial
 Priority order: P1 = blocks any real user from using the app
                 P2 = core UX gaps visible to all users after launch
@@ -8,6 +8,69 @@ Priority order: P1 = blocks any real user from using the app
                 P4 = integrations
                 P5 = low priority / future enhancements
 ========================================================
+
+=== POST URL MIGRATION — Blocked until permanent subdomain is live ===
+CONTEXT: The app currently runs behind a temporary ngrok URL. Many features
+depend on WEB_BASE_URL and API_BASE_URL being set to permanent, publicly
+accessible HTTPS URLs. The todo.txt has the infra steps (subdomain on
+aidanlenahan.com, Cloudflare tunnel, etc.). Until those are done and the
+.env values are updated to the real URLs, the following features are either
+broken or incomplete for real users:
+
+[ ] calendar feed URLs are ngrok-scoped and will break when tunnel restarts
+    CONTEXT: GET /calendar/group-feed/:token.ics returns a URL built from
+    API_BASE_URL. Currently this is http://localhost:4000 (or the ngrok URL).
+    Once the subdomain is live:
+    - Set API_BASE_URL=https://api.subdomain.aidanlenahan.com in apps/api/.env
+    - Any already-generated calendarToken feed URLs in DB will still work —
+      the token is permanent, only the host prefix changes. Users will need to
+      re-copy the new feed URL (or you can regenerate all tokens).
+    - webcal:// links in the GroupPage UI will also reflect the new host automatically.
+
+[ ] ICS event links inside calendar files point to wrong host
+    CONTEXT: buildIcsCalendar() uses WEB_BASE_URL to embed a "Open in Friendgroup"
+    link in each VEVENT DESCRIPTION. Currently this is localhost:5173.
+    Once subdomain is live: Set WEB_BASE_URL=https://subdomain.aidanlenahan.com
+
+[ ] password reset emails contain localhost link
+    CONTEXT: POST /auth/forgot-password builds resetUrl from WEB_BASE_URL.
+    The link in the email will be http://localhost:5173/reset-password?token=...
+    which is useless to anyone not on the dev machine. Fixed by updating WEB_BASE_URL.
+
+[ ] join-request notification emails contain localhost group link
+    CONTEXT: When a user joins a group, the owner receives an email with a link
+    to /groups/:groupId?tab=members. This URL is built from WEB_BASE_URL.
+    Same fix: update WEB_BASE_URL.
+
+[ ] member approval notification emails contain localhost group link
+    CONTEXT: Same as above — the "you've been approved" email links to
+    WEB_BASE_URL/groups/:groupId. Useless until WEB_BASE_URL is real.
+
+[ ] noreply email address is still Gmail SMTP — needs @subdomain address
+    CONTEXT: Noted in todo.txt. Currently SMTP_USER is a Gmail address.
+    After subdomain is live, set up noreply@subdomain.aidanlenaiah.com
+    via Cloudflare Email Routing or a transactional mail provider.
+    Update SMTP_USER, SMTP_PASS, EMAIL_FROM, SMTP_HOST, SMTP_PORT, SMTP_SECURE.
+
+[ ] Google Calendar deep-link in EventPage embeds localhost in event URL
+    CONTEXT: buildGoogleCalendarLink() includes webBaseUrl in the event details.
+    Not a hard break (Google Calendar still works), but the "Open in Friendgroup"
+    link inside the created GCal event goes to localhost. Fixed by WEB_BASE_URL.
+
+[ ] group invite links (when built) must use permanent URL
+    CONTEXT: todo.txt lists "make group invite link" as pending. When implemented,
+    the shareable invite link must use the permanent subdomain, not ngrok/localhost.
+
+WHAT TO DO (all at once after subdomain + tunnel are live):
+    1. apps/api/.env:
+         WEB_BASE_URL=https://subdomain.aidanlenahan.com
+         API_BASE_URL=https://api.subdomain.aidanlenahan.com
+         (or same domain if API is behind the same tunnel on a /api prefix)
+    2. apps/web/.env (or .env.production):
+         VITE_API_BASE_URL=https://api.subdomain.aidanlenahan.com
+    3. Restart API and rebuild web (npm run build in apps/web)
+    4. Notify any existing beta users to re-copy their calendar feed URLs
+       from GroupPage (the token stays the same, only the host changes)
 
 === TOP PRIORITY — Must Do Next ===
 
