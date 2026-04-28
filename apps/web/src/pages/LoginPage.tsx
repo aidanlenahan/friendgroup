@@ -204,7 +204,7 @@ export default function LoginPage() {
     <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
       <div className="w-full max-w-sm bg-gray-900 rounded-2xl shadow-xl p-8 space-y-6 border border-gray-800">
         <div>
-          <h1 className="text-2xl font-bold text-white">Friendgroup</h1>
+          <h1 className="text-2xl font-bold text-white">Gem</h1>
           <p className="text-gray-400 text-sm mt-1">Sign in to your account</p>
         </div>
 

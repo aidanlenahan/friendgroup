@@ -99,7 +99,7 @@ test('phase 7 PWA console smoke: auth, config, and subscribe flow works', async 
         token: 'phase9-browser-token',
         user: {
           id: 'user_1',
-          email: 'owner@friendgroup.dev',
+          email: 'owner@gem.dev',
           name: 'Owner User',
         },
       }),

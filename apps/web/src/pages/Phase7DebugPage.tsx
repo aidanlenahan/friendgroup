@@ -97,7 +97,7 @@ function getNotificationPermissionState(): NotificationPermission | 'unsupported
 export function Phase7DebugPage() {
   const apiBaseUrl = useMemo(resolveApiBaseUrl, [])
 
-  const [email, setEmail] = useState('owner@friendgroup.dev')
+  const [email, setEmail] = useState('owner@gem.dev')
   const [token, setToken] = useState('')
   const [config, setConfig] = useState<NotificationConfig | null>(null)
   const [status, setStatus] = useState('Idle.')
@@ -328,7 +328,7 @@ export function Phase7DebugPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          title: 'Friendgroup PWA Test',
+          title: 'Gem PWA Test',
           body: 'If you can read this, Phase 7 push wiring works.',
         }),
       })
@@ -425,7 +425,7 @@ export function Phase7DebugPage() {
       </div>
 
       <header>
-        <p className="text-xs font-semibold uppercase tracking-widest text-indigo-400 mb-1">Friendgroup</p>
+        <p className="text-xs font-semibold uppercase tracking-widest text-indigo-400 mb-1">Gem</p>
         <h1 className="text-2xl font-bold text-white">Phase 7 PWA Console</h1>
         <p className="text-sm text-gray-400 mt-1">
           Validates installability plus push permission and subscription flow.
@@ -441,7 +441,7 @@ export function Phase7DebugPage() {
             id="email-input"
             value={email}
             onChange={(event) => setEmail(event.target.value)}
-            placeholder="owner@friendgroup.dev"
+            placeholder="owner@gem.dev"
             type="email"
             className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
@@ -477,7 +477,7 @@ export function Phase7DebugPage() {
         <p className="text-sm text-gray-400">Install prompts are browser controlled.</p>
         {!isInstalled ? (
           <button className={btnBase} onClick={promptInstall} disabled={!canInstall && !shouldShowIosInstallHint}>
-            {shouldShowIosInstallHint ? 'How to Install on iPhone / iPad' : 'Install Friendgroup PWA'}
+            {shouldShowIosInstallHint ? 'How to Install on iPhone / iPad' : 'Install Gem PWA'}
           </button>
         ) : (
           <p className="text-sm text-green-400">✓ Already installed as a PWA.</p>

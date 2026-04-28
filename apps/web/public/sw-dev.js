@@ -1,8 +1,8 @@
-// Friendgroup dev service worker (classic, no module imports)
+// Gem dev service worker (classic, no module imports)
 // This file lives in public/ so Vite always serves it as text/javascript
 // regardless of vite-plugin-pwa build state or Host header.
 
-var SW_VERSION = 'friendgroup-dev-sw-v1';
+var SW_VERSION = 'gem-dev-sw-v1';
 
 self.addEventListener('install', function () {
   self.skipWaiting();
@@ -32,12 +32,12 @@ self.addEventListener('push', function (event) {
   var title =
     typeof payload.title === 'string'
       ? payload.title
-      : 'Friendgroup notification';
+      : 'Gem notification';
 
   var body =
     typeof payload.body === 'string'
       ? payload.body
-      : 'You have a new update in Friendgroup.';
+      : 'You have a new update in Gem.';
 
   var eventId =
     typeof payload.eventId === 'string' ? payload.eventId : null;

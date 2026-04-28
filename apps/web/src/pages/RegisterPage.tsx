@@ -71,7 +71,7 @@ export default function RegisterPage() {
       <div className="w-full max-w-sm bg-gray-900 rounded-2xl shadow-xl p-8 space-y-6 border border-gray-800">
         <div>
           <h1 className="text-2xl font-bold text-white">Create account</h1>
-          <p className="text-gray-400 text-sm mt-1">Join Friendgroup</p>
+          <p className="text-gray-400 text-sm mt-1">Join Gem</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">

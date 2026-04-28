@@ -6,10 +6,10 @@ describe("validation helpers", () => {
   it("parses valid payloads", async () => {
     const result = await validateRequest(
       z.object({ email: z.string().email(), count: z.number().int() }),
-      { email: "owner@friendgroup.dev", count: 2 }
+      { email: "owner@gem.dev", count: 2 }
     );
 
-    expect(result).toEqual({ email: "owner@friendgroup.dev", count: 2 });
+    expect(result).toEqual({ email: "owner@gem.dev", count: 2 });
   });
 
   it("rethrows zod validation errors for the global handler", async () => {

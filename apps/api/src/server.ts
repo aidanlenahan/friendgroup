@@ -913,7 +913,7 @@ app.get("/health/all", async (request, reply) => {
 
 app.get("/", async (request, reply) => {
   return reply.send({
-    name: "Friendgroup API",
+    name: "Gem API",
     status: "running",
     endpoints: [
       "/auth/dev-token",
@@ -998,7 +998,7 @@ async function sendEmailCode(to: string, code: string, subject: string, body: st
     subject,
     html: `
       <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-        <h2 style="margin:0 0 12px 0;">Friendgroup</h2>
+        <h2 style="margin:0 0 12px 0;">Gem</h2>
         <p style="margin:0 0 20px 0;">${body}</p>
         <p style="font-size:2.2em;letter-spacing:0.35em;font-weight:700;margin:0 0 20px 0;">${code}</p>
         <p style="color:#64748b;font-size:12px;margin:0;">This code expires in 10 minutes. If you did not request this, you can safely ignore this email.</p>
@@ -1101,7 +1101,7 @@ app.post("/auth/register", { config: { rateLimit: { max: 10, timeWindow: "1 minu
   await sendEmailCode(
     user.email,
     otpCode,
-    "Verify your Friendgroup account",
+    "Verify your Gem account",
     "Enter this code to verify your email address:"
   );
 
@@ -1161,7 +1161,7 @@ app.post("/auth/resend-verification", { config: { rateLimit: { max: 10, timeWind
   await sendEmailCode(
     user.email,
     otpCode,
-    "Verify your Friendgroup account",
+    "Verify your Gem account",
     "Enter this code to verify your email address:"
   );
 

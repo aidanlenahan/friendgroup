@@ -62,7 +62,7 @@ describe('Phase7DebugPage', () => {
         new Response(
           JSON.stringify({
             token: 'token-123',
-            user: { email: 'owner@friendgroup.dev', id: 'u1', name: 'Owner' },
+            user: { email: 'owner@gem.dev', id: 'u1', name: 'Owner' },
           }),
           {
             status: 200,
@@ -75,7 +75,7 @@ describe('Phase7DebugPage', () => {
     renderPage()
     await userEvent.click(screen.getByRole('button', { name: 'Get Dev Token' }))
 
-    await screen.findByText(/Authenticated as owner@friendgroup.dev via /)
+    await screen.findByText(/Authenticated as owner@gem.dev via /)
     await screen.findByText(/Token status:/)
     await screen.findByText('Authenticated')
   })

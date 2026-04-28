@@ -1,8 +1,8 @@
 {
-  "name": "@friendgroup/api",
+  "name": "@gem/api",
   "version": "1.0.0",
   "private": true,
-  "description": "Friendgroup API",
+  "description": "Gem API",
   "type": "module",
   "main": "dist/server.js",
   "scripts": {

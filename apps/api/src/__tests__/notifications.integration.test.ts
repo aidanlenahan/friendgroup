@@ -28,7 +28,7 @@ async function getDevToken(email: string): Promise<string> {
 
 describe("Notifications integration", () => {
   beforeAll(async () => {
-    token = await getDevToken("owner@friendgroup.dev");
+    token = await getDevToken("owner@gem.dev");
 
     const client = new Client({ connectionString: DB_URL });
     await client.connect();

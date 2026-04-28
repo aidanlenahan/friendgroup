@@ -87,7 +87,7 @@ export default function Layout() {
     <>
       <div className="p-4 border-b border-gray-800 flex items-center justify-between">
         <div>
-          <NavLink to="/groups" className="text-xl font-bold text-indigo-400 hover:text-indigo-300 transition-colors">Friendgroup</NavLink>
+          <NavLink to="/groups" className="text-xl font-bold text-indigo-400 hover:text-indigo-300 transition-colors">Gem</NavLink>
           <p className="text-xs text-gray-500 mt-1">{user?.name}</p>
         </div>
         {/* Close button on mobile */}
@@ -244,7 +244,7 @@ export default function Layout() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <NavLink to="/groups" className="text-sm font-bold text-indigo-400 hover:text-indigo-300 transition-colors">Friendgroup</NavLink>
+          <NavLink to="/groups" className="text-sm font-bold text-indigo-400 hover:text-indigo-300 transition-colors">Gem</NavLink>
         </header>}
 
         {!isOnline && (

@@ -42,31 +42,31 @@ async function main() {
   });
 
   const owner = await prisma.user.upsert({
-    where: { email: "owner@friendgroup.dev" },
+    where: { email: "owner@gem.dev" },
     update: { name: "Owner User" },
-    create: { email: "owner@friendgroup.dev", name: "Owner User" },
+    create: { email: "owner@gem.dev", name: "Owner User" },
   });
 
   const admin = await prisma.user.upsert({
-    where: { email: "admin@friendgroup.dev" },
+    where: { email: "admin@gem.dev" },
     update: { name: "Admin User" },
-    create: { email: "admin@friendgroup.dev", name: "Admin User" },
+    create: { email: "admin@gem.dev", name: "Admin User" },
   });
 
   const member = await prisma.user.upsert({
-    where: { email: "member@friendgroup.dev" },
+    where: { email: "member@gem.dev" },
     update: { name: "Member User" },
-    create: { email: "member@friendgroup.dev", name: "Member User" },
+    create: { email: "member@gem.dev", name: "Member User" },
   });
 
   let group = await prisma.group.findFirst({
-    where: { name: "Demo Friendgroup" },
+    where: { name: "Demo Gem" },
   });
 
   if (!group) {
     group = await prisma.group.create({
       data: {
-        name: "Demo Friendgroup",
+        name: "Demo Gem",
         ownerId: owner.id,
       },
     });

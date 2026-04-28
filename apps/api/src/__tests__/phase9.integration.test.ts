@@ -142,8 +142,8 @@ async function onceEvent<T>(socket: Socket, eventName: string) {
 
 describe("Phase 9 API integration and smoke coverage", () => {
   beforeAll(async () => {
-    const owner = await getDevToken("owner@friendgroup.dev");
-    const member = await getDevToken("member@friendgroup.dev");
+    const owner = await getDevToken("owner@gem.dev");
+    const member = await getDevToken("member@gem.dev");
 
     ownerToken = owner.token;
     memberToken = member.token;
@@ -161,9 +161,9 @@ describe("Phase 9 API integration and smoke coverage", () => {
             member_user.id AS member_id,
             t.id AS tag_id
           FROM "Group" g
-          JOIN "User" owner_user ON owner_user.email = 'owner@friendgroup.dev'
-          JOIN "User" admin_user ON admin_user.email = 'admin@friendgroup.dev'
-          JOIN "User" member_user ON member_user.email = 'member@friendgroup.dev'
+          JOIN "User" owner_user ON owner_user.email = 'owner@gem.dev'
+          JOIN "User" admin_user ON admin_user.email = 'admin@gem.dev'
+          JOIN "User" member_user ON member_user.email = 'member@gem.dev'
           JOIN "Tag" t ON t."groupId" = g.id
           WHERE g.name = 'Demo Friendgroup'
           ORDER BY t.name ASC
@@ -312,7 +312,7 @@ describe("Phase 9 API integration and smoke coverage", () => {
       const message = await nextMessage;
       createdMessageId = message.id;
       expect(message.content).toContain(`Smoke chat payload ${uniqueSuffix}`);
-      expect(message.user.email).toBe("member@friendgroup.dev");
+      expect(message.user.email).toBe("member@gem.dev");
     } finally {
       socket.disconnect();
     }

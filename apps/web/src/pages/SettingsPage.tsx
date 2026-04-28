@@ -432,7 +432,7 @@ export default function SettingsPage() {
               onClick={handleInstall}
               className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-3 px-6 rounded-xl transition-colors"
             >
-              Install Friendgroup
+              Install Gem
             </button>
           ) : (
             <p className="text-sm text-gray-500">

@@ -114,10 +114,14 @@ This section is the live status of where implementation stopped, what is complet
 	- API CORS is pinned to `https://gem.aidanlenahan.com` and does not reflect arbitrary origins
 	- Fastify `trustProxy` was missing and has now been enabled so IP-aware logic behind Cloudflare can use real client IPs instead of edge IPs
 	- Web root currently exposes only baseline edge/application headers; no sensitive artifacts were found, and deeper browser-facing CSP tuning remains a future hardening item
-- [ ] 13. External end-to-end validation from non-origin device
-	- VM-side preflight checks are passing (`200/401/404/403` semantics still correct on public hostnames)
-	- Full Step 13 completion still requires real non-origin browser/device validation (mobile data + separate network laptop)
-- [ ] 14. Reboot persistence verification
+- [x] 13. External end-to-end validation from non-origin device
+	- VM-side preflight checks passed (`200/401/404/403` semantics correct on all public hostnames)
+	- Non-origin device validation confirmed: user validated on external device/network — all flows worked
+- [x] 14. Reboot persistence verification
+	- VM rebooted (2026-04-28)
+	- Post-reboot: `cloudflared`, `gem-api`, `gem-web` all came back active
+	- Docker containers (postgres, redis, minio) all healthy after reboot
+	- API health gate: `{"status":"ok"}` confirmed post-reboot
 - [ ] 15. Uptime Kuma rollout
 - [ ] 16. PBS backup integration + restore test
 - [ ] 17. Incident/rollback runbook finalization
@@ -125,12 +129,10 @@ This section is the live status of where implementation stopped, what is complet
 
 ### What is in progress right now
 
-- Step 8 is complete and publicly validated at the hostname level.
-- Step 9 is complete.
-- Step 10 is complete.
-- Step 11 is complete with the same-host public-IP probe caveat documented.
-- Step 12 is complete.
-- Step 13 is in progress: VM-side prechecks passed; waiting on non-origin device/browser execution.
+- Steps 8-14 complete.
+- Phase E (directory rename `/var/www/friendgroup` → `/var/www/gem`) complete as of 2026-04-28.
+- Step 15 (Uptime Kuma) deferred — to be done later.
+- Steps 16-18 pending.
 
 ### What still must be done before public launch
 
@@ -311,27 +313,20 @@ Decision rule:
 
 ### Phase E (optional path/data identifier rename; highest risk)
 
-- Rename repo folder `/var/www/friendgroup` -> `/var/www/gem` only during a planned maintenance window.
-- Update all hardcoded paths in systemd/env/scripts.
-- Optionally rename DB names/users/buckets from `friendgroup_*` to `gem_*` only if you accept migration risk and restore testing overhead.
-- If current data identifiers are stable and private, leaving them unchanged is acceptable.
+Phase E execution status (2026-04-28): **COMPLETE**
+- [x] `/var/www/friendgroup` renamed to `/var/www/gem`
+- [x] `/etc/systemd/system/gem-api.service` — all `WorkingDirectory`, `ExecStart*`, and `ReadWritePaths` updated to `/var/www/gem`
+- [x] `/etc/systemd/system/gem-web.service` — `WorkingDirectory` and `ReadWritePaths` updated to `/var/www/gem`
+- [x] `systemctl daemon-reload` completed
+- [x] Both services restarted successfully from new path
+- [x] Health gates passed: API `{"status":"ok"}`, web `HTTP 200`
+- DB names/users/buckets (`friendgroup_*`) left unchanged — stable and private identifiers, no migration needed
 
-Exact timing recommendation for repo/folder rename:
-- Do NOT rename the repo folder in Phases A-D.
-- Do NOT rename the repo folder before Step 8 public DNS routing is complete.
-- Do NOT rename the repo folder before Step 14 reboot verification is complete.
-- Ideally, do NOT rename the repo folder until Step 16 backup + restore testing is complete.
-
-Recommended window:
-- rename `/var/www/friendgroup` -> `/var/www/gem` only after:
-	- Step 8 is complete
-	- Step 10-14 validation is complete
-	- Step 16 restore testing is complete
-- perform the rename in a short maintenance window with a fresh backup and a written rollback command set.
-
-Reason:
-- repo/folder rename is the first step that changes nearly every absolute path in runtime units, scripts, and deployment commands.
-- it is much safer after public routing, reboot behavior, and backup/restore behavior have already been proven stable.
+Phase E rollback (if needed):
+1. `sudo systemctl stop gem-api gem-web`
+2. `sudo mv /var/www/gem /var/www/friendgroup`
+3. `sudo sed -i 's|/var/www/gem|/var/www/friendgroup|g' /etc/systemd/system/gem-api.service /etc/systemd/system/gem-web.service`
+4. `sudo systemctl daemon-reload && sudo systemctl start gem-api gem-web`
 
 ### Phase gates (do not skip)
 

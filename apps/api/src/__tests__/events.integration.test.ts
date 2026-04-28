@@ -28,10 +28,10 @@ async function getDevToken(email: string): Promise<{ token: string; user: any }>
 
 describe("Events integration", () => {
   beforeAll(async () => {
-    const ownerResult = await getDevToken("owner@friendgroup.dev");
+    const ownerResult = await getDevToken("owner@gem.dev");
     ownerToken = ownerResult.token;
 
-    const memberResult = await getDevToken("member@friendgroup.dev");
+    const memberResult = await getDevToken("member@gem.dev");
     memberToken = memberResult.token;
 
     // Fetch group from database
@@ -54,13 +54,13 @@ describe("Events integration", () => {
     const response = await fetch(`${API_BASE}/auth/dev-token`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "owner@friendgroup.dev" }),
+      body: JSON.stringify({ email: "owner@gem.dev" }),
     });
 
     expect(response.status).toBe(200);
     const data = (await response.json()) as { token: string; user: any };
     expect(data.token).toBeDefined();
-    expect(data.user.email).toBe("owner@friendgroup.dev");
+    expect(data.user.email).toBe("owner@gem.dev");
   });
 
   it("GET /events?groupId=... returns event list", async () => {

@@ -7,8 +7,8 @@ import {
 
 describe('api helpers', () => {
   it('trims trailing slashes from configured base URLs', () => {
-    expect(normalizeApiBaseUrl('https://api.friendgroup.dev/')).toBe(
-      'https://api.friendgroup.dev'
+    expect(normalizeApiBaseUrl('https://api.gem.dev/')).toBe(
+      'https://api.gem.dev'
     )
     expect(normalizeApiBaseUrl('/api/')).toBe('/api')
   })
@@ -16,11 +16,11 @@ describe('api helpers', () => {
   it('prefers explicit API base URL over legacy config', () => {
     expect(
       resolveApiBaseUrlFromEnv({
-        explicitBase: 'https://api.friendgroup.dev/',
+        explicitBase: 'https://api.gem.dev/',
         legacyBase: 'http://localhost:4000',
-        pageHost: 'friendgroup.ngrok-free.app',
+        pageHost: 'gem.ngrok-free.app',
       })
-    ).toBe('https://api.friendgroup.dev')
+    ).toBe('https://api.gem.dev')
   })
 
   it('defaults to proxy path when no API env vars are configured', () => {
@@ -31,7 +31,7 @@ describe('api helpers', () => {
     expect(
       resolveApiBaseUrlFromEnv({
         legacyBase: 'http://127.0.0.1:4000/',
-        pageHost: 'friendgroup.ngrok-free.app',
+        pageHost: 'gem.ngrok-free.app',
       })
     ).toBe('/api')
   })
@@ -49,7 +49,7 @@ describe('api helpers', () => {
     expect(
       resolveApiBaseUrlFromEnv({
         legacyBase: 'not a url',
-        pageHost: 'friendgroup.ngrok-free.app',
+        pageHost: 'gem.ngrok-free.app',
       })
     ).toBe('/api')
   })

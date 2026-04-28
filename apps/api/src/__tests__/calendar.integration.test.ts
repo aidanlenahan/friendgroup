@@ -33,7 +33,7 @@ async function getDevToken(email: string) {
 
 describe("Phase 8 calendar integration", () => {
   beforeAll(async () => {
-    token = await getDevToken("owner@friendgroup.dev");
+    token = await getDevToken("owner@gem.dev");
 
     const client = new Client({ connectionString: DB_URL });
     await client.connect();
@@ -64,7 +64,7 @@ describe("Phase 8 calendar integration", () => {
     const body = await response.text();
     expect(body).toContain("BEGIN:VCALENDAR");
     expect(body).toContain("BEGIN:VEVENT");
-    expect(body).toContain(`UID:${eventId}@friendgroup.dev`);
+    expect(body).toContain(`UID:${eventId}@gem.dev`);
   });
 
   it("serves Google Calendar deep-link payload", async () => {

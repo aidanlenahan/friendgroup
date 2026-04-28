@@ -34,7 +34,7 @@ describe("notification domain helpers", () => {
   it("configures web push and sends JSON payloads", async () => {
     process.env.VAPID_PUBLIC_KEY = "public-key";
     process.env.VAPID_PRIVATE_KEY = "private-key";
-    process.env.VAPID_SUBJECT = "mailto:test@friendgroup.dev";
+    process.env.VAPID_SUBJECT = "mailto:test@gem.dev";
 
     const {
       configureWebPushFromEnv,
@@ -45,7 +45,7 @@ describe("notification domain helpers", () => {
     expect(configureWebPushFromEnv()).toBe(true);
     expect(isWebPushConfigured()).toBe(true);
     expect(mockSetVapidDetails).toHaveBeenCalledWith(
-      "mailto:test@friendgroup.dev",
+      "mailto:test@gem.dev",
       "public-key",
       "private-key"
     );
@@ -82,11 +82,11 @@ describe("notification domain helpers", () => {
     const template = buildNotificationEmail({
       title: "Event updated",
       body: "Game night moved to 8pm.",
-      ctaUrl: "https://friendgroup.app/events/evt_123",
+      ctaUrl: "https://gem.app/events/evt_123",
     });
 
-    expect(template.html).toContain("Open Friendgroup");
+    expect(template.html).toContain("Open Gem");
     expect(template.text).toContain("Game night moved to 8pm.");
-    expect(template.text).toContain("https://friendgroup.app/events/evt_123");
+    expect(template.text).toContain("https://gem.app/events/evt_123");
   });
 });

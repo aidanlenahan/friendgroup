@@ -347,7 +347,7 @@ export default function EventPage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `friendgroup-event-${eventId}.ics`
+    a.download = `gem-event-${eventId}.ics`
     a.click()
     URL.revokeObjectURL(url)
   }

@@ -1,8 +1,8 @@
 {
-  "name": "friendgroup",
+  "name": "gem",
   "version": "1.0.0",
   "private": true,
-  "description": "Friendgroup monorepo",
+  "description": "Gem monorepo",
   "scripts": {
     "dev": "npm-run-all -p dev:api dev:web",
     "dev:3000": "npm-run-all -p dev:api dev:web:3000",
@@ -25,15 +25,15 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/aidanlenahan/friendgroup.git"
+    "url": "git+https://github.com/aidanlenahan/gem.git"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "bugs": {
-    "url": "https://github.com/aidanlenahan/friendgroup/issues"
+    "url": "https://github.com/aidanlenahan/gem/issues"
   },
-  "homepage": "https://github.com/aidanlenahan/friendgroup#readme",
+  "homepage": "https://github.com/aidanlenahan/gem#readme",
   "devDependencies": {
     "npm-run-all": "^4.1.5"
   }

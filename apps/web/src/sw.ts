@@ -6,7 +6,7 @@ declare let self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST: Array<string | { url: string; revision: string | null }>
 }
 
-const SW_VERSION = 'friendgroup-sw-v1'
+const SW_VERSION = 'gem-sw-v1'
 const STATIC_CACHE = `${SW_VERSION}-static`
 const NAV_CACHE = `${SW_VERSION}-nav`
 
@@ -89,11 +89,11 @@ self.addEventListener('push', (event: PushEvent) => {
   }
 
   const title =
-    typeof payload.title === 'string' ? payload.title : 'Friendgroup notification'
+    typeof payload.title === 'string' ? payload.title : 'Gem notification'
   const body =
     typeof payload.body === 'string'
       ? payload.body
-      : 'You have a new update in Friendgroup.'
+      : 'You have a new update in Gem.'
   const eventId = typeof payload.eventId === 'string' ? payload.eventId : undefined
 
   event.waitUntil(

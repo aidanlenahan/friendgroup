@@ -77,7 +77,7 @@ function buildEventBlock(
 ) {
   const start = event.dateTime;
   const end = event.endsAt ?? new Date(start.getTime() + defaultDurationMinutes * 60 * 1000);
-  const uid = `${event.id}@friendgroup.dev`;
+  const uid = `${event.id}@gem.dev`;
   const summary = escapeIcsText(event.title);
   const description = escapeIcsText(eventDescription(event, webBaseUrl));
   const link = eventLink(event.id, webBaseUrl);
