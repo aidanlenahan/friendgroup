@@ -92,6 +92,8 @@ export class ApiError extends Error {
   }
 }
 
+let inMemoryToken: string | null = null
+
 export function getApiErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError) {
     if (error.status === 0 || error.code === 'NETWORK_ERROR') {
@@ -117,16 +119,11 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
 }
 
 export function getToken(): string | null {
-  return localStorage.getItem('fg_token')
+  return inMemoryToken
 }
 
 export function setToken(t: string | null) {
-  if (t) {
-    localStorage.setItem('fg_token', t)
-    return
-  }
-
-  localStorage.removeItem('fg_token')
+  inMemoryToken = t
 }
 
 /**

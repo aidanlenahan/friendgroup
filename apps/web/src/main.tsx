@@ -18,6 +18,21 @@ if (sentryDsn) {
     environment: import.meta.env.MODE,
     release: import.meta.env.VITE_SENTRY_RELEASE,
     tracesSampleRate: Number(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE ?? 0),
+    beforeSend(event) {
+      if (event.request?.data) {
+        delete event.request.data
+      }
+      if (event.request?.cookies) {
+        delete event.request.cookies
+      }
+      if (event.request?.headers?.Authorization) {
+        event.request.headers.Authorization = '[REDACTED]'
+      }
+      if (event.request?.headers?.authorization) {
+        event.request.headers.authorization = '[REDACTED]'
+      }
+      return event
+    },
   })
 }
 

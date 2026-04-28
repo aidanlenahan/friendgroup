@@ -7,6 +7,8 @@
     [x] notis for tags — DONE: UserTagPreference model, GET/PUT /notifications/preferences/tags, and tag subscription toggles in NotificationSettingsPage.tsx were already fully implemented.
     [x] notis select for push and email — DONE: UserNotificationPreference model, GET/PUT /notifications/preferences, and per-channel toggle table in NotificationSettingsPage.tsx were already fully implemented. rsvp_update type added to NotificationFanoutJobData and now fired from RSVP routes.
 
+[x] security hardening pass (commit/codebase audit) — DONE 2026-04-28: removed JWT fallback secret and required strong AUTH_SECRET, re-enabled CSP and strict CORS allowlist, protected /metrics with admin auth, disabled /auth/dev-token in production, added JWT expirations, required calendar webhook secret, replaced Math.random beta codes with crypto random bytes, enforced invite-only channel subscriptions in Socket.IO, moved auth token to in-memory only (no localStorage token persistence), added Sentry request scrubbing, switched avatar upload ACL to private, and replaced static credentials in infra/docker-compose.yml with env-variable placeholders.
+
 [ ] fix separate column when sub to URL in google calendar. fixable?
 
 

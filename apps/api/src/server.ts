@@ -308,9 +308,54 @@ calendarSyncWorker.on("failed", (job, error) => {
   });
 });
 
+const authSecret = process.env.AUTH_SECRET;
+if (!authSecret || authSecret.length < 32) {
+  throw new Error("AUTH_SECRET must be set and at least 32 characters");
+}
+
+const calendarWebhookSecret = process.env.CALENDAR_WEBHOOK_SECRET;
+if (!calendarWebhookSecret) {
+  throw new Error("CALENDAR_WEBHOOK_SECRET must be set");
+}
+
+const configuredWebOrigins = (process.env.WEB_ALLOWED_ORIGINS ?? process.env.WEB_BASE_URL ?? "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+if (configuredWebOrigins.length === 0) {
+  throw new Error("Set WEB_BASE_URL or WEB_ALLOWED_ORIGINS to allowed web origins");
+}
+
+const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
+
+const configuredWebSocketOrigins = configuredWebOrigins.map((origin) => {
+  if (origin.startsWith("https://")) return origin.replace("https://", "wss://");
+  if (origin.startsWith("http://")) return origin.replace("http://", "ws://");
+  return origin;
+});
+
 // Create Fastify app.
-// trustProxy is required behind Cloudflare so request.ip resolves to the real client IP.
-const app = Fastify({ logger: true, trustProxy: true });
+// trustProxy: 1 = trust exactly one upstream proxy hop (cloudflared), so request.ip
+// resolves to the real client IP rather than the Cloudflare edge IP.
+const app = Fastify({
+  logger: {
+    redact: {
+      paths: [
+        "req.headers.authorization",
+        "req.headers.cookie",
+        "body.password",
+        "body.token",
+        "body.code",
+        "body.otp",
+        "body.betaCode",
+        "body.calendarToken",
+      ],
+      censor: "[REDACTED]",
+    },
+  },
+  trustProxy: 1,
+});
 
 const sentryDsn = process.env.SENTRY_DSN_API || process.env.SENTRY_DSN;
 const sentryEnabled = Boolean(sentryDsn);
@@ -321,6 +366,18 @@ if (sentryEnabled) {
     environment: process.env.NODE_ENV || "development",
     release: process.env.SENTRY_RELEASE,
     tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || 0),
+    beforeSend(event) {
+      if (event.request?.data) {
+        delete event.request.data;
+      }
+      if (event.request?.cookies) {
+        delete event.request.cookies;
+      }
+      if (event.request?.headers?.authorization) {
+        event.request.headers.authorization = "[REDACTED]";
+      }
+      return event;
+    },
   });
 }
 
@@ -707,16 +764,27 @@ async function getCalendarSyncMeta(groupId: string) {
 
 // Register plugins
 await app.register(helmet, {
-  contentSecurityPolicy: false, // Disable for local dev
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "blob:"],
+      connectSrc: ["'self'", ...configuredWebOrigins, ...configuredWebSocketOrigins],
+      frameAncestors: ["'none'"],
+      baseUri: ["'none'"],
+    },
+  },
 });
 
 await app.register(cors, {
-  origin: process.env.WEB_BASE_URL ?? true,
+  origin: configuredWebOrigins,
   credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 });
 
 await app.register(jwt, {
-  secret: process.env.AUTH_SECRET || "dev-secret-change-me",
+  secret: authSecret,
 });
 
 await app.register(rateLimit, {
@@ -782,7 +850,11 @@ app.get<{ Reply: HealthStatus }>("/health/storage", async (request, reply) => {
   return reply.status(code).send(status);
 });
 
-app.get("/metrics", async (request, reply) => {
+app.get("/metrics", {
+  preHandler: async (request, reply) => {
+    await requireAdminEmail(request, reply, prisma);
+  },
+}, async (request, reply) => {
   const sortedLatencies = [...responseLatencyMsWindow].sort((a, b) => a - b);
   const [notificationQueueCounts, calendarQueueCounts] = await Promise.all([
     notificationQueue.getJobCounts("waiting", "active", "completed", "failed", "delayed"),
@@ -885,6 +957,10 @@ const effectiveDevTokenRateLimitMax = Number.isFinite(devTokenRateLimitMax)
     : 1000;
 
 app.post("/auth/dev-token", { config: { rateLimit: { max: effectiveDevTokenRateLimitMax, timeWindow: "1 minute" } } }, async (request, reply) => {
+  if (process.env.NODE_ENV === "production") {
+    return reply.status(404).send({ error: "Not found" });
+  }
+
   const body = await validateRequest(devTokenSchema, request.body);
 
   const user = await prisma.user.findUnique({
@@ -899,7 +975,7 @@ app.post("/auth/dev-token", { config: { rateLimit: { max: effectiveDevTokenRateL
     });
   }
 
-  const token = await reply.jwtSign({ sub: user.id, email: user.email });
+  const token = await reply.jwtSign({ sub: user.id, email: user.email }, { expiresIn: jwtExpiresIn });
   return reply.send({ token, user: { ...user, isAdmin: ADMIN_EMAILS.includes(user.email.toLowerCase()) } });
 });
 
@@ -1053,7 +1129,7 @@ app.post("/auth/verify-email", { config: { rateLimit: { max: 20, timeWindow: "1 
   await redis.del(`verify:email:${body.userId}`);
   await redis.del(`verify:cooldown:${body.userId}`);
 
-  const token = await reply.jwtSign({ sub: user.id, email: user.email });
+  const token = await reply.jwtSign({ sub: user.id, email: user.email }, { expiresIn: jwtExpiresIn });
   return reply.send({ token, user: { ...user, isAdmin: ADMIN_EMAILS.includes(user.email.toLowerCase()) } });
 });
 
@@ -1133,7 +1209,7 @@ app.post("/auth/login", { config: { rateLimit: { max: 10, timeWindow: "1 minute"
   }
 
   const { passwordHash: _omit, emailVerified: _ev, ...safeUser } = user;
-  const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email });
+  const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email }, { expiresIn: jwtExpiresIn });
   return reply.send({ token, user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
 });
 
@@ -1194,7 +1270,7 @@ app.post("/auth/verify-login-code", { config: { rateLimit: { max: 10, timeWindow
   }
 
   const { emailVerified: _ev, ...safeUser } = user;
-  const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email });
+  const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email }, { expiresIn: jwtExpiresIn });
   return reply.send({ token, user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
 });
 
@@ -1692,7 +1768,7 @@ app.post("/media/avatar-upload-url", { config: { rateLimit: { max: 10, timeWindo
   const putCommand = new PutObjectCommand({
     Bucket: s3Bucket,
     Key: objectKey,
-    ACL: "public-read",
+    ACL: "private",
     ContentType: body.contentType,
   });
 
@@ -1718,8 +1794,8 @@ app.get("/media/proxy/*", async (request, reply) => {
     return reply.status(400).send({ error: "Invalid media path" });
   }
 
-  // Security: only allow avatars to be proxied
-  if (!key.startsWith("avatars/")) {
+  // Security: only allow access to the configured bucket and avatars prefix
+  if (bucket !== s3Bucket || !key.startsWith("avatars/")) {
     return reply.status(403).send({ error: "Access denied" });
   }
 
@@ -2614,16 +2690,13 @@ app.get("/calendar/group-feed/:token.ics", async (request, reply) => {
 });
 
 app.post("/calendar/sync/webhook", async (request, reply) => {
-  const expectedSecret = process.env.CALENDAR_WEBHOOK_SECRET;
   const providedSecret = request.headers["x-calendar-webhook-secret"];
 
-  if (expectedSecret) {
-    if (typeof providedSecret !== "string" || providedSecret !== expectedSecret) {
-      return reply.status(403).send({
-        error: "Invalid calendar webhook secret",
-        code: "FORBIDDEN",
-      });
-    }
+  if (typeof providedSecret !== "string" || providedSecret !== calendarWebhookSecret) {
+    return reply.status(403).send({
+      error: "Invalid calendar webhook secret",
+      code: "FORBIDDEN",
+    });
   }
 
   const body = await validateRequest(calendarSyncWebhookBodySchema, request.body);
@@ -3515,7 +3588,7 @@ app.post("/admin/beta-codes", async (request, reply) => {
   for (let i = 0; i < count; i++) {
     const code = body.code && count === 1
       ? body.code
-      : `${body.type.slice(0, 3).toUpperCase()}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+      : randomBytes(6).toString("hex").toUpperCase().slice(0, 12);
     const betaCode = await prisma.betaCode.create({
       data: { code, type: body.type },
     });
@@ -4097,8 +4170,8 @@ const host = process.env.API_HOST || (process.env.NODE_ENV === "production" ? "1
 const io = createChatServer(
   app.server,
   prisma,
-  process.env.AUTH_SECRET || "dev-secret-change-me",
-  process.env.WEB_BASE_URL ?? true,
+  authSecret,
+  configuredWebOrigins,
   app.log,
   async ({ eventId, userId, content }) => {
     const event = await prisma.event.findUnique({

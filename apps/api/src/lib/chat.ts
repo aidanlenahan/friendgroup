@@ -16,7 +16,18 @@ function verifyHS256JWT(token: string, secret: string): Record<string, unknown> 
     .update(`${header}.${payload}`)
     .digest("base64url");
   if (expected !== signature) throw new Error("Invalid signature");
-  return JSON.parse(Buffer.from(payload, "base64url").toString("utf-8"));
+  const decoded = JSON.parse(Buffer.from(payload, "base64url").toString("utf-8")) as Record<string, unknown>;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+
+  if (typeof decoded.exp === "number" && nowSeconds >= decoded.exp) {
+    throw new Error("Token expired");
+  }
+
+  if (typeof decoded.nbf === "number" && nowSeconds < decoded.nbf) {
+    throw new Error("Token not active");
+  }
+
+  return decoded;
 }
 
 // ---------------------------------------------------------------------------
@@ -80,7 +91,7 @@ export function createChatServer(
   httpServer: HTTPServer,
   prisma: PrismaClient,
   jwtSecret: string,
-  corsOrigin: string | boolean,
+  corsOrigin: string | string[],
   logger: FastifyBaseLogger,
   onMessageCreated?: (payload: {
     messageId: string;
@@ -309,6 +320,17 @@ export function createChatServer(
           socket.emit("error", { code: "NOT_FOUND", message: "Channel not found" });
           return;
         }
+
+        if (channel.isInviteOnly) {
+          const subscription = await prisma.channelSubscription.findUnique({
+            where: { userId_channelId: { userId: user.id, channelId } },
+          });
+          if (!subscription) {
+            socket.emit("error", { code: "FORBIDDEN", message: "Not subscribed to this channel" });
+            return;
+          }
+        }
+
         await socket.join(`channel:${channelId}`);
         socket.emit("joined:channel", { channelId });
         logger.info({ userId: user.id, channelId }, "Joined channel room");
