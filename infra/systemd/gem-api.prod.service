@@ -1,0 +1,26 @@
+[Unit]
+Description=Gem API (production)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aidan
+Group=devs
+WorkingDirectory=/var/www/friendgroup
+EnvironmentFile=/etc/friendgroup/gem-api.env
+ExecStartPre=/usr/bin/npm --workspace apps/api run build
+ExecStartPre=/usr/bin/mkdir -p /var/www/friendgroup/apps/api/dist/generated
+ExecStartPre=/usr/bin/cp -r /var/www/friendgroup/apps/api/src/generated/prisma /var/www/friendgroup/apps/api/dist/generated/
+ExecStart=/usr/bin/node /var/www/friendgroup/apps/api/dist/server.js
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/www/friendgroup /tmp
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

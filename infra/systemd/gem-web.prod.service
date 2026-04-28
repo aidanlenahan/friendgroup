@@ -1,5 +1,5 @@
 [Unit]
-Description=Friendgroup Web (production preview)
+Description=Gem Web (production preview)
 After=network-online.target
 Wants=network-online.target
 

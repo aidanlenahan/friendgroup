@@ -308,8 +308,9 @@ calendarSyncWorker.on("failed", (job, error) => {
   });
 });
 
-// Create Fastify app
-const app = Fastify({ logger: true });
+// Create Fastify app.
+// trustProxy is required behind Cloudflare so request.ip resolves to the real client IP.
+const app = Fastify({ logger: true, trustProxy: true });
 
 const sentryDsn = process.env.SENTRY_DSN_API || process.env.SENTRY_DSN;
 const sentryEnabled = Boolean(sentryDsn);

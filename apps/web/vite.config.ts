@@ -8,7 +8,7 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5173,
     strictPort: true,
-    allowedHosts: ['.ngrok-free.dev', '.ngrok-free.app', '.ngrok.io', '.ngrok.app', '.ngrok.dev', 'localhost', '127.0.0.1'],
+    allowedHosts: ['.ngrok-free.dev', '.ngrok-free.app', '.ngrok.io', '.ngrok.app', '.ngrok.dev', 'localhost', '127.0.0.1', 'gem.aidanlenahan.com'],
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:4000',

@@ -7,6 +7,7 @@
     [x] notis for tags — DONE: UserTagPreference model, GET/PUT /notifications/preferences/tags, and tag subscription toggles in NotificationSettingsPage.tsx were already fully implemented.
     [x] notis select for push and email — DONE: UserNotificationPreference model, GET/PUT /notifications/preferences, and per-channel toggle table in NotificationSettingsPage.tsx were already fully implemented. rsvp_update type added to NotificationFanoutJobData and now fired from RSVP routes.
 
+[ ] fix separate column when sub to URL in google calendar. fixable?
 
 
 1. pick logo/name of app

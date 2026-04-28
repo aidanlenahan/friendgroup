@@ -35,7 +35,7 @@ This section is the live status of where implementation stopped, what is complet
 ### Process task status
 
 - [x] 1. Decide published architecture before DNS changes
-	- Selected split-host architecture: `gem.aidanlenahan.com` (web) + `api.gem.aidanlenahan.com` (API)
+	- Selected split-host architecture: `gem.aidanlenahan.com` (web) + `api-gem.aidanlenahan.com` (API)
 	- Selected local-only origin bind model
 
 - [x] 2. Convert dev runtime to production runtime
@@ -72,12 +72,51 @@ This section is the live status of where implementation stopped, what is complet
 	- Named tunnel `friendgroup-prod` created and authenticated
 	- `/etc/cloudflared/config.yml` created and ingress validated
 	- `cloudflared.service` installed, enabled, and active with registered edge connections
-- [ ] 8. Configure DNS tunnel routes
+- [x] 8. Configure DNS tunnel routes
+	- Cloudflare DNS routes confirmed for:
+		- `gem.aidanlenahan.com`
+		- `api-gem.aidanlenahan.com`
+	- `cloudflared tunnel route dns gem-prod ...` confirmed the web route and created the final API route to tunnel UUID `94d05537-cef0-4ded-a0fe-830088163286`
+	- Authoritative DNS from `1.1.1.1` returned Cloudflare edge IPs for both hostnames
+	- Public validation passed after live runtime updates:
+		- `https://gem.aidanlenahan.com` -> `HTTP/2 200`
+		- `https://api-gem.aidanlenahan.com/health` -> `HTTP/2 200`
+		- `https://api-gem.aidanlenahan.com/not-a-route` -> app-level `HTTP/2 404`
 - [ ] 9. Cloudflare WAF and edge rate limiting
-- [ ] 10. External 401/403/404 validation through public domain
-- [ ] 11. Final root traversal/origin discovery validation
-- [ ] 12. Security headers + proxy/IP correctness audit
+- [x] 9. Cloudflare WAF and edge rate limiting
+	- Executed in Cloudflare dashboard on free plan
+	- Confirmed target controls for current plan:
+		- `Always Use HTTPS` on
+		- `Automatic HTTPS Rewrites` on
+		- `Cloudflare Managed Ruleset` on
+		- `Bot Fight Mode` on
+		- custom scanner-path block rule created
+		- single free-plan rate-limit rule created for `POST /auth/*` on `api-gem.aidanlenahan.com`
+		- `Bot Fight Mode` later disabled after it challenged normal validation traffic too aggressively
+	- Full free-plan Step 9 values are documented in `tmp/domain-conn-doc.md`
+- [x] 10. External 401/403/404 validation through public domain
+	- Initial pass was blocked by Cloudflare challenge behavior
+	- After disabling `Bot Fight Mode`, public semantics were observed correctly:
+		- `GET https://api-gem.aidanlenahan.com/this-does-not-exist` -> `404` JSON
+		- `GET https://api-gem.aidanlenahan.com/groups` without token -> `401` JSON
+		- `GET https://api-gem.aidanlenahan.com/health` -> `200` JSON
+		- `GET https://api-gem.aidanlenahan.com/media/proxy/events/anything` -> `403` JSON
+		- `GET https://gem.aidanlenahan.com/` -> `200`
+		- `GET https://gem.aidanlenahan.com/totally-fake-page` -> `200` SPA shell
+- [x] 11. Final root traversal/origin discovery validation
+	- Public DNS for `gem.aidanlenahan.com` and `api-gem.aidanlenahan.com` resolves to Cloudflare edge IPs, not the VM public IP
+	- Media proxy code and runtime behavior both restrict proxy access to `avatars/` keys only
+	- Dotfile-style public requests such as `/.env` and `/.git/config` did not expose file contents
+	- No source-map files were emitted in `apps/web/dist`
+	- Caveat: direct TCP port probing was executed from the VM against its public IP, which is supportive but not as authoritative as a truly separate external network test
+- [x] 12. Security headers + proxy/IP correctness audit
+	- API public and local-origin responses include the expected Helmet header set (`x-content-type-options`, `x-frame-options`, `referrer-policy`, `strict-transport-security`, and related defaults)
+	- API CORS is pinned to `https://gem.aidanlenahan.com` and does not reflect arbitrary origins
+	- Fastify `trustProxy` was missing and has now been enabled so IP-aware logic behind Cloudflare can use real client IPs instead of edge IPs
+	- Web root currently exposes only baseline edge/application headers; no sensitive artifacts were found, and deeper browser-facing CSP tuning remains a future hardening item
 - [ ] 13. External end-to-end validation from non-origin device
+	- VM-side preflight checks are passing (`200/401/404/403` semantics still correct on public hostnames)
+	- Full Step 13 completion still requires real non-origin browser/device validation (mobile data + separate network laptop)
 - [ ] 14. Reboot persistence verification
 - [ ] 15. Uptime Kuma rollout
 - [ ] 16. PBS backup integration + restore test
@@ -86,14 +125,41 @@ This section is the live status of where implementation stopped, what is complet
 
 ### What is in progress right now
 
-- Step 8 execution is next: creating DNS tunnel routes for `gem.aidanlenahan.com` and `api.gem.aidanlenahan.com`.
+- Step 8 is complete and publicly validated at the hostname level.
+- Step 9 is complete.
+- Step 10 is complete.
+- Step 11 is complete with the same-host public-IP probe caveat documented.
+- Step 12 is complete.
+- Step 13 is in progress: VM-side prechecks passed; waiting on non-origin device/browser execution.
 
 ### What still must be done before public launch
 
 - Complete Steps 7 through 18 above.
-- Complete DNS tunnel routing for both hostnames.
 - Validate public domain behavior (TLS, WAF, rate limits, 401/403/404, auth flows, uploads, chat, notifications).
 - Confirm monitoring and backups are operational and tested.
+
+### Bot Fight Mode guidance
+
+Do not re-enable `Bot Fight Mode` yet.
+
+Reason:
+- it previously challenged normal validation and likely normal user traffic
+- the current combination of managed rules, scanner-path block rule, and auth rate-limit rule is safer and more predictable for this deployment stage
+
+Revisit `Bot Fight Mode` only after later external functional validation is stable and only if you are prepared to retest public browsing and API behavior again.
+
+### HTTP response format policy
+
+Keep the current response-type split.
+
+- Web app routes may return HTML app shell responses.
+- API endpoints should return JSON for `200`, `401`, `403`, `404`, and other app-level API errors.
+- Cloudflare/tunnel edge failures such as unmatched-host `404` or transient origin `502` should remain edge-generated, not custom HTML pages.
+
+Reason:
+- JSON API errors are easier to consume, test, and debug.
+- The React web app can present branded UX inside the SPA without changing API semantics.
+- Replacing edge failures with custom HTML would make diagnosis harder and blur the boundary between origin problems and edge problems.
 
 ### Where detailed execution logs live
 
@@ -116,14 +182,169 @@ Recommended service layout on the VM:
 
 Preferred hostname layout:
 - gem.aidanlenahan.com -> web frontend
-- api.gem.aidanlenahan.com -> API for clear separation
+- api-gem.aidanlenahan.com -> API for clear separation
 
 If keeping a single hostname for both app and API, then the frontend and API must be routed by the same reverse proxy or Cloudflare ingress rules with path-based routing. In practice, a separate API subdomain is cleaner and safer.
 
 Recommended final layout:
 - gem.aidanlenahan.com -> web
-- api.gem.aidanlenahan.com -> api
+- api-gem.aidanlenahan.com -> api
 - optional status.gem.aidanlenahan.com -> Uptime Kuma, protected behind Cloudflare Access
+
+## 1.1 Safe Rebrand Plan: friendgroup -> gem (non-destructive)
+
+You can and should do this as a staged migration, not a one-shot global replace.
+
+### Why staged is safer
+
+- `friendgroup` appears in multiple contexts with different risk:
+	- runtime wiring (`systemd`, `/etc/friendgroup/*`, tunnel names)
+	- data-layer identifiers (DB user/db name, bucket names)
+	- code/package metadata (`package.json` names, tests, labels)
+	- docs and historical logs
+- replacing all at once can break startup, deployment scripts, and restore workflows.
+- staged rename gives instant rollback at each phase.
+
+### Phase A (safe now, zero downtime)
+
+- Create parallel `gem` identities without removing `friendgroup` identities:
+	- create `gem-prod` Cloudflare tunnel (done)
+	- keep `friendgroup-prod` tunnel active until `gem-prod` is fully validated
+	- add gem-named templates in repo (`gem-*.service`, `gem-*.env.example`) while preserving existing files
+- Keep filesystem path `/var/www/friendgroup` unchanged during this phase.
+
+Phase A execution status (2026-04-27):
+- [x] `gem-prod` tunnel created in Cloudflare
+- [x] Existing `friendgroup-prod` tunnel left active (no traffic cutover yet)
+- [x] Parallel gem templates added in repo:
+	- `infra/systemd/gem-api.prod.service`
+	- `infra/systemd/gem-web.prod.service`
+	- `infra/gem-api.env.example`
+	- `infra/cloudflared/gem-prod.config.example.yml`
+- [x] Existing friendgroup-named templates preserved unchanged for rollback
+- [x] Working directory remains `/var/www/friendgroup` (no folder rename in Phase A)
+
+Phase A exit criteria:
+- parallel identities exist
+- no runtime service switch performed
+- rollback remains immediate by design (because nothing destructive was changed)
+
+### Phase B (runtime cutover, low risk, quick rollback)
+
+- Switch cloudflared runtime from old tunnel credentials to `gem-prod` credentials.
+- Validate:
+	- `systemctl status cloudflared`
+	- `cloudflared tunnel info gem-prod`
+	- local health endpoints still 200
+- Rollback path: restore previous `/etc/cloudflared/config.yml` and restart cloudflared.
+
+Phase B execution status (2026-04-27):
+- [x] Cloudflared runtime switched from `friendgroup-prod` to `gem-prod`
+- [x] Pre-cutover rollback snapshot captured at `/etc/cloudflared/backups/20260427-235938/`
+	- `config.yml.pre-phaseB`
+	- `5d3504c0-17fb-4d8d-9802-d1f5b247f855.json.pre-phaseB`
+- [x] Active runtime config now references tunnel UUID `94d05537-cef0-4ded-a0fe-830088163286`
+- [x] `cloudflared.service` restarted and is active
+- [x] `cloudflared tunnel info gem-prod` shows active connectors
+- [x] `friendgroup-prod` now shows no active connection (expected after cutover)
+- [x] Local app health gates remain green (`/health`, `/health/db`, `/health/redis`)
+
+Phase B rollback command set:
+1. `sudo cp /etc/cloudflared/backups/20260427-235938/config.yml.pre-phaseB /etc/cloudflared/config.yml`
+2. `sudo systemctl restart cloudflared`
+3. `cloudflared tunnel info friendgroup-prod`
+
+### Phase C (service identity rename, no data migration)
+
+- Add gem-named systemd units in parallel (`gem-api.service`, `gem-web.service`).
+- Enable/start gem units while old units are still available.
+- After verification, disable old unit names.
+- Keep working directory unchanged (`/var/www/friendgroup`) until Phase E.
+
+Phase C execution status (2026-04-28):
+- [x] Live unit files created:
+	- `/etc/systemd/system/gem-api.service`
+	- `/etc/systemd/system/gem-web.service`
+- [x] Gem API env file created:
+	- `/etc/friendgroup/gem-api.env`
+	- initial contents copied from `/etc/friendgroup/friendgroup-api.env` for non-destructive parity
+- [x] Pre-cutover rollback snapshot captured at `/etc/systemd/system/rebrand-backups/20260428-023447/`
+- [x] Old services stopped and replacement services started successfully
+	- `gem-api.service` active on `127.0.0.1:4000`
+	- `gem-web.service` active on `127.0.0.1:4173`
+- [x] Old unit names preserved but disabled for rollback
+	- `friendgroup-api.service` disabled
+	- `friendgroup-web.service` disabled
+	- files retained at `/etc/systemd/system/`
+- [x] Health gates passed after cutover
+
+Phase C rollback command set:
+1. `sudo systemctl disable gem-api gem-web`
+2. `sudo systemctl stop gem-api gem-web`
+3. `sudo systemctl enable friendgroup-api friendgroup-web`
+4. `sudo systemctl start friendgroup-api friendgroup-web`
+
+### Recommended order from current state
+
+Best next move after Phase C: do Step 8 before Phase D.
+
+Why this order is preferred:
+- Step 8 is operational wiring only. It exposes the already-stable runtime through the intended public domain path.
+- Phase D increases surface area substantially by changing branding text, package names, labels, config strings, and source references.
+- If public reachability is broken after a large textual rebrand, root cause becomes harder to isolate.
+- Completing Step 8 first lets public-domain validation happen against the already-stable Phase B/C runtime state.
+
+Decision rule:
+- Finish Step 8 and basic public reachability checks first.
+- Then begin Phase D in narrow batches with rebuild/test gates.
+
+### Phase D (app/config textual rebrand)
+
+- Replace branding text and package names in source/config where safe.
+- Exclude generated outputs and caches from global replacement:
+	- `apps/*/dist`
+	- `apps/web/dev-dist`
+	- `node_modules`
+	- `test-results`
+	- historical docs under `tmp/`
+- Rebuild and run tests after each scoped batch.
+
+### Phase E (optional path/data identifier rename; highest risk)
+
+- Rename repo folder `/var/www/friendgroup` -> `/var/www/gem` only during a planned maintenance window.
+- Update all hardcoded paths in systemd/env/scripts.
+- Optionally rename DB names/users/buckets from `friendgroup_*` to `gem_*` only if you accept migration risk and restore testing overhead.
+- If current data identifiers are stable and private, leaving them unchanged is acceptable.
+
+Exact timing recommendation for repo/folder rename:
+- Do NOT rename the repo folder in Phases A-D.
+- Do NOT rename the repo folder before Step 8 public DNS routing is complete.
+- Do NOT rename the repo folder before Step 14 reboot verification is complete.
+- Ideally, do NOT rename the repo folder until Step 16 backup + restore testing is complete.
+
+Recommended window:
+- rename `/var/www/friendgroup` -> `/var/www/gem` only after:
+	- Step 8 is complete
+	- Step 10-14 validation is complete
+	- Step 16 restore testing is complete
+- perform the rename in a short maintenance window with a fresh backup and a written rollback command set.
+
+Reason:
+- repo/folder rename is the first step that changes nearly every absolute path in runtime units, scripts, and deployment commands.
+- it is much safer after public routing, reboot behavior, and backup/restore behavior have already been proven stable.
+
+### Phase gates (do not skip)
+
+After each phase:
+1. `curl -sS http://127.0.0.1:4000/health`
+2. `curl -sS http://127.0.0.1:4000/health/db`
+3. `curl -sS http://127.0.0.1:4000/health/redis`
+4. `systemctl status friendgroup-api friendgroup-web cloudflared --no-pager`
+5. External check through Cloudflare hostname(s)
+
+Rollback rule:
+- Keep previous config/service files in place until the new layer is verified and documented.
+- Do not delete old tunnel/service identifiers in the same step as enabling new ones.
 
 ## 2. Convert the current dev-style runtime into a production runtime
 
@@ -184,7 +405,7 @@ Minimal production api command pattern:
 
 Cloudflare tunnel ingress should map exactly:
 - gem.aidanlenahan.com -> http://127.0.0.1:4173
-- api.gem.aidanlenahan.com -> http://127.0.0.1:4000
+- api-gem.aidanlenahan.com -> http://127.0.0.1:4000
 - final catch-all -> http_status:404
 
 Non-negotiable publishing rule:
@@ -295,7 +516,7 @@ Do not reuse the current development .env as production.
 
 Create a production env file for the API with production values for:
 - NODE_ENV=production
-- API_BASE_URL=https://api.gem.aidanlenahan.com or the chosen final origin
+- API_BASE_URL=https://api-gem.aidanlenahan.com or the chosen final origin
 - WEB_BASE_URL=https://gem.aidanlenahan.com
 - DATABASE_URL
 - REDIS_URL
@@ -399,7 +620,7 @@ Expected tunnel ownership:
 
 Recommended ingress configuration:
 - hostname: gem.aidanlenahan.com -> service: http://127.0.0.1:4173
-- hostname: api.gem.aidanlenahan.com -> service: http://127.0.0.1:4000
+- hostname: api-gem.aidanlenahan.com -> service: http://127.0.0.1:4000
 - catch-all final rule -> http_status:404
 
 That last rule matters. It directly supports the requirement for clean 404 behavior and prevents accidental exposure of anything not explicitly mapped.
@@ -413,7 +634,7 @@ credentials-file: /etc/cloudflared/<tunnel-uuid>.json
 ingress:
 	- hostname: gem.aidanlenahan.com
 		service: http://127.0.0.1:4173
-	- hostname: api.gem.aidanlenahan.com
+	- hostname: api-gem.aidanlenahan.com
 		service: http://127.0.0.1:4000
 	- service: http_status:404
 ```
@@ -445,7 +666,7 @@ Create DNS entries through tunnel routing, not raw A records to the VM public IP
 
 Preferred records:
 - gem.aidanlenahan.com -> proxied CNAME managed by Cloudflare Tunnel
-- api.gem.aidanlenahan.com -> proxied CNAME managed by Cloudflare Tunnel
+- api-gem.aidanlenahan.com -> proxied CNAME managed by Cloudflare Tunnel
 
 Do not:
 - point DNS directly at the VM public IP for app traffic
@@ -453,7 +674,7 @@ Do not:
 
 After DNS creation, verify:
 - `dig gem.aidanlenahan.com`
-- `dig api.gem.aidanlenahan.com`
+- `dig api-gem.aidanlenahan.com`
 - Cloudflare dashboard shows the tunnel routes attached to the hostnames
 
 ## 9. Add Cloudflare edge protections
@@ -484,7 +705,7 @@ The requirement says rate limiting on everything. That means both Cloudflare edg
 
 Cloudflare edge rate-limit recommendations:
 - global limit for all requests to gem.aidanlenahan.com to slow floods
-- tighter limits for auth endpoints on api.gem.aidanlenahan.com
+- tighter limits for auth endpoints on api-gem.aidanlenahan.com
 - tighter limits for password reset, login code, verify-email, beta/admin endpoints
 - specific rate limits for upload-related endpoints
 
@@ -617,7 +838,7 @@ Required tests from the VM:
 
 Required tests from another device:
 - https://gem.aidanlenahan.com loads the web app
-- https://api.gem.aidanlenahan.com/health returns expected response
+- https://api-gem.aidanlenahan.com/health returns expected response
 - login works
 - websocket/chat works through Cloudflare
 - file upload works
@@ -649,7 +870,7 @@ This is an explicit todo and should be treated as launch-blocking if you want op
 
 Recommended monitors:
 - web homepage: https://gem.aidanlenahan.com
-- api health: https://api.gem.aidanlenahan.com/health
+- api health: https://api-gem.aidanlenahan.com/health
 - cloudflared process if exposed by host metrics or systemd monitoring
 - postgres availability
 - redis availability
