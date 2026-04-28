@@ -1155,4 +1155,3 @@ Given current progress, do this order:
 3. Perform rename in a dedicated follow-up cycle using the sequence above.
 
 This gives the lowest chance of breaking deployment and the lowest chance of losing Copilot workspace context.
-write process here
