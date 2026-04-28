@@ -1,7 +1,7 @@
-# Friendgroup Product Requirements Document (PRD)
+# GEM Product Requirements Document (PRD)
 
 ## Product Summary
-Friendgroup is a web app + installable PWA for friend groups to plan events, coordinate conversations, and share media without overwhelming members with irrelevant notifications.
+GEM is a web app + installable PWA for friend groups to plan events, coordinate conversations, and share media without overwhelming members with irrelevant notifications.
 
 ## Problem Statement
 Existing tools split use cases across multiple apps:

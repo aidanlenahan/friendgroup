@@ -1,10 +1,10 @@
-# Gem
+# GEM (Group Event Manager)
 
 A web app and installable PWA for friend groups to plan events, chat, and share media — in one place.
 
 ## What it does
 
-Most friend groups split coordination across multiple apps: one for scheduling, another for chat, another for photos. Gem consolidates event planning, event-scoped chat, and notifications into a single app, with group membership and permission controls baked in.
+Most friend groups split coordination across multiple apps: one for scheduling, another for chat, another for photos. GEM consolidates event planning, event-scoped chat, and notifications into a single app, with group membership and permission controls baked in.
 
 **Core features:**
 
@@ -109,7 +109,7 @@ See `apps/api/.env.example` and `apps/web/.env.example` for the full list. Key v
 | `S3_ENDPOINT` / `S3_BUCKET` | Object storage config |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_SECURE` | SMTP server config (defaults to Gmail — `smtp.gmail.com:465`) |
 | `SMTP_USER` / `SMTP_PASS` | SMTP credentials (Gmail: use an App Password). Optional in dev |
-| `EMAIL_FROM` | Sender address, e.g. `Gem <noreply@example.com>` |
+| `EMAIL_FROM` | Sender address, e.g. `GEM <noreply@example.com>` |
 | `GROUP_CREATION_BETA_REQUIRED` | Set to `true` to require beta codes for group creation |
 | `BETA_ADMIN_SECRET` | Secret for the `POST /admin/beta-codes` endpoint |
 | `VITE_API_BASE_URL` | API base URL used by the frontend |

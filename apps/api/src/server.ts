@@ -913,7 +913,7 @@ app.get("/health/all", async (request, reply) => {
 
 app.get("/", async (request, reply) => {
   return reply.send({
-    name: "Gem API",
+    name: "GEM API",
     status: "running",
     endpoints: [
       "/auth/dev-token",
@@ -1231,8 +1231,8 @@ app.post("/auth/request-login-code", { config: { rateLimit: { max: 5, timeWindow
       await sendEmailCode(
         user.email,
         otpCode,
-        "Your Gem sign-in code",
-        "Use this code to sign in to Gem:"
+        "Your GEM sign-in code",
+        "Use this code to sign in to GEM:"
       );
     }
   }
@@ -1304,10 +1304,10 @@ app.post("/auth/forgot-password", { config: { rateLimit: { max: 5, timeWindow: "
 
     await sendTransactionalEmail({
       to: user.email,
-      subject: "Reset your Gem password",
+      subject: "Reset your GEM password",
       html: `
         <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-          <h2 style="margin:0 0 12px 0;">Gem</h2>
+          <h2 style="margin:0 0 12px 0;">GEM</h2>
           <p style="margin:0 0 20px 0;">We received a request to reset your password. You can reset it by clicking the button below <strong>or</strong> by entering the 6-digit code on the reset page. Both expire in 1 hour.</p>
           <p style="margin:0 0 8px 0;">
             <a href="${resetUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:600;">Reset Password</a>
@@ -1451,7 +1451,7 @@ app.post("/notifications/test/push", { config: { rateLimit: { max: 5, timeWindow
         p256dh: subscription.p256dh,
       },
       {
-        title: body.title ?? "Gem test push",
+        title: body.title ?? "GEM test push",
         body: body.body ?? "Push notifications are configured correctly.",
         type: "test",
       }
@@ -1493,7 +1493,7 @@ app.post("/notifications/test/email", { config: { rateLimit: { max: 3, timeWindo
     });
   }
 
-  const subject = body.subject ?? "Gem test email";
+  const subject = body.subject ?? "GEM test email";
   const message =
     body.message ?? "Your email notification channel is configured correctly.";
   const template = buildNotificationEmail({
@@ -3175,7 +3175,7 @@ app.post("/groups/join", { config: { rateLimit: { max: 10, timeWindow: "1 minute
       subject: `New join request for ${group.name}`,
       html: `
         <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-          <h2 style="margin:0 0 12px 0;">Gem</h2>
+          <h2 style="margin:0 0 12px 0;">GEM</h2>
           <p style="margin:0 0 16px 0;"><strong>${currentUser.name}</strong> (${currentUser.email}) has requested to join your group <strong>${group.name}</strong>.</p>
           <p style="margin:0 0 20px 0;">You can approve or deny their request from the Members tab of your group.</p>
           <p style="margin:0 0 20px 0;">
@@ -3236,7 +3236,7 @@ app.post("/groups/:groupId/members/:userId/approve", { config: { rateLimit: { ma
       subject: `You've been approved to join ${group?.name ?? "the group"}`,
       html: `
         <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-          <h2 style="margin:0 0 12px 0;">Gem</h2>
+          <h2 style="margin:0 0 12px 0;">GEM</h2>
           <p style="margin:0 0 16px 0;">Your request to join <strong>${group?.name ?? "the group"}</strong> has been <strong style="color:#22c55e;">approved</strong>!</p>
           <p style="margin:0 0 20px 0;">
             <a href="${groupUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:600;">Open Group</a>
@@ -3303,7 +3303,7 @@ app.post("/groups/:groupId/members/:userId/deny", { config: { rateLimit: { max: 
       subject: `Your join request for ${group?.name ?? "the group"} was not approved`,
       html: `
         <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-          <h2 style="margin:0 0 12px 0;">Gem</h2>
+          <h2 style="margin:0 0 12px 0;">GEM</h2>
           <p style="margin:0 0 16px 0;">Your request to join <strong>${group?.name ?? "the group"}</strong> was not approved at this time.</p>
           <p style="color:#64748b;font-size:12px;margin:0;">You are receiving this because you requested to join this group.</p>
         </div>

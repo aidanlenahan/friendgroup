@@ -2,7 +2,7 @@
   "name": "@gem/api",
   "version": "1.0.0",
   "private": true,
-  "description": "Gem API",
+  "description": "GEM API",
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
