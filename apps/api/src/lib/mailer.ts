@@ -45,7 +45,7 @@ export interface SendEmailOptions {
  *   read OTP codes without needing a real inbox.
  */
 export async function sendTransactionalEmail(opts: SendEmailOptions): Promise<void> {
-  const from = process.env.EMAIL_FROM || "Friendgroup <noreply@example.com>";
+  const from = process.env.EMAIL_FROM || "Gem <noreply@example.com>";
   const transporter = getMailTransporter();
 
   if (transporter) {

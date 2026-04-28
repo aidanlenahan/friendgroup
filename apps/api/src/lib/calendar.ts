@@ -64,7 +64,7 @@ function eventDescription(event: CalendarEventInput, webBaseUrl?: string) {
 
   const link = eventLink(event.id, webBaseUrl);
   if (link) {
-    parts.push(`Open in Friendgroup: ${link}`);
+    parts.push(`Open in Gem: ${link}`);
   }
 
   return parts.join("\n\n");
@@ -119,7 +119,7 @@ export function buildIcsCalendar(
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//Friendgroup//Calendar//EN",
+    "PRODID:-//Gem//Calendar//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${escapeIcsText(options.calendarName)}`,

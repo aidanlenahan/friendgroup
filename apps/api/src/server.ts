@@ -1231,8 +1231,8 @@ app.post("/auth/request-login-code", { config: { rateLimit: { max: 5, timeWindow
       await sendEmailCode(
         user.email,
         otpCode,
-        "Your Friendgroup sign-in code",
-        "Use this code to sign in to Friendgroup:"
+        "Your Gem sign-in code",
+        "Use this code to sign in to Gem:"
       );
     }
   }
@@ -1304,10 +1304,10 @@ app.post("/auth/forgot-password", { config: { rateLimit: { max: 5, timeWindow: "
 
     await sendTransactionalEmail({
       to: user.email,
-      subject: "Reset your Friendgroup password",
+      subject: "Reset your Gem password",
       html: `
         <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-          <h2 style="margin:0 0 12px 0;">Friendgroup</h2>
+          <h2 style="margin:0 0 12px 0;">Gem</h2>
           <p style="margin:0 0 20px 0;">We received a request to reset your password. You can reset it by clicking the button below <strong>or</strong> by entering the 6-digit code on the reset page. Both expire in 1 hour.</p>
           <p style="margin:0 0 8px 0;">
             <a href="${resetUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:600;">Reset Password</a>
@@ -1317,7 +1317,7 @@ app.post("/auth/forgot-password", { config: { rateLimit: { max: 5, timeWindow: "
           <p style="color:#64748b;font-size:12px;margin:0;">If you did not request a password reset, you can safely ignore this email. The link and code will expire automatically.</p>
         </div>
       `,
-      text: `Reset your Friendgroup password\n\nClick this link to reset your password (expires in 1 hour):\n${resetUrl}\n\nOr enter this 6-digit code on the page where you requested the reset: ${otpCode}\n\nIf you did not request this, ignore this email.`,
+      text: `Reset your Gem password\n\nClick this link to reset your password (expires in 1 hour):\n${resetUrl}\n\nOr enter this 6-digit code on the page where you requested the reset: ${otpCode}\n\nIf you did not request this, ignore this email.`,
     });
 
     if (process.env.NODE_ENV !== "production") {
@@ -1451,7 +1451,7 @@ app.post("/notifications/test/push", { config: { rateLimit: { max: 5, timeWindow
         p256dh: subscription.p256dh,
       },
       {
-        title: body.title ?? "Friendgroup test push",
+        title: body.title ?? "Gem test push",
         body: body.body ?? "Push notifications are configured correctly.",
         type: "test",
       }
@@ -1493,7 +1493,7 @@ app.post("/notifications/test/email", { config: { rateLimit: { max: 3, timeWindo
     });
   }
 
-  const subject = body.subject ?? "Friendgroup test email";
+  const subject = body.subject ?? "Gem test email";
   const message =
     body.message ?? "Your email notification channel is configured correctly.";
   const template = buildNotificationEmail({
@@ -2412,7 +2412,7 @@ app.get("/events/:id/calendar.ics", async (request, reply) => {
       },
     ],
     {
-      calendarName: `Friendgroup - ${event.title}`,
+      calendarName: `Gem - ${event.title}`,
       webBaseUrl: process.env.WEB_BASE_URL,
     }
   );
@@ -2422,10 +2422,10 @@ app.get("/events/:id/calendar.ics", async (request, reply) => {
   reply.header("Content-Type", "text/calendar; charset=utf-8");
   reply.header(
     "Content-Disposition",
-    `inline; filename="friendgroup-event-${event.id}.ics"`
+    `inline; filename="gem-event-${event.id}.ics"`
   );
   if (syncMeta.revision) {
-    reply.header("X-Friendgroup-Calendar-Revision", syncMeta.revision);
+    reply.header("X-Gem-Calendar-Revision", syncMeta.revision);
   }
   if (syncMeta.lastSyncedAt) {
     reply.header("X-Friendgroup-Calendar-Last-Synced-At", syncMeta.lastSyncedAt);
@@ -2524,7 +2524,7 @@ app.get("/groups/:groupId/calendar.ics", async (request, reply) => {
       updatedAt: event.updatedAt,
     })),
     {
-      calendarName: `Friendgroup - ${group.name}`,
+      calendarName: `Gem - ${group.name}`,
       webBaseUrl: process.env.WEB_BASE_URL,
     }
   );
@@ -2534,13 +2534,13 @@ app.get("/groups/:groupId/calendar.ics", async (request, reply) => {
   reply.header("Content-Type", "text/calendar; charset=utf-8");
   reply.header(
     "Content-Disposition",
-    `inline; filename="friendgroup-group-${group.id}.ics"`
+    `inline; filename="gem-group-${group.id}.ics"`
   );
   if (syncMeta.revision) {
-    reply.header("X-Friendgroup-Calendar-Revision", syncMeta.revision);
+    reply.header("X-Gem-Calendar-Revision", syncMeta.revision);
   }
   if (syncMeta.lastSyncedAt) {
-    reply.header("X-Friendgroup-Calendar-Last-Synced-At", syncMeta.lastSyncedAt);
+    reply.header("X-Gem-Calendar-Last-Synced-At", syncMeta.lastSyncedAt);
   }
   return reply.send(ics);
 });
@@ -2675,7 +2675,7 @@ app.get("/calendar/group-feed/:token.ics", async (request, reply) => {
       updatedAt: event.updatedAt,
     })),
     {
-      calendarName: `Friendgroup - ${group.name}`,
+      calendarName: `Gem - ${group.name}`,
       webBaseUrl: process.env.WEB_BASE_URL,
     }
   );
@@ -2684,7 +2684,7 @@ app.get("/calendar/group-feed/:token.ics", async (request, reply) => {
   reply.header("Cache-Control", "no-cache, no-store");
   reply.header(
     "Content-Disposition",
-    `inline; filename="friendgroup-${group.id}.ics"`
+    `inline; filename="gem-${group.id}.ics"`
   );
   return reply.send(ics);
 });
@@ -3175,7 +3175,7 @@ app.post("/groups/join", { config: { rateLimit: { max: 10, timeWindow: "1 minute
       subject: `New join request for ${group.name}`,
       html: `
         <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-          <h2 style="margin:0 0 12px 0;">Friendgroup</h2>
+          <h2 style="margin:0 0 12px 0;">Gem</h2>
           <p style="margin:0 0 16px 0;"><strong>${currentUser.name}</strong> (${currentUser.email}) has requested to join your group <strong>${group.name}</strong>.</p>
           <p style="margin:0 0 20px 0;">You can approve or deny their request from the Members tab of your group.</p>
           <p style="margin:0 0 20px 0;">
@@ -3236,7 +3236,7 @@ app.post("/groups/:groupId/members/:userId/approve", { config: { rateLimit: { ma
       subject: `You've been approved to join ${group?.name ?? "the group"}`,
       html: `
         <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-          <h2 style="margin:0 0 12px 0;">Friendgroup</h2>
+          <h2 style="margin:0 0 12px 0;">Gem</h2>
           <p style="margin:0 0 16px 0;">Your request to join <strong>${group?.name ?? "the group"}</strong> has been <strong style="color:#22c55e;">approved</strong>!</p>
           <p style="margin:0 0 20px 0;">
             <a href="${groupUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:600;">Open Group</a>
@@ -3303,7 +3303,7 @@ app.post("/groups/:groupId/members/:userId/deny", { config: { rateLimit: { max: 
       subject: `Your join request for ${group?.name ?? "the group"} was not approved`,
       html: `
         <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-          <h2 style="margin:0 0 12px 0;">Friendgroup</h2>
+          <h2 style="margin:0 0 12px 0;">Gem</h2>
           <p style="margin:0 0 16px 0;">Your request to join <strong>${group?.name ?? "the group"}</strong> was not approved at this time.</p>
           <p style="color:#64748b;font-size:12px;margin:0;">You are receiving this because you requested to join this group.</p>
         </div>

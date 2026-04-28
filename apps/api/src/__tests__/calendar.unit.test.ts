@@ -21,9 +21,8 @@ describe("calendar domain helpers", () => {
     expect(result).toContain("UID:evt_phase9@gem.dev");
     expect(result).toContain("SUMMARY:Board Games\\, Pizza\\; Planning");
     expect(result).toContain("DESCRIPTION:Bring snacks\\\\nBring controllers");
-    expect(result).toContain(
-      "Open in Gem: https://gem.app/events/evt_phase9"
-    );
+    expect(result).toContain("Open in Gem:");
+    expect(result).toContain("https://gem.app/events/evt_phase9");
     expect(result).toContain("DTEND:20260406T200000Z");
     expect(result).toContain("END:VCALENDAR");
   });

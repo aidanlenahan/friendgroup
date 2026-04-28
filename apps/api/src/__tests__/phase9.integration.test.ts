@@ -165,7 +165,7 @@ describe("Phase 9 API integration and smoke coverage", () => {
           JOIN "User" admin_user ON admin_user.email = 'admin@gem.dev'
           JOIN "User" member_user ON member_user.email = 'member@gem.dev'
           JOIN "Tag" t ON t."groupId" = g.id
-          WHERE g.name = 'Demo Friendgroup'
+          WHERE g.name = 'Demo Gem'
           ORDER BY t.name ASC
           LIMIT 1
         `

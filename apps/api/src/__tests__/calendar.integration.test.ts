@@ -108,8 +108,8 @@ describe("Phase 8 calendar integration", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type") || "").toContain("text/calendar");
-    expect(response.headers.get("x-friendgroup-calendar-revision")).toBeTruthy();
-    expect(response.headers.get("x-friendgroup-calendar-last-synced-at")).toBeTruthy();
+    expect(response.headers.get("x-gem-calendar-revision")).toBeTruthy();
+    expect(response.headers.get("x-gem-calendar-last-synced-at")).toBeTruthy();
 
     const body = await response.text();
     expect(body).toContain("BEGIN:VCALENDAR");
