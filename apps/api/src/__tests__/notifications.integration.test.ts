@@ -4,7 +4,7 @@ import { Client } from "pg";
 const API_BASE = process.env.API_BASE_URL || "http://localhost:4000";
 const DB_URL =
   process.env.DATABASE_URL ||
-  "postgresql://friendgroup:friendgroup@localhost:5432/friendgroup_dev";
+  "postgresql://gem:gem@localhost:5432/gem_dev";
 
 let token = "";
 let groupId = "";

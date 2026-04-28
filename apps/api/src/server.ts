@@ -55,7 +55,7 @@ import { isMailConfigured, sendTransactionalEmail } from "./lib/mailer.js";
 import { buildGoogleCalendarLink, buildIcsCalendar } from "./lib/calendar.js";
 
 // Initialize clients
-const connectionString = process.env.DATABASE_URL || "postgresql://friendgroup:friendgroup@localhost:5432/friendgroup_dev";
+const connectionString = process.env.DATABASE_URL || "postgresql://gem:gem@localhost:5432/gem_dev";
 const pool = new Pool({ connectionString });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
@@ -70,7 +70,7 @@ const s3 = new S3Client({
   forcePathStyle: process.env.S3_FORCE_PATH_STYLE === "true",
 });
 
-const s3Bucket = process.env.S3_BUCKET || "friendgroup-media";
+const s3Bucket = process.env.S3_BUCKET || "gem-media";
 const mediaMaxFileBytes = Number(process.env.MEDIA_MAX_FILE_BYTES || 10 * 1024 * 1024);
 const mediaMaxEventBytes = Number(process.env.MEDIA_MAX_EVENT_BYTES || 200 * 1024 * 1024);
 const mediaMaxUserBytes = Number(process.env.MEDIA_MAX_USER_BYTES || 1024 * 1024 * 1024); // 1 GB default
@@ -993,18 +993,22 @@ function generateOtpCode(): string {
 }
 
 async function sendEmailCode(to: string, code: string, subject: string, body: string) {
+  const loginUrl = `${(process.env.WEB_BASE_URL || "").replace(/\/$/, "")}/login`;
   await sendTransactionalEmail({
     to,
     subject,
     html: `
       <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-        <h2 style="margin:0 0 12px 0;">Gem</h2>
+        <h2 style="margin:0 0 12px 0;">GEM</h2>
         <p style="margin:0 0 20px 0;">${body}</p>
         <p style="font-size:2.2em;letter-spacing:0.35em;font-weight:700;margin:0 0 20px 0;">${code}</p>
+        <p style="margin:0 0 16px 0;">
+          <a href="${loginUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:600;">Sign in to GEM</a>
+        </p>
         <p style="color:#64748b;font-size:12px;margin:0;">This code expires in 10 minutes. If you did not request this, you can safely ignore this email.</p>
       </div>
     `,
-    text: `${body}\n\nYour code: ${code}\n\nThis code expires in 10 minutes.`,
+    text: `${body}\n\nYour code: ${code}\n\nSign in at: ${loginUrl}\n\nThis code expires in 10 minutes.`,
   });
   if (process.env.NODE_ENV !== "production") {
     app.log.info({ to, code }, "[DEV] Email code");
@@ -2412,7 +2416,7 @@ app.get("/events/:id/calendar.ics", async (request, reply) => {
       },
     ],
     {
-      calendarName: `Gem - ${event.title}`,
+      calendarName: `GEM - ${event.title}`,
       webBaseUrl: process.env.WEB_BASE_URL,
     }
   );
@@ -2428,7 +2432,7 @@ app.get("/events/:id/calendar.ics", async (request, reply) => {
     reply.header("X-Gem-Calendar-Revision", syncMeta.revision);
   }
   if (syncMeta.lastSyncedAt) {
-    reply.header("X-Friendgroup-Calendar-Last-Synced-At", syncMeta.lastSyncedAt);
+    reply.header("X-Gem-Calendar-Last-Synced-At", syncMeta.lastSyncedAt);
   }
   return reply.send(ics);
 });
@@ -2524,7 +2528,7 @@ app.get("/groups/:groupId/calendar.ics", async (request, reply) => {
       updatedAt: event.updatedAt,
     })),
     {
-      calendarName: `Gem - ${group.name}`,
+      calendarName: `GEM - ${group.name}`,
       webBaseUrl: process.env.WEB_BASE_URL,
     }
   );
@@ -2675,7 +2679,7 @@ app.get("/calendar/group-feed/:token.ics", async (request, reply) => {
       updatedAt: event.updatedAt,
     })),
     {
-      calendarName: `Gem - ${group.name}`,
+      calendarName: `GEM - ${group.name}`,
       webBaseUrl: process.env.WEB_BASE_URL,
     }
   );

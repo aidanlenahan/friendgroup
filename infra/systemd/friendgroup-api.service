@@ -1,10 +1,10 @@
 [Unit]
-Description=Friendgroup API (Fastify dev server)
+Description=GEM API (Fastify dev server)
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/var/www/friendgroup
+WorkingDirectory=/var/www/gem
 ExecStart=/usr/bin/npm run dev:api
 Restart=always
 RestartSec=3

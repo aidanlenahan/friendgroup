@@ -51,7 +51,7 @@ export function buildNotificationEmail(params: {
   body: string;
   ctaUrl?: string;
 }): { html: string; text: string } {
-  const appName = "Gem";
+  const appName = "GEM";
   const cta = params.ctaUrl
     ? `<p style=\"margin-top:20px;\"><a href=\"${params.ctaUrl}\" style=\"display:inline-block;background:#0f766e;color:#ffffff;padding:10px 14px;text-decoration:none;border-radius:6px;\">Open ${appName}</a></p>`
     : "";
@@ -61,7 +61,7 @@ export function buildNotificationEmail(params: {
     <h2 style="margin:0 0 12px 0;">${params.title}</h2>
     <p style="margin:0;">${params.body}</p>
     ${cta}
-    <p style="margin-top:24px;color:#64748b;font-size:12px;">You are receiving this because you are a member of a Gem group.</p>
+    <p style="margin-top:24px;color:#64748b;font-size:12px;">You are receiving this because you are a member of a GEM group.</p>
   </div>
   `;
 

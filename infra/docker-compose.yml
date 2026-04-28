@@ -1,16 +1,16 @@
 services:
   postgres:
     image: postgres:16
-    container_name: friendgroup-postgres
+    container_name: gem-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: friendgroup
+      POSTGRES_USER: gem
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-replace_with_local_postgres_password}
-      POSTGRES_DB: friendgroup_dev
+      POSTGRES_DB: gem_dev
     ports:
       - "127.0.0.1:5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U friendgroup -d friendgroup_dev"]
+      test: ["CMD-SHELL", "pg_isready -U gem -d gem_dev"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -19,7 +19,7 @@ services:
 
   redis:
     image: redis:7
-    container_name: friendgroup-redis
+    container_name: gem-redis
     restart: unless-stopped
     ports:
       - "127.0.0.1:6379:6379"
@@ -33,7 +33,7 @@ services:
 
   minio:
     image: minio/minio:latest
-    container_name: friendgroup-minio
+    container_name: gem-minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:

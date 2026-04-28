@@ -15,7 +15,7 @@ async function hashPassword(password: string): Promise<string> {
 
 const connectionString =
   process.env.DATABASE_URL ||
-  "postgresql://friendgroup:friendgroup@localhost:5432/friendgroup_dev";
+  "postgresql://gem:gem@localhost:5432/gem_dev";
 
 const pool = new Pool({ connectionString });
 const adapter = new PrismaPg(pool);
@@ -43,30 +43,30 @@ async function main() {
 
   const owner = await prisma.user.upsert({
     where: { email: "owner@gem.dev" },
-    update: { name: "Owner User" },
-    create: { email: "owner@gem.dev", name: "Owner User" },
+    update: { name: "Owner User", passwordHash: devPasswordHash, emailVerified: true },
+    create: { email: "owner@gem.dev", name: "Owner User", passwordHash: devPasswordHash, emailVerified: true },
   });
 
   const admin = await prisma.user.upsert({
     where: { email: "admin@gem.dev" },
-    update: { name: "Admin User" },
-    create: { email: "admin@gem.dev", name: "Admin User" },
+    update: { name: "Admin User", passwordHash: devPasswordHash, emailVerified: true },
+    create: { email: "admin@gem.dev", name: "Admin User", passwordHash: devPasswordHash, emailVerified: true },
   });
 
   const member = await prisma.user.upsert({
     where: { email: "member@gem.dev" },
-    update: { name: "Member User" },
-    create: { email: "member@gem.dev", name: "Member User" },
+    update: { name: "Member User", passwordHash: devPasswordHash, emailVerified: true },
+    create: { email: "member@gem.dev", name: "Member User", passwordHash: devPasswordHash, emailVerified: true },
   });
 
   let group = await prisma.group.findFirst({
-    where: { name: "Demo Gem" },
+    where: { name: "Demo GEM" },
   });
 
   if (!group) {
     group = await prisma.group.create({
       data: {
-        name: "Demo Gem",
+        name: "Demo GEM",
         ownerId: owner.id,
       },
     });

@@ -52,7 +52,7 @@ export async function checkRedis(redis: Redis): Promise<HealthStatus> {
  */
 export async function checkStorage(s3: S3Client): Promise<HealthStatus> {
   try {
-    const bucket = process.env.S3_BUCKET || "friendgroup-media";
+    const bucket = process.env.S3_BUCKET || "gem-media";
     await s3.send(new HeadBucketCommand({ Bucket: bucket }));
     return { status: "ok", timestamp: new Date().toISOString() };
   } catch (error) {

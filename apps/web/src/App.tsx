@@ -23,6 +23,10 @@ import ChannelPage from './pages/ChannelPage'
 import { Phase7DebugPage } from './pages/Phase7DebugPage'
 import { Phase9DiagnosticsPage } from './pages/Phase9DiagnosticsPage'
 import DeveloperPage from './pages/DeveloperPage'
+import MarketingLayout from './components/MarketingLayout'
+import LandingPage from './pages/LandingPage'
+import FAQPage from './pages/FAQPage'
+import ContactPage from './pages/ContactPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,6 +61,11 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
   return token ? <>{children}</> : <Navigate to="/login" replace />
 }
 
+function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
+  const token = useAuthStore((s) => s.token)
+  return token ? <Navigate to="/groups" replace /> : <>{children}</>
+}
+
 export default function App() {
   useThemeApplier()
   const { token, user, login } = useAuthStore()
@@ -73,15 +82,21 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <Routes>
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
-        <Route path="/verify-email" element={<VerifyEmailPage />} />
-        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        {/* Public routes — all wrapped in MarketingLayout so the navbar is present */}
+        <Route element={<MarketingLayout />}>
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/faq" element={<FAQPage />} />
+          <Route path="/contact" element={<ContactPage />} />
+          <Route path="/login" element={<RedirectIfAuthed><LoginPage /></RedirectIfAuthed>} />
+          <Route path="/register" element={<RedirectIfAuthed><RegisterPage /></RedirectIfAuthed>} />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
+          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+        </Route>
         {/* Legacy debug/diagnostic routes */}
         <Route path="/phase-7/debug" element={<Phase7DebugPage />} />
         <Route path="/phase-9/diagnostics" element={<Phase9DiagnosticsPage />} />
-        {/* Authenticated routes */}
+        {/* Authenticated routes — RequireAuth redirects to /login if no token */}
         <Route
           element={
             <RequireAuth>
@@ -89,7 +104,6 @@ export default function App() {
             </RequireAuth>
           }
         >
-          <Route index element={<Navigate to="/groups" replace />} />
           <Route path="/groups" element={<GroupsPage />} />
           <Route path="/groups/:groupId" element={<GroupPage />} />
           <Route path="/groups/:groupId/manage" element={<GroupManagePage />} />

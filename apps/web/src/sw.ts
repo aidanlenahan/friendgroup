@@ -89,11 +89,11 @@ self.addEventListener('push', (event: PushEvent) => {
   }
 
   const title =
-    typeof payload.title === 'string' ? payload.title : 'Gem notification'
+    typeof payload.title === 'string' ? payload.title : 'GEM notification'
   const body =
     typeof payload.body === 'string'
       ? payload.body
-      : 'You have a new update in Gem.'
+      : 'You have a new update in GEM.'
   const eventId = typeof payload.eventId === 'string' ? payload.eventId : undefined
 
   event.waitUntil(

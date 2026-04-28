@@ -12,7 +12,7 @@ describe("calendar domain helpers", () => {
 
   it("builds ICS output with escaped content and event links", () => {
     const result = buildIcsCalendar([event], {
-      calendarName: "Demo Gem",
+      calendarName: "Demo GEM",
       webBaseUrl: "https://gem.app/",
       defaultDurationMinutes: 90,
     });
@@ -21,7 +21,7 @@ describe("calendar domain helpers", () => {
     expect(result).toContain("UID:evt_phase9@gem.dev");
     expect(result).toContain("SUMMARY:Board Games\\, Pizza\\; Planning");
     expect(result).toContain("DESCRIPTION:Bring snacks\\\\nBring controllers");
-    expect(result).toContain("Open in Gem:");
+    expect(result).toContain("Open in GEM:");
     expect(result).toContain("https://gem.app/events/evt_phase9");
     expect(result).toContain("DTEND:20260406T200000Z");
     expect(result).toContain("END:VCALENDAR");
@@ -38,7 +38,7 @@ describe("calendar domain helpers", () => {
       "20260406T183000Z/20260406T200000Z"
     );
     expect(url.searchParams.get("details")).toContain(
-      "Open in Gem: https://gem.app/events/evt_phase9"
+      "Open in GEM: https://gem.app/events/evt_phase9"
     );
   });
 });

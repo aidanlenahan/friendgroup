@@ -201,10 +201,10 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 flex items-center justify-center p-4">
+    <div className="flex items-center justify-center px-4 py-12">
       <div className="w-full max-w-sm bg-gray-900 rounded-2xl shadow-xl p-8 space-y-6 border border-gray-800">
         <div>
-          <h1 className="text-2xl font-bold text-white">Gem</h1>
+          <h1 className="text-2xl font-bold text-white">GEM</h1>
           <p className="text-gray-400 text-sm mt-1">Sign in to your account</p>
         </div>
 
@@ -335,6 +335,12 @@ export default function LoginPage() {
         {/* Email code verify */}
         {mode === 'email-code-verify' && (
           <>
+            <div className="space-y-1">
+              <p className="text-white font-medium text-sm">Check your email</p>
+              <p className="text-gray-400 text-sm">
+                We sent a 6-digit sign-in code to <span className="text-white">{otpEmail}</span>. Enter it below — it expires in 10 minutes.
+              </p>
+            </div>
             <form onSubmit={handleVerifyCode} className="space-y-4">
               {info && <p className="text-green-400 text-sm">{info}</p>}
               <input
@@ -346,6 +352,7 @@ export default function LoginPage() {
                 placeholder="000000"
                 maxLength={6}
                 required
+                autoFocus
                 className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white text-center text-2xl tracking-widest placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
               />
               {error && <p className="text-red-400 text-sm">{error}</p>}

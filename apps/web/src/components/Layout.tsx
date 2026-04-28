@@ -15,6 +15,7 @@ export default function Layout() {
   const { data: groups } = useGroups()
   const [isDesktop, setIsDesktop] = useState(getIsDesktop)
   const [sidebarOpen, setSidebarOpen] = useState(getIsDesktop)
+  const [pagesOpen, setPagesOpen] = useState(false)
   const [isOnline, setIsOnline] = useState(
     typeof navigator !== 'undefined' ? navigator.onLine : true,
   )
@@ -87,7 +88,7 @@ export default function Layout() {
     <>
       <div className="p-4 border-b border-gray-800 flex items-center justify-between">
         <div>
-          <NavLink to="/groups" className="text-xl font-bold text-indigo-400 hover:text-indigo-300 transition-colors">Gem</NavLink>
+          <NavLink to="/groups" className="text-xl font-bold text-indigo-400 hover:text-indigo-300 transition-colors">GEM</NavLink>
           <p className="text-xs text-gray-500 mt-1">{user?.name}</p>
         </div>
         {/* Close button on mobile */}
@@ -102,6 +103,42 @@ export default function Layout() {
         </button>}
       </div>
       <nav aria-label="Main navigation" className="flex-1 overflow-y-auto p-3 space-y-1">
+        {/* Collapsible Pages section */}
+        <button
+          onClick={() => setPagesOpen((v) => !v)}
+          className="w-full flex items-center justify-between px-2 mb-1 text-xs uppercase tracking-wider text-gray-500 hover:text-gray-400 transition-colors"
+        >
+          <span>Pages</span>
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            className={`w-3 h-3 transition-transform ${pagesOpen ? 'rotate-180' : ''}`}
+            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+        {pagesOpen && (
+          <div className="mb-2 space-y-0.5">
+            {[
+              { to: '/', label: 'Home', end: true },
+              { to: '/faq', label: 'FAQ', end: false },
+              { to: '/contact', label: 'Contact', end: false },
+            ].map(({ to, label, end }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={end}
+                onClick={closeSidebar}
+                className={({ isActive }) =>
+                  `flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${isActive ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:bg-gray-800'}`
+                }
+              >
+                {label}
+              </NavLink>
+            ))}
+          </div>
+        )}
+
         <p className="text-xs uppercase tracking-wider text-gray-500 px-2 mb-2">
           Your Groups
         </p>
@@ -244,7 +281,7 @@ export default function Layout() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <NavLink to="/groups" className="text-sm font-bold text-indigo-400 hover:text-indigo-300 transition-colors">Gem</NavLink>
+          <NavLink to="/groups" className="text-sm font-bold text-indigo-400 hover:text-indigo-300 transition-colors">GEM</NavLink>
         </header>}
 
         {!isOnline && (

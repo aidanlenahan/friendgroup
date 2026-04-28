@@ -46,6 +46,15 @@ function foldLine(line: string): string {
   return result;
 }
 
+function extractDomain(url?: string): string {
+  if (!url) return "gem.app";
+  try {
+    return new URL(url).hostname;
+  } catch {
+    return "gem.app";
+  }
+}
+
 function eventLink(eventId: string, webBaseUrl?: string) {
   if (!webBaseUrl) {
     return null;
@@ -64,7 +73,7 @@ function eventDescription(event: CalendarEventInput, webBaseUrl?: string) {
 
   const link = eventLink(event.id, webBaseUrl);
   if (link) {
-    parts.push(`Open in Gem: ${link}`);
+    parts.push(`Open in GEM: ${link}`);
   }
 
   return parts.join("\n\n");
@@ -77,7 +86,7 @@ function buildEventBlock(
 ) {
   const start = event.dateTime;
   const end = event.endsAt ?? new Date(start.getTime() + defaultDurationMinutes * 60 * 1000);
-  const uid = `${event.id}@gem.dev`;
+  const uid = `${event.id}@${extractDomain(webBaseUrl)}`;
   const summary = escapeIcsText(event.title);
   const description = escapeIcsText(eventDescription(event, webBaseUrl));
   const link = eventLink(event.id, webBaseUrl);

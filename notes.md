@@ -1,4 +1,4 @@
-# Friendgroup — AI Context Reference
+# GEM — AI Context Reference
 > One-stop reference for AI agents working in this codebase. Generated 2026-04-22.
 
 ---

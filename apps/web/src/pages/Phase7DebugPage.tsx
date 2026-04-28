@@ -328,7 +328,7 @@ export function Phase7DebugPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          title: 'Gem PWA Test',
+          title: 'GEM PWA Test',
           body: 'If you can read this, Phase 7 push wiring works.',
         }),
       })
@@ -425,7 +425,7 @@ export function Phase7DebugPage() {
       </div>
 
       <header>
-        <p className="text-xs font-semibold uppercase tracking-widest text-indigo-400 mb-1">Gem</p>
+        <p className="text-xs font-semibold uppercase tracking-widest text-indigo-400 mb-1">GEM</p>
         <h1 className="text-2xl font-bold text-white">Phase 7 PWA Console</h1>
         <p className="text-sm text-gray-400 mt-1">
           Validates installability plus push permission and subscription flow.
@@ -477,7 +477,7 @@ export function Phase7DebugPage() {
         <p className="text-sm text-gray-400">Install prompts are browser controlled.</p>
         {!isInstalled ? (
           <button className={btnBase} onClick={promptInstall} disabled={!canInstall && !shouldShowIosInstallHint}>
-            {shouldShowIosInstallHint ? 'How to Install on iPhone / iPad' : 'Install Gem PWA'}
+            {shouldShowIosInstallHint ? 'How to Install on iPhone / iPad' : 'Install GEM PWA'}
           </button>
         ) : (
           <p className="text-sm text-green-400">✓ Already installed as a PWA.</p>

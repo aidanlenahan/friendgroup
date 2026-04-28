@@ -1,5 +1,5 @@
 [Unit]
-Description=Friendgroup API (production)
+Description=GEM API (production)
 After=network-online.target
 Wants=network-online.target
 
@@ -7,12 +7,12 @@ Wants=network-online.target
 Type=simple
 User=aidan
 Group=devs
-WorkingDirectory=/var/www/friendgroup
-EnvironmentFile=/etc/friendgroup/friendgroup-api.env
+WorkingDirectory=/var/www/gem
+EnvironmentFile=/etc/gem/gem-api.env
 ExecStartPre=/usr/bin/npm --workspace apps/api run build
-ExecStartPre=/usr/bin/mkdir -p /var/www/friendgroup/apps/api/dist/generated
-ExecStartPre=/usr/bin/cp -r /var/www/friendgroup/apps/api/src/generated/prisma /var/www/friendgroup/apps/api/dist/generated/
-ExecStart=/usr/bin/node /var/www/friendgroup/apps/api/dist/server.js
+ExecStartPre=/usr/bin/mkdir -p /var/www/gem/apps/api/dist/generated
+ExecStartPre=/usr/bin/cp -r /var/www/gem/apps/api/src/generated/prisma /var/www/gem/apps/api/dist/generated/
+ExecStart=/usr/bin/node /var/www/gem/apps/api/dist/server.js
 Restart=always
 RestartSec=3
 NoNewPrivileges=true

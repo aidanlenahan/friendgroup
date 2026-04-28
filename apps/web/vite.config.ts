@@ -31,8 +31,8 @@ export default defineConfig({
         type: 'module',
       },
       manifest: {
-        name: 'Gem',
-        short_name: 'Gem',
+        name: 'GEM',
+        short_name: 'GEM',
         description: 'Plan events and chat with your friend group',
         theme_color: '#4f46e5',
         background_color: '#030712',

@@ -35,7 +35,7 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'fg-auth',
-      partialize: (state) => ({ user: state.user }),
+      partialize: (state) => (state.token ? { user: state.user } : {}),
     },
   ),
 )

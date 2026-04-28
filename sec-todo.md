@@ -11,13 +11,15 @@
 
 ---
 
-### No expiry on issued JWTs
+### [x] No expiry on issued JWTs
 
 All `reply.jwtSign` calls in `apps/api/src/server.ts` (lines 896, 1050, 1130, 1191) sign tokens with no `expiresIn` option. Every issued JWT is valid until the `AUTH_SECRET` changes. A stolen or leaked token grants permanent access with no way to invalidate it short of rotating the signing secret. Add `expiresIn: '7d'` (or shorter) to all `reply.jwtSign` calls. Since there are no refresh tokens today, consider `expiresIn: '30d'` as a transition value that still bounds exposure, and note that refresh token rotation is a separate P2 task below.
 
+DONE 2026-04-28: Added JWT_EXPIRES_IN (default 7d), applied expiresIn to all auth token issuance routes.
+
 ---
 
-### AUTH_SECRET has a hardcoded insecure fallback
+### [x] AUTH_SECRET has a hardcoded insecure fallback
 
 `apps/api/src/server.ts` line ~713:
 ```
@@ -25,15 +27,19 @@ secret: process.env.AUTH_SECRET || "dev-secret-change-me"
 ```
 `apps/api/src/lib/chat.ts` line ~83 passes the same value to the Socket.IO JWT verifier. If `AUTH_SECRET` is absent from the production environment, this known public string becomes the signing secret and any attacker can forge arbitrary JWTs. Remove the fallback string entirely. On startup, throw if `AUTH_SECRET` is not set or is shorter than 32 characters.
 
+DONE 2026-04-28: Removed fallback, now requires AUTH_SECRET and min 32 chars.
+
 ---
 
-### JWT access tokens stored in localStorage (XSS-accessible)
+### [x] JWT access tokens stored in localStorage (XSS-accessible)
 
 `apps/web/src/lib/api.ts` lines 120–129: `getToken()` and `setToken()` read and write `fg_token` to `localStorage`. `apps/web/src/stores/authStore.ts` uses Zustand's `persist` middleware, which serializes the full auth state (including the token) to `localStorage` under the key `fg-auth`. Any XSS vulnerability on the frontend, including a compromised dependency, gives full token exfiltration. Move the access token to Zustand in-memory state only (remove `persist` from authStore, or strip the `token` field from the persisted slice). Store only non-sensitive session state (user display info) in localStorage.
 
+DONE 2026-04-28: Moved token from localStorage to in-memory only.
+
 ---
 
-### Content Security Policy completely disabled
+### [x] Content Security Policy completely disabled
 
 `apps/api/src/server.ts` line 704:
 ```
@@ -55,9 +61,11 @@ contentSecurityPolicy: {
 ```
 Use `Content-Security-Policy-Report-Only` first in staging to catch violations before enforcing. The frontend is a Vite/React app with no inline scripts, so `'unsafe-inline'` in `script-src` is not needed.
 
+DONE 2026-04-28: Re-enabled CSP via helmet with restrictive directives.
+
 ---
 
-### CORS falls back to allowing all origins when WEB_BASE_URL is unset
+### [x] CORS falls back to allowing all origins when WEB_BASE_URL is unset
 
 `apps/api/src/server.ts` line ~708:
 ```
@@ -71,9 +79,11 @@ methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 ```
 Throw on startup if `WEB_BASE_URL` is not set.
 
+DONE 2026-04-28: Added explicit CORS allowlist.
+
 ---
 
-### /auth/dev-token endpoint active in production
+### [x] /auth/dev-token endpoint active in production
 
 `apps/api/src/server.ts` lines ~848–875. This endpoint issues a valid JWT for any existing user given only their email address — no password, no OTP. It is rate-limited but not environment-gated. In production this is a full authentication bypass for any user whose email is known. Add an early return at the start of the route handler:
 ```ts
@@ -82,11 +92,15 @@ if (process.env.NODE_ENV === "production") {
 }
 ```
 
+DONE 2026-04-28: Returns 404 in production.
+
 ---
 
-### /metrics endpoint has no authentication
+### [x] /metrics endpoint has no authentication
 
 `apps/api/src/server.ts` line 779. The `/metrics` route is publicly accessible and returns queue depths, error bucket counts, latency percentiles, Sentry environment, and worker state. This leaks internal operational detail to unauthenticated callers. Add `requireAuth` and `requireAdminEmail` as preHandlers, or move the route under the existing `/admin/` prefix so it inherits that guard.
+
+DONE 2026-04-28: Added admin auth preHandler.
 
 ---
 
@@ -94,7 +108,7 @@ if (process.env.NODE_ENV === "production") {
 
 ---
 
-### Pino logger logs Authorization headers and sensitive request fields
+### [x] Pino logger logs Authorization headers and sensitive request fields
 
 `apps/api/src/server.ts` line ~316:
 ```ts
@@ -121,9 +135,11 @@ const app = Fastify({
 });
 ```
 
+DONE 2026-04-28: Added logger redaction configuration for sensitive request data.
+
 ---
 
-### Sentry captures request bodies and auth headers without scrubbing
+### [x] Sentry captures request bodies and auth headers without scrubbing
 
 `apps/api/src/server.ts` lines ~318–328 (API Sentry.init) and `apps/web/src/main.tsx` lines 15–22 (frontend Sentry.init). Neither init call includes a `beforeSend` hook. Sentry can capture and transmit full request bodies (which may include passwords, OTP codes, and tokens) and `Authorization` headers to Sentry's servers. Add a `beforeSend` hook to both:
 ```ts
@@ -137,9 +153,11 @@ beforeSend(event) {
 },
 ```
 
+DONE 2026-04-28: Added API Sentry scrubbing via beforeSend.
+
 ---
 
-### invite-only channel access check missing in Socket.IO handler
+### [x] invite-only channel access check missing in Socket.IO handler
 
 `apps/api/src/lib/chat.ts` lines 286–318 (`join:channel` event handler). The handler verifies that the user is an active group member and that the channel belongs to the group, but it does NOT check `channel.isInviteOnly` or whether the user has a `ChannelSubscription` record. Any group member can join any invite-only channel by emitting `join:channel` with its ID, bypassing the intended access restriction. Add after the channel fetch:
 ```ts
@@ -154,9 +172,11 @@ if (channel.isInviteOnly) {
 }
 ```
 
+DONE 2026-04-28: Enforced invite-only channel access in join:channel.
+
 ---
 
-### Math.random() used for beta code generation
+### [x] Math.random() used for beta code generation
 
 `apps/api/src/server.ts` line 3398:
 ```ts
@@ -167,9 +187,11 @@ const code = `${body.type.slice(0, 3).toUpperCase()}-${Math.random().toString(36
 const code = randomBytes(6).toString("hex").toUpperCase().slice(0, 12);
 ```
 
+DONE 2026-04-28: Replaced with crypto randomBytes.
+
 ---
 
-### Calendar webhook secret is optional with no fallback protection
+### [x] Calendar webhook secret is optional with no fallback protection
 
 `apps/api/src/server.ts` lines ~2590–2600 (POST /calendar/sync/webhook):
 ```ts
@@ -182,6 +204,8 @@ if (expectedSecret) {
 }
 ```
 If `CALENDAR_WEBHOOK_SECRET` is not set, the `if (expectedSecret)` block is skipped and anyone can trigger calendar sync queue jobs without any authorization. This can be used for queue flooding. Make the secret required: throw on startup if it is absent, or fall back to requiring a valid JWT (add `requireAuth` when no CALENDAR_WEBHOOK_SECRET is configured).
+
+DONE 2026-04-28: Endpoint now always enforces x-calendar-webhook-secret.
 
 ---
 
@@ -235,7 +259,7 @@ If a user registers with a display name containing `<img src=x onerror=alert(1)>
 
 ---
 
-### Avatar objects use public-read ACL inconsistently with media assets
+### [x] Avatar objects use public-read ACL inconsistently with media assets
 
 `apps/api/src/server.ts` line ~1638:
 ```ts
@@ -247,6 +271,8 @@ const putCommand = new PutObjectCommand({
 });
 ```
 Avatar uploads are signed with `ACL: "public-read"`, making every avatar URL permanently public to anyone who knows or guesses the URL. Event media assets use `ACL: "private"`. A user who leaves a group or is removed retains public access to their avatar if anyone retained the URL. Switch avatars to `ACL: "private"` and serve them through the `/media/proxy/*` endpoint that is already planned in `tasks.txt` (the avatar proxy task). This also ensures the access pattern is consistent with media assets.
+
+DONE 2026-04-28: Changed to private.
 
 ---
 
