@@ -62,7 +62,7 @@ export function Phase9DiagnosticsPage() {
   return (
     <main className="px-4 py-6 sm:p-6 max-w-2xl mx-auto space-y-6">
       <div className="flex gap-3">
-        <Link to="/" className="text-sm text-indigo-400 hover:text-indigo-300">← Home</Link>
+        <Link to="/home" className="text-sm text-indigo-400 hover:text-indigo-300">← Home</Link>
         <Link to="/phase-7/debug" className="text-sm text-indigo-400 hover:text-indigo-300">Phase 7 Debug →</Link>
       </div>
 

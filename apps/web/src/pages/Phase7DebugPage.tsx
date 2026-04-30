@@ -98,6 +98,7 @@ export function Phase7DebugPage() {
   const apiBaseUrl = useMemo(resolveApiBaseUrl, [])
 
   const [email, setEmail] = useState('owner@gem.dev')
+  const [password, setPassword] = useState('')
   const [token, setToken] = useState('')
   const [config, setConfig] = useState<NotificationConfig | null>(null)
   const [status, setStatus] = useState('Idle.')
@@ -142,33 +143,60 @@ export function Phase7DebugPage() {
   async function loginForDevToken() {
     setStatus('Requesting dev token...')
     try {
-      const response = await fetch(`${apiBaseUrl}/auth/dev-token`, {
+      // Try dev-token first (works in non-production environments)
+      const devResponse = await fetch(`${apiBaseUrl}/auth/dev-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email }),
       })
-      const { data, message } = await readJsonResponse(response)
-      const payload = data as
-        | { token: string; user: { email: string } }
-        | { error?: string }
-        | null
 
-      if (!response.ok) {
-        throw new Error(
-          (payload && 'error' in payload && payload.error) ||
-            message ||
-            `Failed to request token (${response.status})`
-        )
+      if (devResponse.ok) {
+        const { data } = await readJsonResponse(devResponse)
+        const payload = data as { token: string; user: { email: string } } | null
+        if (!payload?.token) throw new Error('Dev token response did not include a token.')
+        setToken(payload.token)
+        setStatus(`Authenticated as ${payload.user.email} via dev-token endpoint.`)
+        return
       }
 
-      if (!payload || !('token' in payload) || !payload.token) {
-        throw new Error('Dev token response did not include a token.')
+      // dev-token returns 404 in production — fall back to password login
+      if (devResponse.status === 404) {
+        if (!password) {
+          setStatus('Dev token is not available in this environment. Enter your password below and try again.')
+          return
+        }
+        const loginResponse = await fetch(`${apiBaseUrl}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ emailOrUsername: email, password }),
+        })
+        const { data: loginData, message: loginMessage } = await readJsonResponse(loginResponse)
+        const loginPayload = loginData as { token: string; user: { email: string } } | { error?: string } | null
+        if (!loginResponse.ok) {
+          throw new Error(
+            (loginPayload && 'error' in loginPayload && loginPayload.error) ||
+              loginMessage ||
+              `Login failed (${loginResponse.status})`
+          )
+        }
+        if (!loginPayload || !('token' in loginPayload) || !loginPayload.token) {
+          throw new Error('Login response did not include a token.')
+        }
+        setToken(loginPayload.token)
+        setStatus(`Authenticated as ${(loginPayload as { token: string; user: { email: string } }).user.email} via password login.`)
+        return
       }
 
-      setToken(payload.token)
-      setStatus(`Authenticated as ${payload.user.email} via ${apiBaseUrl}.`)
+      // Any other error from dev-token
+      const { data, message } = await readJsonResponse(devResponse)
+      const payload = data as { error?: string } | null
+      throw new Error(
+        (payload && 'error' in payload && payload.error) ||
+          message ||
+          `Failed to request token (${devResponse.status})`
+      )
     } catch (error) {
-      setStatus(`Dev auth failed: ${(error as Error).message}`)
+      setStatus(`Auth failed: ${(error as Error).message}`)
     }
   }
 
@@ -420,7 +448,7 @@ export function Phase7DebugPage() {
   return (
     <main className="px-4 py-6 sm:p-6 max-w-2xl mx-auto space-y-6">
       <div className="flex gap-3">
-        <Link to="/" className="text-sm text-indigo-400 hover:text-indigo-300">← Home</Link>
+        <Link to="/home" className="text-sm text-indigo-400 hover:text-indigo-300">← Home</Link>
         <Link to="/phase-9/diagnostics" className="text-sm text-indigo-400 hover:text-indigo-300">Phase 9 Diagnostics →</Link>
       </div>
 
@@ -434,7 +462,7 @@ export function Phase7DebugPage() {
 
       <section className={sectionCls}>
         <h2 className="text-lg font-semibold text-white">Step 1: Dev Authentication</h2>
-        <p className="text-sm text-gray-400">Request a JWT via the dev-token endpoint to authenticate subscription and test routes.</p>
+        <p className="text-sm text-gray-400">Request a JWT to authenticate subscription and test routes. Uses the dev-token shortcut in development, or password login in production.</p>
         <label htmlFor="email-input" className="block text-sm text-gray-400">User email</label>
         <div className="flex gap-2 flex-wrap">
           <input
@@ -445,7 +473,19 @@ export function Phase7DebugPage() {
             type="email"
             className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
-          <button className={btnBase} onClick={loginForDevToken}>Get Dev Token</button>
+        </div>
+        <label htmlFor="password-input" className="block text-sm text-gray-400">Password <span className="text-gray-500">(required in production; leave blank in dev)</span></label>
+        <div className="flex gap-2 flex-wrap">
+          <input
+            id="password-input"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="leave blank in dev environment"
+            type="password"
+            autoComplete="current-password"
+            className="flex-1 min-w-0 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          />
+          <button className={btnBase} onClick={loginForDevToken}>Get Token</button>
         </div>
         <p className="text-sm text-gray-400">
           Token status: <span className={token ? 'text-green-400' : 'text-yellow-400'}>{token ? 'Authenticated' : 'Not authenticated'}</span>

@@ -94,6 +94,7 @@ self.addEventListener('push', (event: PushEvent) => {
     typeof payload.body === 'string'
       ? payload.body
       : 'You have a new update in GEM.'
+  const url = typeof payload.url === 'string' ? payload.url : undefined
   const eventId = typeof payload.eventId === 'string' ? payload.eventId : undefined
 
   event.waitUntil(
@@ -102,7 +103,7 @@ self.addEventListener('push', (event: PushEvent) => {
       icon: '/favicon.svg',
       badge: '/favicon.svg',
       data: {
-        url: eventId ? `/events/${eventId}` : '/',
+        url: url ?? (eventId ? `/events/${eventId}` : '/'),
       },
     })
   )

@@ -55,22 +55,34 @@ Priority order: P1 = blocks any real user from using the app
 Completed
 ========================================================
 
+=== Merged completed items from todo.md and todo.txt ===
+
+[x] Fix `trustProxy`: changed `true` → `1` in `apps/api/src/server.ts` — trusts exactly one upstream hop (cloudflared), not unlimited
+[x] Fix media proxy: added bucket name validation against `S3_BUCKET` env var in `/media/proxy/*` route — prevents cross-bucket access
+[x] Fix `.env.example`: updated `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` to match `docker-compose.yml` MinIO credentials (`gemstorage` / `bdfc664...`)
+[x] Move `docker-compose.yml` credentials to env-file variables or replace with obvious placeholders — DONE 2026-04-28: replaced `POSTGRES_PASSWORD`, `MINIO_ROOT_USER`, and `MINIO_ROOT_PASSWORD` in `infra/docker-compose.yml` with env-variable interpolation placeholders (`${...}`), and updated env examples in `apps/api/.env.example`, `infra/friendgroup-api.env.example`, and `infra/gem-api.env.example`.
+[x] denote admins with badge glyph in members page — DONE 2026-04-26: GroupPage members rows now show minimal role glyphs (shield for admin, crown for owner, user for member) in the old mute slot, and mute moved into the overflow actions menu.
+[x] {"error":"No Authorization was found in request.headers","code":"FST_JWT_NO_AUTHORIZATION_IN_HEADER"} when i try to download .ics for event — DONE 2026-04-26: Changed Download .ics from a plain <a href> to a button that fetches with the auth Bearer token and triggers a blob download. EventPage.tsx.
+[x] make live subscription to calendar — DONE 2026-04-26: Per-group ICS feed subscription via secret token. Added calendarToken to Membership (migration). New routes: GET/POST/DELETE /groups/:groupId/calendar-token (auth required) and GET /calendar/group-feed/:token.ics (public, token = auth). Events filtered by user's tag subscriptions and private event access. UI: calendar icon button in GroupPage events toolbar opens a panel to generate/copy/revoke the feed URL + webcal:// deep-link. schema.prisma, server.ts, GroupPage.tsx.
+[x] when hover over initials on event page, alt text shows display name and (going), only have this logic for Yes RSVP — DONE 2026-04-26: Added title prop to Avatar component; EventPage attendees section now shows yes/maybe/no RSVPs each with "Name (going/maybe/can't go)" tooltip. Avatar.tsx, EventPage.tsx.
+[x] can we add a Good Morning, Good Evening, Hello, [name] message on the root page at the top depending on the time? have multiple phrases per time slot. — DONE 2026-04-26: Added getGreeting() to GroupsPage with 4 phrases per time slot (morning/afternoon/evening/night), deterministic pick by name+hour. GroupsPage.tsx.
+[x] refine on notifications — DONE 2026-04-27: Wired rsvp_update notification fanout in POST /events/:id/rsvps (all three write paths), added GetObjectCommand import, added /media/proxy/* endpoint, set S3_PUBLIC_BASE_URL in .env. server.ts.
+    [x] notis for tags — DONE: UserTagPreference model, GET/PUT /notifications/preferences/tags, and tag subscription toggles in NotificationSettingsPage.tsx were already fully implemented.
+    [x] notis select for push and email — DONE: UserNotificationPreference model, GET/PUT /notifications/preferences, and per-channel toggle table in NotificationSettingsPage.tsx were already fully implemented. rsvp_update type added to NotificationFanoutJobData and now fired from RSVP routes.
+[x] security hardening pass (commit/codebase audit) — DONE 2026-04-28: removed JWT fallback secret and required strong AUTH_SECRET, re-enabled CSP and strict CORS allowlist, protected /metrics with admin auth, disabled /auth/dev-token in production, added JWT expirations, required calendar webhook secret, replaced Math.random beta codes with crypto random bytes, enforced invite-only channel subscriptions in Socket.IO, moved auth token to in-memory only (no localStorage token persistence), added Sentry request scrubbing, switched avatar upload ACL to private, and replaced static credentials in infra/docker-compose.yml with env-variable placeholders.
+[x] 404 error page with consistent styling — DONE 2026-04-28: Created apps/web/src/pages/NotFoundPage.tsx (centered 404, indigo accent, "Go home" link). Replaced wildcard `<Navigate to="/" replace />` in App.tsx with `<NotFoundPage />`.
+[x] fix log out on hard reset (Ctrl + shift + r) — DONE 2026-04-28: Switched authStore.ts persist storage from localStorage to sessionStorage (createJSONStorage(() => sessionStorage)). Token is now included in partialize so it survives hard refresh. Added onRehydrateStorage callback to restore inMemoryToken in api.ts on page reload.
+[x] change email display name from GEM to 'GEM (Group Event Manager)' — DONE 2026-04-28: Updated EMAIL_FROM fallback default in apps/api/src/lib/mailer.ts. Production deployments that set EMAIL_FROM env var will need to update their value.
+[x] fix push notifications honoring settings page toggles — DONE 2026-04-29: NotificationSettingsPage now syncs push subscription state on Save (auto-upsert on any enabled push channel, unsubscribe+DELETE /notifications/subscribe when all push channels are off). Added DELETE /notifications/subscribe API route and push payload url propagation for reliable deep-link handling.
+[x] move notification bell to top-right page banner — DONE 2026-04-29: Added NotificationBell into shared PageToolbar so notification access appears in the top-right toolbar area across banner-based pages.
+[x] fix PWA relaunch logout and extend session duration — DONE 2026-04-29: Added auth hydration guard (`hydrated` state + App route gating) to avoid pre-hydration redirects on standalone relaunch, and set JWT default/infra examples to 365 days via JWT_EXPIRES_IN.
+[x] group invite link breaks the session — DONE 2026-04-29: Root cause: sessionStorage is per-tab; invite links opened in a new tab had no token. Fixed by switching authStore to localStorage so auth persists across tabs.
+[x] fix logout on refresh, logs out when refresh or hard refresh — DONE 2026-04-29: Fixed by switching authStore to localStorage and ensuring session state persists across tabs.
+[x] in-app notification bell with unread badge — DONE 2026-04-29: Added notification bell icon in sidebar and mobile top bar, unread badge, dropdown list, clear-all action, and backend notification inbox routes.
+[x] fix Phase 7 debug page dev token button — DONE 2026-04-29: Added password field and fallback to POST /auth/login when dev-token endpoint returns 404.
+[x] updated all / references to /home (MarketingLayout logo/nav, NotFoundPage, Phase7/9 debug pages) — DONE 2026-04-29: Updated app routes and links to use /home.
+
 === P0 ===
-
-[x] remove hardcoded real email addresses from source code — BLOCKS GIT PUSH
-    DONE 2026-04-23 — Removed all hardcoded personal emails from 4 locations:
-    1. apps/api/src/server.ts — ADMIN_EMAILS moved to module-level constant with no
-       fallback (defaults to []). GET /users/me now returns isAdmin flag in response.
-       All 4 auth endpoints (dev-token, verify-email, login, verify-login-code) also
-       return isAdmin in user payload.
-    2. apps/web/src/components/Layout.tsx — replaced email list check with user.isAdmin
-    3. apps/web/src/pages/DeveloperPage.tsx — removed ADMIN_EMAILS const, uses user.isAdmin.
-       Comment updated to remove personal email references.
-    4. apps/api/src/scripts/seed.ts — replaced aidanlenahan@gmail.com with
-       admin@example.com / seedadmin placeholder.
-    App.tsx now runs a GET /users/me on mount to refresh isAdmin for existing sessions.
-
-=== P1 ===
 
 [x] user registration flow — build POST /auth/register + RegisterPage UI
     DONE 2026-04-16 — Full registration flow implemented. See

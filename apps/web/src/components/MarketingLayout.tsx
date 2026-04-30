@@ -11,8 +11,8 @@ export default function MarketingLayout() {
   const navigate = useNavigate()
 
   const navLinks = [
-    { to: '/', label: 'Home', end: true },
-    { to: '/faq', label: 'FAQ', end: false },
+    { to: '/home', label: 'Home', end: true },
+    { to: '/help', label: 'Help', end: false },
     { to: '/contact', label: 'Contact', end: false },
   ]
 
@@ -38,7 +38,7 @@ export default function MarketingLayout() {
       <header className="sticky top-0 z-50 bg-gray-950/80 backdrop-blur-md border-b border-gray-800/60">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 h-14 flex items-center justify-between gap-4">
           {/* Logo */}
-          <Link to="/" className="flex items-center gap-2 shrink-0">
+          <Link to="/home" className="flex items-center gap-2 shrink-0">
             <span className="text-xl font-bold tracking-tight text-indigo-400">GEM</span>
           </Link>
 
@@ -262,11 +262,11 @@ export default function MarketingLayout() {
         <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-gray-500">
           <span className="font-semibold text-indigo-400">GEM</span>
           <div className="flex gap-5">
-            <Link to="/faq" className="hover:text-gray-300 transition-colors">FAQ</Link>
+            <Link to="/help" className="hover:text-gray-300 transition-colors">Help</Link>
             <Link to="/contact" className="hover:text-gray-300 transition-colors">Contact</Link>
             {!token && <Link to="/login" className="hover:text-gray-300 transition-colors">Log in</Link>}
           </div>
-          <span>© {new Date().getFullYear()} GEM. All rights reserved.</span>
+          <span>© {new Date().getFullYear()} GEM — Group Event Manager. All rights reserved.</span>
         </div>
       </footer>
     </div>

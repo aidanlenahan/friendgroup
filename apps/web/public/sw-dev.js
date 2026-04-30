@@ -2,7 +2,7 @@
 // This file lives in public/ so Vite always serves it as text/javascript
 // regardless of vite-plugin-pwa build state or Host header.
 
-var SW_VERSION = 'gem-dev-sw-v1';
+var SW_VERSION = 'gem-dev-sw-v2';
 
 self.addEventListener('install', function () {
   self.skipWaiting();
@@ -41,13 +41,15 @@ self.addEventListener('push', function (event) {
 
   var eventId =
     typeof payload.eventId === 'string' ? payload.eventId : null;
+  var url =
+    typeof payload.url === 'string' ? payload.url : null;
 
   event.waitUntil(
     self.registration.showNotification(title, {
       body: body,
       icon: '/favicon.svg',
       badge: '/favicon.svg',
-      data: { url: eventId ? '/events/' + eventId : '/' },
+      data: { url: url || (eventId ? '/events/' + eventId : '/') },
     })
   );
 });

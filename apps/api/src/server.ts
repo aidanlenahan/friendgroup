@@ -51,7 +51,7 @@ import {
   isWebPushConfigured,
   sendPushNotification,
 } from "./lib/notifications.js";
-import { isMailConfigured, sendTransactionalEmail } from "./lib/mailer.js";
+import { getMailTransporter, isMailConfigured, sendTransactionalEmail } from "./lib/mailer.js";
 import { buildGoogleCalendarLink, buildIcsCalendar } from "./lib/calendar.js";
 
 // Initialize clients
@@ -185,6 +185,7 @@ const notificationWorker = new Worker<NotificationFanoutJobData>(
             eventId: data.eventId,
             title: data.title,
             body: data.body,
+            url: data.url ?? null,
             sentAt: new Date(),
           },
         });
@@ -327,7 +328,7 @@ if (configuredWebOrigins.length === 0) {
   throw new Error("Set WEB_BASE_URL or WEB_ALLOWED_ORIGINS to allowed web origins");
 }
 
-const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
+const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "100d";
 
 const configuredWebSocketOrigins = configuredWebOrigins.map((origin) => {
   if (origin.startsWith("https://")) return origin.replace("https://", "wss://");
@@ -351,10 +352,10 @@ const app = Fastify({
         "body.betaCode",
         "body.calendarToken",
       ],
-      censor: "[REDACTED]",
     },
   },
   trustProxy: 1,
+                url: data.url,
 });
 
 const sentryDsn = process.env.SENTRY_DSN_API || process.env.SENTRY_DSN;
@@ -498,6 +499,11 @@ const requestLoginCodeBodySchema = z.object({
 const verifyLoginCodeBodySchema = z.object({
   email: schemas.email,
   code: z.string().length(6).regex(/^\d{6}$/),
+});
+
+const verifyLoginLinkBodySchema = z.object({
+  email: schemas.email,
+  token: z.string().min(64).max(64),
 });
 
 const forgotPasswordBodySchema = z.object({
@@ -731,6 +737,7 @@ type NotificationFanoutJobData = {
   recipientUserIds?: string[];
   title: string;
   body: string;
+  url?: string; // deep-link path shown in the in-app notification inbox
 };
 
 type CalendarSyncJobData = {
@@ -992,8 +999,76 @@ function generateOtpCode(): string {
   return num.toString().padStart(6, "0");
 }
 
-async function sendEmailCode(to: string, code: string, subject: string, body: string) {
-  const loginUrl = `${(process.env.WEB_BASE_URL || "").replace(/\/$/, "")}/login`;
+function getWebLoginUrl() {
+  return `${(process.env.WEB_BASE_URL || "").replace(/\/$/, "")}/login`;
+}
+
+function buildCalendarFeedUrl(token: string) {
+  const apiBase = (process.env.API_BASE_URL || "").replace(/\/$/, "");
+  return `${apiBase}/calendar/group-feed/${token}.ics`;
+}
+
+function buildGroupInviteUrl(inviteCode: string) {
+  const webBase = (process.env.WEB_BASE_URL || "").replace(/\/$/, "");
+  return `${webBase}/groups?invite=${encodeURIComponent(inviteCode)}`;
+}
+
+function formatHttpDate(date: Date) {
+  return date.toUTCString();
+}
+
+async function buildCalendarFeedResponse(groupId: string, groupName: string) {
+  const events = await prisma.event.findMany({
+    where: {
+      groupId,
+      isPrivate: false,
+    },
+    orderBy: { dateTime: "asc" },
+    select: {
+      id: true,
+      title: true,
+      details: true,
+      dateTime: true,
+      endsAt: true,
+      location: true,
+      updatedAt: true,
+    },
+  });
+
+  const ics = buildIcsCalendar(events, {
+    calendarName: `GEM - ${groupName}`,
+    webBaseUrl: process.env.WEB_BASE_URL,
+  });
+
+  const syncMeta = await getCalendarSyncMeta(groupId);
+  const latestUpdatedAt = events.reduce<Date | null>((latest, event) => {
+    if (!latest || event.updatedAt > latest) {
+      return event.updatedAt;
+    }
+    return latest;
+  }, null);
+
+  return {
+    ics,
+    syncMeta,
+    latestUpdatedAt,
+  };
+}
+
+async function sendEmailCode(
+  to: string,
+  code: string,
+  subject: string,
+  body: string,
+  options?: {
+    actionUrl?: string;
+    actionLabel?: string;
+    actionText?: string;
+  }
+) {
+  const loginUrl = options?.actionUrl ?? getWebLoginUrl();
+  const actionLabel = options?.actionLabel ?? "Sign in to GEM";
+  const actionText = options?.actionText ?? "Open GEM:";
   await sendTransactionalEmail({
     to,
     subject,
@@ -1003,12 +1078,12 @@ async function sendEmailCode(to: string, code: string, subject: string, body: st
         <p style="margin:0 0 20px 0;">${body}</p>
         <p style="font-size:2.2em;letter-spacing:0.35em;font-weight:700;margin:0 0 20px 0;">${code}</p>
         <p style="margin:0 0 16px 0;">
-          <a href="${loginUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:600;">Sign in to GEM</a>
+          <a href="${loginUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:600;">${actionLabel}</a>
         </p>
         <p style="color:#64748b;font-size:12px;margin:0;">This code expires in 10 minutes. If you did not request this, you can safely ignore this email.</p>
       </div>
     `,
-    text: `${body}\n\nYour code: ${code}\n\nSign in at: ${loginUrl}\n\nThis code expires in 10 minutes.`,
+    text: `${body}\n\nYour code: ${code}\n\n${actionText} ${loginUrl}\n\nThis code expires in 10 minutes.`,
   });
   if (process.env.NODE_ENV !== "production") {
     app.log.info({ to, code }, "[DEV] Email code");
@@ -1230,18 +1305,71 @@ app.post("/auth/request-login-code", { config: { rateLimit: { max: 5, timeWindow
     const cooldown = await redis.get(`login:cooldown:${user.id}`);
     if (!cooldown) {
       const otpCode = generateOtpCode();
+      const linkToken = randomBytes(32).toString("hex");
+      const previousLinkToken = await redis.get(`login:link:user:${user.id}`);
+
+      if (previousLinkToken) {
+        await redis.del(`login:link:${previousLinkToken}`);
+      }
+
       await redis.setex(`login:code:${user.id}`, 600, otpCode);
+      await redis.setex(`login:link:${linkToken}`, 600, user.id);
+      await redis.setex(`login:link:user:${user.id}`, 600, linkToken);
       await redis.setex(`login:cooldown:${user.id}`, 60, "1");
+      const loginUrl = new URL(getWebLoginUrl());
+      loginUrl.searchParams.set("email", user.email);
+      loginUrl.searchParams.set("loginToken", linkToken);
       await sendEmailCode(
         user.email,
         otpCode,
         "Your GEM sign-in code",
-        "Use this code to sign in to GEM:"
+        "Use this code to sign in to GEM, or tap the secure temporary link below:",
+        {
+          actionUrl: loginUrl.toString(),
+          actionLabel: "Sign in instantly",
+          actionText: "Secure sign-in link:",
+        }
       );
     }
   }
 
   return reply.send({ message: "If that email exists, a sign-in code has been sent." });
+});
+
+app.post("/auth/verify-login-link", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const body = await validateRequest(verifyLoginLinkBodySchema, request.body);
+
+  const user = await prisma.user.findUnique({
+    where: { email: body.email },
+    select: { id: true, email: true, name: true, username: true, avatarUrl: true, theme: true, emailVerified: true },
+  });
+
+  if (!user) {
+    return reply.status(401).send({ error: "Invalid or expired sign-in link", code: "INVALID_LOGIN_LINK" });
+  }
+
+  const linkUserId = await redis.get(`login:link:${body.token}`);
+  const activeLinkToken = await redis.get(`login:link:user:${user.id}`);
+  if (!linkUserId || linkUserId !== user.id || activeLinkToken !== body.token) {
+    return reply.status(401).send({ error: "Invalid or expired sign-in link", code: "INVALID_LOGIN_LINK" });
+  }
+
+  await redis.del(`login:link:${body.token}`);
+  await redis.del(`login:link:user:${user.id}`);
+  await redis.del(`login:code:${user.id}`);
+  await redis.del(`login:cooldown:${user.id}`);
+
+  if (!user.emailVerified) {
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: true },
+    });
+    await redis.del(`verify:email:${user.id}`);
+  }
+
+  const { emailVerified: _ev, ...safeUser } = user;
+  const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email }, { expiresIn: jwtExpiresIn });
+  return reply.send({ token, user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
 });
 
 app.post("/auth/verify-login-code", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
@@ -1262,6 +1390,11 @@ app.post("/auth/verify-login-code", { config: { rateLimit: { max: 10, timeWindow
   }
 
   await redis.del(`login:code:${user.id}`);
+  const activeLinkToken = await redis.get(`login:link:user:${user.id}`);
+  if (activeLinkToken) {
+    await redis.del(`login:link:${activeLinkToken}`);
+  }
+  await redis.del(`login:link:user:${user.id}`);
   await redis.del(`login:cooldown:${user.id}`);
 
   // If user hadn't verified email yet, email-code login verifies them
@@ -1423,6 +1556,16 @@ app.post("/notifications/subscribe", { config: { rateLimit: { max: 10, timeWindo
   });
 
   return reply.status(201).send({ subscription });
+});
+
+app.delete("/notifications/subscribe", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+
+  await prisma.notificationSubscription.deleteMany({
+    where: { userId: currentUser.id },
+  });
+
+  return reply.send({ unsubscribed: true });
 });
 
 app.post("/notifications/test/push", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request, reply) => {
@@ -2017,6 +2160,7 @@ app.post("/events", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
     tagIds: event.tags.map((tag) => tag.id),
     title: `New event: ${event.title}`,
     body: `${currentUser.name} created an event in your group.`,
+    url: `/events/${event.id}`,
   });
 
   await queueCalendarSync(body.groupId, "event_created", event.id);
@@ -2068,6 +2212,7 @@ app.patch("/events/:id", async (request, reply) => {
     tagIds: event.tags.map((tag) => tag.id),
     title: `Event updated: ${event.title}`,
     body: `${currentUser.name} updated event details.`,
+    url: `/events/${event.id}`,
   });
 
   await queueCalendarSync(access.event.groupId, "event_updated", event.id);
@@ -2128,6 +2273,7 @@ app.post("/events/:id/rsvps", { config: { rateLimit: { max: 30, timeWindow: "1 m
         recipientUserIds: [access.event.createdById],
         title: `RSVP on ${access.event.title}`,
         body: `${currentUser.name} responded ${body.status} to your event.`,
+        url: `/events/${params.id}`,
       });
     }
 
@@ -2169,6 +2315,7 @@ app.post("/events/:id/rsvps", { config: { rateLimit: { max: 30, timeWindow: "1 m
         recipientUserIds: [access.event.createdById],
         title: `RSVP updated on ${access.event.title}`,
         body: `${currentUser.name} changed their RSVP to ${body.status}.`,
+        url: `/events/${params.id}`,
       });
     }
     return reply.status(201).send({ rsvp: updated });
@@ -2190,6 +2337,7 @@ app.post("/events/:id/rsvps", { config: { rateLimit: { max: 30, timeWindow: "1 m
       recipientUserIds: [access.event.createdById],
       title: `RSVP updated on ${access.event.title}`,
       body: `${currentUser.name} changed their RSVP to ${body.status}.`,
+      url: `/events/${params.id}`,
     });
   }
 
@@ -2346,6 +2494,7 @@ app.post("/events/:id/invites", { config: { rateLimit: { max: 20, timeWindow: "1
     recipientUserIds: [body.userId],
     title: "You were invited to an event",
     body: `${currentUser.name} invited you to join an event.`,
+    url: `/events/${params.id}`,
   });
 
   await queueCalendarSync(access.event.groupId, "event_invite_changed", params.id);
@@ -2559,18 +2708,17 @@ const calendarTokenParamsSchema = z.object({ groupId: z.string() });
 app.post("/groups/:groupId/calendar-token", async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(calendarTokenParamsSchema, request.params);
-  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(membership.role, ["owner", "admin"]);
 
-  // Upsert: generate a new token and save it
   const token = randomBytes(32).toString("hex");
-  const membership = await prisma.membership.update({
-    where: { userId_groupId: { userId: currentUser.id, groupId: params.groupId } },
+  const group = await prisma.group.update({
+    where: { id: params.groupId },
     data: { calendarToken: token },
     select: { calendarToken: true },
   });
 
-  const apiBase = (process.env.API_BASE_URL || "").replace(/\/$/, "");
-  const feedUrl = `${apiBase}/calendar/group-feed/${membership.calendarToken}.ics`;
+  const feedUrl = buildCalendarFeedUrl(group.calendarToken ?? token);
   return reply.send({ feedUrl });
 });
 
@@ -2578,10 +2726,11 @@ app.post("/groups/:groupId/calendar-token", async (request, reply) => {
 app.delete("/groups/:groupId/calendar-token", async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(calendarTokenParamsSchema, request.params);
-  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  requireRole(membership.role, ["owner", "admin"]);
 
-  await prisma.membership.update({
-    where: { userId_groupId: { userId: currentUser.id, groupId: params.groupId } },
+  await prisma.group.update({
+    where: { id: params.groupId },
     data: { calendarToken: null },
   });
 
@@ -2592,14 +2741,18 @@ app.delete("/groups/:groupId/calendar-token", async (request, reply) => {
 app.get("/groups/:groupId/calendar-token", async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(calendarTokenParamsSchema, request.params);
-  const membership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  await requireGroupMembership(prisma, currentUser.id, params.groupId);
 
-  if (!membership.calendarToken) {
+  const group = await prisma.group.findUnique({
+    where: { id: params.groupId },
+    select: { calendarToken: true },
+  });
+
+  if (!group?.calendarToken) {
     return reply.send({ feedUrl: null });
   }
 
-  const apiBase = (process.env.API_BASE_URL || "").replace(/\/$/, "");
-  const feedUrl = `${apiBase}/calendar/group-feed/${membership.calendarToken}.ics`;
+  const feedUrl = buildCalendarFeedUrl(group.calendarToken);
   return reply.send({ feedUrl });
 });
 
@@ -2609,87 +2762,55 @@ const groupFeedParamsSchema = z.object({ token: z.string().min(64).max(64) });
 app.get("/calendar/group-feed/:token.ics", async (request, reply) => {
   const params = await validateRequest(groupFeedParamsSchema, request.params);
 
-  const membership = await prisma.membership.findUnique({
+  const group = await prisma.group.findUnique({
     where: { calendarToken: params.token },
     select: {
-      userId: true,
-      groupId: true,
-      role: true,
-      status: true,
+      id: true,
+      name: true,
     },
   });
 
-  if (!membership || membership.status !== "active") {
+  const legacyMembership = !group
+    ? await prisma.membership.findUnique({
+        where: { calendarToken: params.token },
+        select: {
+          group: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+          status: true,
+        },
+      })
+    : null;
+
+  const resolvedGroup = group ?? legacyMembership?.group ?? null;
+  if (!resolvedGroup || (legacyMembership && legacyMembership.status !== "active")) {
     return reply.status(404).send("Not found");
   }
 
-  const group = await prisma.group.findUnique({
-    where: { id: membership.groupId },
-    select: { id: true, name: true },
-  });
-  if (!group) return reply.status(404).send("Not found");
-
-  // Fetch user's subscribed tag IDs for this group
-  const tagPrefs = await prisma.userTagPreference.findMany({
-    where: { userId: membership.userId, tag: { groupId: membership.groupId }, subscribed: true },
-    select: { tagId: true },
-  });
-  const subscribedTagIds = new Set(tagPrefs.map((p) => p.tagId));
-
-  const isAdmin = ["owner", "admin"].includes(membership.role);
-
-  const events = await prisma.event.findMany({
-    where: { groupId: membership.groupId },
-    include: {
-      invites: { select: { userId: true } },
-      tags: { select: { id: true } },
-    },
-    orderBy: { dateTime: "asc" },
-  });
-
-  const filtered = events.filter((event) => {
-    // Access control: private events only for invited users / admins / creator
-    if (event.isPrivate) {
-      const hasAccess =
-        isAdmin ||
-        event.createdById === membership.userId ||
-        event.invites.some((inv) => inv.userId === membership.userId);
-      if (!hasAccess) return false;
-    }
-
-    // Tag filter: if user has any tag subscriptions, only include events that
-    // have at least one subscribed tag, OR have no tags at all.
-    if (subscribedTagIds.size > 0) {
-      if (event.tags.length > 0 && !event.tags.some((t) => subscribedTagIds.has(t.id))) {
-        return false;
-      }
-    }
-
-    return true;
-  });
-
-  const ics = buildIcsCalendar(
-    filtered.map((event) => ({
-      id: event.id,
-      title: event.title,
-      details: event.details,
-      dateTime: event.dateTime,
-      endsAt: event.endsAt,
-      location: event.location,
-      updatedAt: event.updatedAt,
-    })),
-    {
-      calendarName: `GEM - ${group.name}`,
-      webBaseUrl: process.env.WEB_BASE_URL,
-    }
+  const { ics, syncMeta, latestUpdatedAt } = await buildCalendarFeedResponse(
+    resolvedGroup.id,
+    resolvedGroup.name
   );
 
   reply.header("Content-Type", "text/calendar; charset=utf-8");
-  reply.header("Cache-Control", "no-cache, no-store");
+  reply.header("Cache-Control", "no-cache, max-age=0, must-revalidate");
   reply.header(
     "Content-Disposition",
-    `inline; filename="gem-${group.id}.ics"`
+    `inline; filename="gem-${resolvedGroup.id}.ics"`
   );
+  if (syncMeta.revision) {
+    reply.header("ETag", `W/\"${syncMeta.revision}\"`);
+    reply.header("X-Gem-Calendar-Revision", syncMeta.revision);
+  }
+  if (syncMeta.lastSyncedAt) {
+    reply.header("X-Gem-Calendar-Last-Synced-At", syncMeta.lastSyncedAt);
+  }
+  if (latestUpdatedAt) {
+    reply.header("Last-Modified", formatHttpDate(latestUpdatedAt));
+  }
   return reply.send(ics);
 });
 
@@ -3101,7 +3222,16 @@ app.get("/groups/:groupId/invite-code", async (request, reply) => {
     });
   }
 
-  return reply.send({ groupId: params.groupId, inviteCode: group.inviteCode });
+  const inviteCode = group.inviteCode;
+  if (!inviteCode) {
+    throw new Error(`Group ${params.groupId} is missing an invite code after retrieval`);
+  }
+
+  return reply.send({
+    groupId: params.groupId,
+    inviteCode,
+    inviteUrl: buildGroupInviteUrl(inviteCode),
+  });
 });
 
 // POST /groups/:groupId/invite-code/regenerate — owner or admin regenerates the invite code
@@ -3118,7 +3248,16 @@ app.post("/groups/:groupId/invite-code/regenerate", { config: { rateLimit: { max
     select: { id: true, inviteCode: true },
   });
 
-  return reply.send({ groupId: params.groupId, inviteCode: group.inviteCode });
+  const inviteCode = group.inviteCode;
+  if (!inviteCode) {
+    throw new Error(`Group ${params.groupId} is missing an invite code after regeneration`);
+  }
+
+  return reply.send({
+    groupId: params.groupId,
+    inviteCode,
+    inviteUrl: buildGroupInviteUrl(inviteCode),
+  });
 });
 
 // POST /groups/join — any authenticated user joins a group via invite code (creates pending membership)
@@ -3761,6 +3900,76 @@ app.delete("/admin/dev/registration-codes/:id", async (request, reply) => {
   return reply.send({ success: true });
 });
 
+// GET /admin/dev/email-debug/config — SMTP configuration status (no secrets)
+app.get("/admin/dev/email-debug/config", async (request, reply) => {
+  await requireAdminEmail(request, reply, prisma);
+
+  return reply.send({
+    smtpConfigured: isMailConfigured(),
+    smtpHost: process.env.SMTP_HOST ?? null,
+    smtpPort: process.env.SMTP_PORT ? Number(process.env.SMTP_PORT) : null,
+    smtpUser: process.env.SMTP_USER ?? null,
+    emailFrom: process.env.EMAIL_FROM ?? null,
+    nodeEnv: process.env.NODE_ENV ?? "development",
+  });
+});
+
+const emailDebugSendBodySchema = z.object({
+  to: z.string().email({ message: "Invalid recipient email" }),
+  subject: z.string().min(1).max(200).optional(),
+  body: z.string().max(5000).optional(),
+});
+
+// POST /admin/dev/email-debug/send — send a test email
+app.post("/admin/dev/email-debug/send", async (request, reply) => {
+  const currentUser = await requireAdminEmail(request, reply, prisma);
+  const body = await validateRequest(emailDebugSendBodySchema, request.body);
+
+  const subject = body.subject ?? "GEM Test Email";
+  const textBody = body.body ?? `This is a test email sent from the GEM developer panel.\n\nSent by: ${currentUser.email}\nTimestamp: ${new Date().toISOString()}`;
+  const htmlBody = `<p>${textBody.replace(/\n/g, "<br>")}</p>`;
+
+  let smtpError: string | null = null;
+  const smtpConfigured = isMailConfigured();
+
+  // Use direct transporter send here so SMTP failures are visible in the debug UI.
+  if (smtpConfigured) {
+    const transporter = getMailTransporter();
+    if (!transporter) {
+      smtpError = "SMTP transporter unavailable";
+    } else {
+      try {
+        await transporter.sendMail({
+          from: process.env.EMAIL_FROM || "GEM (Group Event Manager) <noreply@example.com>",
+          to: body.to,
+          subject,
+          html: htmlBody,
+          text: textBody,
+        });
+      } catch (err) {
+        smtpError = (err as Error).message;
+      }
+    }
+  } else {
+    await sendTransactionalEmail({
+      to: body.to,
+      subject,
+      html: htmlBody,
+      text: textBody,
+    });
+  }
+
+  return reply.send({
+    success: smtpError === null,
+    smtpConfigured,
+    simulated: !smtpConfigured,
+    to: body.to,
+    subject,
+    sentAt: new Date().toISOString(),
+    error: smtpError,
+  });
+});
+
 // ============================================================================
 // Tags CRUD Routes
 // ============================================================================
@@ -4091,6 +4300,89 @@ app.put("/notifications/preferences", { config: { rateLimit: { max: 60, timeWind
 });
 
 // ============================================================================
+// Notification Inbox Routes
+// ============================================================================
+
+const NOTIFICATION_INBOX_TTL_DAYS = 7;
+
+// GET /notifications/inbox — unread notifications for the current user (last 7 days)
+app.get("/notifications/inbox", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+
+  const cutoff = new Date(Date.now() - NOTIFICATION_INBOX_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+  const notifications = await prisma.notificationEvent.findMany({
+    where: {
+      recipientId: currentUser.id,
+      createdAt: { gte: cutoff },
+    },
+    orderBy: { createdAt: "desc" },
+    select: {
+      id: true,
+      type: true,
+      title: true,
+      body: true,
+      url: true,
+      createdAt: true,
+    },
+  });
+
+  return reply.send({ notifications });
+});
+
+// GET /notifications/inbox/count — unread notification count (last 7 days)
+app.get("/notifications/inbox/count", { config: { rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+
+  const cutoff = new Date(Date.now() - NOTIFICATION_INBOX_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+  const count = await prisma.notificationEvent.count({
+    where: {
+      recipientId: currentUser.id,
+      createdAt: { gte: cutoff },
+    },
+  });
+
+  return reply.send({ count });
+});
+
+// DELETE /notifications/inbox/:id — dismiss (delete) a single notification
+app.delete("/notifications/inbox/:notificationId", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const params = await validateRequest(
+    z.object({ notificationId: schemas.id }),
+    request.params,
+  );
+
+  // Only delete if it belongs to the current user
+  const deleted = await prisma.notificationEvent.deleteMany({
+    where: { id: params.notificationId, recipientId: currentUser.id },
+  });
+
+  if (deleted.count === 0) {
+    return reply.status(404).send({ error: "Notification not found", code: "NOT_FOUND" });
+  }
+
+  return reply.status(204).send();
+});
+
+// DELETE /notifications/inbox — dismiss all notifications for the current user
+app.delete("/notifications/inbox", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+
+  const cutoff = new Date(Date.now() - NOTIFICATION_INBOX_TTL_DAYS * 24 * 60 * 60 * 1000);
+
+  await prisma.notificationEvent.deleteMany({
+    where: {
+      recipientId: currentUser.id,
+      createdAt: { gte: cutoff },
+    },
+  });
+
+  return reply.status(204).send();
+});
+
+// ============================================================================
 // Event Rating Routes
 // ============================================================================
 
@@ -4200,6 +4492,7 @@ const io = createChatServer(
       tagIds: event.tags.map((tag) => tag.id),
       title: `New message in ${event.title}`,
       body: content.slice(0, 140),
+      url: `/events/${event.id}`,
     });
   },
   async ({ channelId, groupId, userId, content }) => {
@@ -4216,6 +4509,7 @@ const io = createChatServer(
       tagIds: [],
       title: `New message in #${channel.name}`,
       body: content.slice(0, 140),
+      url: `/groups/${groupId}/channels/${channel.id}`,
     });
   }
 );

@@ -7,6 +7,7 @@
     "dev": "vite",
     "dev:3000": "vite --host 0.0.0.0 --port 3000",
     "build": "tsc -b && vite build",
+    "build:fast": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",

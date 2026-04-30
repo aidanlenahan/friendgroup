@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useEffect } from 'react'
 import { useAuthStore } from './stores/authStore'
@@ -25,8 +25,9 @@ import { Phase9DiagnosticsPage } from './pages/Phase9DiagnosticsPage'
 import DeveloperPage from './pages/DeveloperPage'
 import MarketingLayout from './components/MarketingLayout'
 import LandingPage from './pages/LandingPage'
-import FAQPage from './pages/FAQPage'
+import HelpPage from './pages/HelpPage'
 import ContactPage from './pages/ContactPage'
+import NotFoundPage from './pages/NotFoundPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,19 +57,62 @@ const queryClient = new QueryClient({
   },
 })
 
+function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
+  const rawData = window.atob(base64)
+  const outputArray = new Uint8Array(rawData.length)
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i)
+  }
+  return outputArray.buffer
+}
+
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
-  return token ? <>{children}</> : <Navigate to="/login" replace />
+  const hydrated = useAuthStore((s) => s.hydrated)
+  const location = useLocation()
+  if (!hydrated) {
+    return null
+  }
+  if (token) {
+    return <>{children}</>
+  }
+
+  const next = `${location.pathname}${location.search}${location.hash}`
+  return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
 }
 
 function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token)
-  return token ? <Navigate to="/groups" replace /> : <>{children}</>
+  const hydrated = useAuthStore((s) => s.hydrated)
+  const location = useLocation()
+  if (!hydrated) {
+    return null
+  }
+  const next = new URLSearchParams(location.search).get('next')
+  const target = next && next.startsWith('/') && !next.startsWith('//') ? next : '/groups'
+  return token ? <Navigate to={target} replace /> : <>{children}</>
+}
+
+function RootRedirect() {
+  const token = useAuthStore((s) => s.token)
+  const hydrated = useAuthStore((s) => s.hydrated)
+  if (!hydrated) return null
+  return <Navigate to={token ? '/groups' : '/home'} replace />
 }
 
 export default function App() {
   useThemeApplier()
-  const { token, user, login } = useAuthStore()
+  const { token, user, login, hydrated } = useAuthStore()
+
+  if (!hydrated) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-gray-200 flex items-center justify-center">
+        <p className="text-sm text-gray-400">Restoring your session...</p>
+      </div>
+    )
+  }
 
   // Refresh user profile on mount so isAdmin and other fields stay in sync
   useEffect(() => {
@@ -79,19 +123,78 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // Keep push subscription healthy on app boot so background notifications
+  // continue to work after SW updates or browser subscription invalidations.
+  useEffect(() => {
+    if (!token) return
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) return
+    if (Notification.permission !== 'granted') return
+
+    let canceled = false
+
+    const syncPushSubscription = async () => {
+      try {
+        const [{ vapidPublicKey }, prefs] = await Promise.all([
+          apiFetch<{ vapidPublicKey: string | null }>('/notifications/config'),
+          apiFetch<{ preferences: Array<{ type: string; channel: string; enabled: boolean }> }>('/notifications/preferences'),
+        ])
+
+        if (!vapidPublicKey || canceled) return
+
+        const anyPushEnabled = prefs.preferences
+          .filter((pref) => pref.channel === 'push')
+          .some((pref) => pref.enabled)
+
+        if (!anyPushEnabled) return
+
+        const registration = await navigator.serviceWorker.ready
+        let subscription = await registration.pushManager.getSubscription()
+
+        if (!subscription) {
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToArrayBuffer(vapidPublicKey),
+          })
+        }
+
+        const subJson = subscription.toJSON()
+        if (!subJson.endpoint || !subJson.keys?.auth || !subJson.keys?.p256dh) return
+
+        await apiFetch('/notifications/subscribe', {
+          method: 'POST',
+          body: JSON.stringify({
+            endpoint: subJson.endpoint,
+            keys: {
+              auth: subJson.keys.auth,
+              p256dh: subJson.keys.p256dh,
+            },
+          }),
+        })
+      } catch {
+        // best-effort reconciliation; leave explicit errors to settings UI
+      }
+    }
+
+    void syncPushSubscription()
+    return () => {
+      canceled = true
+    }
+  }, [token])
+
   return (
     <QueryClientProvider client={queryClient}>
       <Routes>
-        {/* Public routes — all wrapped in MarketingLayout so the navbar is present */}
-        <Route element={<MarketingLayout />}>
-          <Route path="/" element={<LandingPage />} />
-          <Route path="/faq" element={<FAQPage />} />
-          <Route path="/contact" element={<ContactPage />} />
-          <Route path="/login" element={<RedirectIfAuthed><LoginPage /></RedirectIfAuthed>} />
-          <Route path="/register" element={<RedirectIfAuthed><RegisterPage /></RedirectIfAuthed>} />
-          <Route path="/verify-email" element={<VerifyEmailPage />} />
-          <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
+        {/* Public routes — MarketingLayout wraps the public landing and auth pages */}
+        <Route path="/" element={<MarketingLayout />}>
+          <Route index element={<RootRedirect />} />
+          <Route path="home" element={<LandingPage />} />
+          <Route path="help" element={<HelpPage />} />
+          <Route path="contact" element={<ContactPage />} />
+          <Route path="login" element={<RedirectIfAuthed><LoginPage /></RedirectIfAuthed>} />
+          <Route path="register" element={<RedirectIfAuthed><RegisterPage /></RedirectIfAuthed>} />
+          <Route path="verify-email" element={<VerifyEmailPage />} />
+          <Route path="forgot-password" element={<ForgotPasswordPage />} />
+          <Route path="reset-password" element={<ResetPasswordPage />} />
         </Route>
         {/* Legacy debug/diagnostic routes */}
         <Route path="/phase-7/debug" element={<Phase7DebugPage />} />
@@ -116,7 +219,7 @@ export default function App() {
           <Route path="/u/:username" element={<UserProfilePage />} />
           <Route path="/developer" element={<DeveloperPage />} />
         </Route>
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </QueryClientProvider>
   )

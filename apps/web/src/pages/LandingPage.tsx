@@ -85,7 +85,7 @@ export default function LandingPage() {
           </h1>
 
           <p className="mt-5 text-lg sm:text-xl text-gray-400 max-w-xl mx-auto leading-relaxed">
-            GEM brings your friend group together — organize events, chat in channels, and share memories in one private space.
+            GEM is the Group Event Manager for your crew — organize events, chat in channels, and share memories in one private space.
           </p>
 
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">

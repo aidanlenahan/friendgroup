@@ -67,3 +67,67 @@ export function useUpdateTagPreference() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notifications', 'preferences', 'tags'] }),
   })
 }
+
+// ============================================================================
+// Notification Inbox
+// ============================================================================
+
+export type InboxNotification = {
+  id: string
+  type: string
+  title: string
+  body: string
+  url: string | null
+  createdAt: string
+}
+
+type InboxResponse = {
+  notifications: InboxNotification[]
+}
+
+const INBOX_KEY = ['notifications', 'inbox'] as const
+
+export function useNotificationInbox() {
+  return useQuery({
+    queryKey: INBOX_KEY,
+    queryFn: () => apiFetch<InboxResponse>('/notifications/inbox'),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  })
+}
+
+export function useDismissNotification() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/notifications/inbox/${id}`, { method: 'DELETE' }),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: INBOX_KEY })
+      const previous = qc.getQueryData<InboxResponse>(INBOX_KEY)
+      qc.setQueryData<InboxResponse>(INBOX_KEY, (old) =>
+        old ? { notifications: old.notifications.filter((n) => n.id !== id) } : old,
+      )
+      return { previous }
+    },
+    onError: (_err, _id, context) => {
+      if (context?.previous) qc.setQueryData(INBOX_KEY, context.previous)
+    },
+  })
+}
+
+export function useDismissAllNotifications() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiFetch('/notifications/inbox', { method: 'DELETE' }),
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: INBOX_KEY })
+      const previous = qc.getQueryData<InboxResponse>(INBOX_KEY)
+      qc.setQueryData<InboxResponse>(INBOX_KEY, { notifications: [] })
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) qc.setQueryData(INBOX_KEY, context.previous)
+    },
+  })
+}
+

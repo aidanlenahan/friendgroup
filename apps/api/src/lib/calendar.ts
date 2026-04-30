@@ -90,6 +90,7 @@ function buildEventBlock(
   const summary = escapeIcsText(event.title);
   const description = escapeIcsText(eventDescription(event, webBaseUrl));
   const link = eventLink(event.id, webBaseUrl);
+  const sequence = Math.max(0, Math.floor(event.updatedAt.getTime() / 1000));
 
   const lines = [
     "BEGIN:VEVENT",
@@ -98,7 +99,7 @@ function buildEventBlock(
     `LAST-MODIFIED:${toUtcIcsDate(event.updatedAt)}`,
     `DTSTART:${toUtcIcsDate(start)}`,
     `DTEND:${toUtcIcsDate(end)}`,
-    `SEQUENCE:0`,
+    `SEQUENCE:${sequence}`,
     `SUMMARY:${summary}`,
   ];
 
@@ -131,6 +132,8 @@ export function buildIcsCalendar(
     "PRODID:-//Gem//Calendar//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
+    "REFRESH-INTERVAL;VALUE=DURATION:PT15M",
+    "X-PUBLISHED-TTL:PT15M",
     `X-WR-CALNAME:${escapeIcsText(options.calendarName)}`,
   ];
 

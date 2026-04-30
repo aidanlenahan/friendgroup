@@ -38,6 +38,12 @@ type GroupChannelsResponse = {
   }>
 }
 
+export type GroupInviteResponse = {
+  groupId: string
+  inviteCode: string
+  inviteUrl: string
+}
+
 export function useGroups() {
   return useQuery({
     queryKey: ['groups'],
@@ -146,7 +152,7 @@ export function useRemoveMember(groupId: string) {
 export function useGroupInviteCode(groupId: string) {
   return useQuery({
     queryKey: ['groups', groupId, 'invite-code'],
-    queryFn: () => apiFetch<{ groupId: string; inviteCode: string }>(`/groups/${groupId}/invite-code`),
+    queryFn: () => apiFetch<GroupInviteResponse>(`/groups/${groupId}/invite-code`),
     enabled: false, // fetched on demand via refetch()
     retry: false,
   })
@@ -156,7 +162,7 @@ export function useRegenerateInviteCode(groupId: string) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: () =>
-      apiFetch<{ groupId: string; inviteCode: string }>(`/groups/${groupId}/invite-code/regenerate`, { method: 'POST' }),
+      apiFetch<GroupInviteResponse>(`/groups/${groupId}/invite-code/regenerate`, { method: 'POST' }),
     onSuccess: (data) => qc.setQueryData(['groups', groupId, 'invite-code'], data),
   })
 }

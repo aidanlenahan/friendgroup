@@ -10,7 +10,7 @@
  * Any other authenticated user receives a 403-style blocked screen.
  */
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import PageToolbar from '../components/PageToolbar'
 import { useAuthStore } from '../stores/authStore'
 import { apiFetch } from '../lib/api'
@@ -26,7 +26,7 @@ type DevConfig = {
   registrationCodes: Array<{ id: string; code: string; createdAt: string }>
 }
 
-type Tab = 'config' | 'phase7' | 'phase9'
+type Tab = 'config' | 'phase7' | 'phase9' | 'email'
 
 export default function DeveloperPage() {
   const { user } = useAuthStore()
@@ -66,6 +66,7 @@ function DeveloperContent() {
           { key: 'config', label: 'Config' },
           { key: 'phase7', label: 'Phase 7 Debug' },
           { key: 'phase9', label: 'Phase 9 Diagnostics' },
+          { key: 'email', label: 'Email Debug' },
         ] as Array<{ key: Tab; label: string }>).map(({ key, label }) => (
           <button
             key={key}
@@ -85,6 +86,7 @@ function DeveloperContent() {
       {activeTab === 'config' && <ConfigTab />}
       {activeTab === 'phase7' && <Phase7DebugPage />}
       {activeTab === 'phase9' && <Phase9DiagnosticsPage />}
+      {activeTab === 'email' && <EmailDebugTab />}
     </div>
   )
 }
@@ -539,6 +541,198 @@ function ConfigTab() {
           </div>
         )}
       </section>
+    </div>
+  )
+}
+
+type SmtpConfig = {
+  smtpConfigured: boolean
+  smtpHost: string | null
+  smtpPort: number | null
+  smtpUser: string | null
+  emailFrom: string | null
+  nodeEnv: string
+}
+
+type SendResult = {
+  success: boolean
+  smtpConfigured: boolean
+  simulated: boolean
+  to: string
+  subject: string
+  sentAt: string
+  error: string | null
+}
+
+function EmailDebugTab() {
+  const { user } = useAuthStore()
+  const [smtpConfig, setSmtpConfig] = useState<SmtpConfig | null>(null)
+  const [configLoading, setConfigLoading] = useState(false)
+  const [configError, setConfigError] = useState('')
+
+  const [to, setTo] = useState(user?.email ?? '')
+  const [subject, setSubject] = useState('GEM Test Email')
+  const [body, setBody] = useState('This is a test email sent from the GEM developer panel.')
+  const [sending, setSending] = useState(false)
+  const [results, setResults] = useState<SendResult[]>([])
+  const [sendError, setSendError] = useState('')
+
+  const loadConfig = async () => {
+    setConfigLoading(true)
+    setConfigError('')
+    try {
+      const data = await apiFetch<SmtpConfig>('/admin/dev/email-debug/config')
+      setSmtpConfig(data)
+    } catch (err) {
+      setConfigError(err instanceof Error ? err.message : 'Failed to load SMTP config')
+    } finally {
+      setConfigLoading(false)
+    }
+  }
+
+  useState(() => { loadConfig() })
+
+  const handleSend = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!to.trim()) return
+    setSending(true)
+    setSendError('')
+    try {
+      const result = await apiFetch<SendResult>('/admin/dev/email-debug/send', {
+        method: 'POST',
+        body: JSON.stringify({ to: to.trim(), subject: subject.trim() || undefined, body: body.trim() || undefined }),
+      })
+      setResults((prev) => [result, ...prev].slice(0, 20))
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Send failed')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* SMTP Config Card */}
+      <section className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-semibold text-white">SMTP Configuration</h3>
+          <button
+            onClick={loadConfig}
+            disabled={configLoading}
+            className="text-xs text-gray-400 hover:text-gray-200 disabled:opacity-50 px-2 py-1 rounded bg-gray-800 hover:bg-gray-700"
+          >
+            {configLoading ? 'Loading...' : 'Refresh'}
+          </button>
+        </div>
+
+        {configError && <p className="text-red-400 text-sm">{configError}</p>}
+
+        {smtpConfig && (
+          <div className="space-y-2">
+            <div className="flex items-center gap-2">
+              <span className={`inline-block w-2 h-2 rounded-full ${smtpConfig.smtpConfigured ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+              <span className="text-sm text-gray-300">
+                {smtpConfig.smtpConfigured ? 'SMTP configured — emails will be delivered' : 'SMTP not configured — emails will be simulated (logged only)'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-xs mt-2">
+              {[
+                ['Host', smtpConfig.smtpHost],
+                ['Port', smtpConfig.smtpPort?.toString()],
+                ['User', smtpConfig.smtpUser],
+                ['From', smtpConfig.emailFrom],
+                ['Environment', smtpConfig.nodeEnv],
+              ].map(([label, value]) => (
+                <div key={label} className="flex gap-2">
+                  <span className="text-gray-500 w-20 shrink-0">{label}</span>
+                  <span className="text-gray-300 font-mono truncate">{value ?? '—'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Send Test Email Form */}
+      <section className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+        <h3 className="text-base font-semibold text-white">Send Test Email</h3>
+        <form onSubmit={handleSend} className="space-y-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Recipient</label>
+            <input
+              type="email"
+              required
+              value={to}
+              onChange={(e) => setTo(e.target.value)}
+              placeholder="recipient@example.com"
+              autoComplete="off"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Subject</label>
+            <input
+              type="text"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="GEM Test Email"
+              autoComplete="off"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Body</label>
+            <textarea
+              rows={4}
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="Email body text..."
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+            />
+          </div>
+          {sendError && <p className="text-red-400 text-xs">{sendError}</p>}
+          <button
+            type="submit"
+            disabled={sending || !to.trim()}
+            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg"
+          >
+            {sending ? 'Sending...' : 'Send Test Email'}
+          </button>
+        </form>
+      </section>
+
+      {/* Send History */}
+      {results.length > 0 && (
+        <section className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-3">
+          <h3 className="text-base font-semibold text-white">Send History (this session)</h3>
+          <div className="space-y-2">
+            {results.map((r, i) => (
+              <div
+                key={i}
+                className={`rounded-lg border px-4 py-3 text-sm space-y-1 ${
+                  r.success
+                    ? 'border-emerald-800 bg-emerald-950/40'
+                    : 'border-red-800 bg-red-950/40'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`font-medium ${r.success ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {r.success ? (r.simulated ? 'Simulated (logged)' : 'Delivered') : 'Failed'}
+                  </span>
+                  <span className="text-gray-500 text-xs">{new Date(r.sentAt).toLocaleTimeString()}</span>
+                </div>
+                <div className="text-gray-300 text-xs">
+                  <span className="text-gray-500">To: </span>{r.to}
+                </div>
+                <div className="text-gray-300 text-xs">
+                  <span className="text-gray-500">Subject: </span>{r.subject}
+                </div>
+                {r.error && <div className="text-red-400 text-xs">{r.error}</div>}
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
     </div>
   )
 }

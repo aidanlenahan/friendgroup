@@ -25,13 +25,16 @@ export default defineConfig({
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',
+      injectManifest: {
+        globIgnores: ['**/sw-dev.js'],
+      },
       includeAssets: ['favicon.svg', 'icons.svg'],
       devOptions: {
         enabled: true,
         type: 'module',
       },
       manifest: {
-        name: 'GEM',
+        name: 'GEM — Group Event Manager',
         short_name: 'GEM',
         description: 'Plan events and chat with your friend group',
         theme_color: '#4f46e5',

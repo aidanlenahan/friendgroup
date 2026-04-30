@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { apiFetch, ApiError } from '../lib/api'
 import { useAuthStore } from '../stores/authStore'
 
@@ -27,11 +27,19 @@ type VerifyResponse = {
   }
 }
 
+function getSafeNextPath(value: string | null) {
+  if (!value || !value.startsWith('/') || value.startsWith('//')) {
+    return '/groups'
+  }
+  return value
+}
+
 const RESEND_COOLDOWN = 60
 
 type Mode = 'password' | 'email-code' | 'email-code-verify'
 
 export default function LoginPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [mode, setMode] = useState<Mode>('password')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -46,15 +54,66 @@ export default function LoginPage() {
   const [verifyLoading, setVerifyLoading] = useState(false)
   const [resendCooldown, setResendCooldown] = useState(0)
   const [resendMessage, setResendMessage] = useState('')
+  const [magicLinkLoading, setMagicLinkLoading] = useState(false)
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const { login } = useAuthStore()
   const navigate = useNavigate()
+  const nextPath = getSafeNextPath(searchParams.get('next'))
 
   useEffect(() => {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    const loginToken = searchParams.get('loginToken')
+    const loginEmail = searchParams.get('email')
+
+    if (!loginToken || !loginEmail) {
+      return
+    }
+
+    let cancelled = false
+    setError('')
+    setInfo('Signing you in from the secure email link...')
+    setOtpEmail(loginEmail)
+    setMode('email-code-verify')
+    setMagicLinkLoading(true)
+
+    apiFetch<AuthResponse>('/auth/verify-login-link', {
+      method: 'POST',
+      body: JSON.stringify({ email: loginEmail, token: loginToken }),
+    })
+      .then((data) => {
+        if (cancelled) return
+        login(data.token, { ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
+        navigate(nextPath, { replace: true })
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setMode('email-code')
+        setInfo('That sign-in link is no longer valid. Request a new code below.')
+        setError(err instanceof Error ? err.message : 'Sign-in link expired')
+        const params = new URLSearchParams()
+        if (loginEmail) {
+          setOtpEmail(loginEmail)
+        }
+        if (nextPath !== '/groups') {
+          params.set('next', nextPath)
+        }
+        setSearchParams(params, { replace: true })
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setMagicLinkLoading(false)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [login, navigate, nextPath, searchParams, setSearchParams])
 
   const startResendCooldown = () => {
     setResendCooldown(RESEND_COOLDOWN)
@@ -82,7 +141,7 @@ export default function LoginPage() {
         body: JSON.stringify({ emailOrUsername: email, password }),
       })
       login(data.token, { ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
-      navigate('/groups')
+      navigate(nextPath)
     } catch (err) {
       if (err instanceof ApiError && err.code === 'EMAIL_NOT_VERIFIED') {
         const userId = (err.data?.userId as string) ?? ''
@@ -160,7 +219,7 @@ export default function LoginPage() {
         method: 'POST',
         body: JSON.stringify({ email: otpEmail }),
       })
-      setInfo('If that email is registered, a sign-in code has been sent.')
+      setInfo('If that email is registered, a sign-in code and secure sign-in link have been sent.')
       setMode('email-code-verify')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send code')
@@ -179,7 +238,7 @@ export default function LoginPage() {
         body: JSON.stringify({ email: otpEmail, code: otp }),
       })
       login(data.token, { ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
-      navigate('/groups')
+      navigate(nextPath)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invalid code')
     } finally {
@@ -205,7 +264,8 @@ export default function LoginPage() {
       <div className="w-full max-w-sm bg-gray-900 rounded-2xl shadow-xl p-8 space-y-6 border border-gray-800">
         <div>
           <h1 className="text-2xl font-bold text-white">GEM</h1>
-          <p className="text-gray-400 text-sm mt-1">Sign in to your account</p>
+          <p className="text-indigo-400/70 text-xs font-medium tracking-wide uppercase mt-0.5">Group Event Manager</p>
+          <p className="text-gray-400 text-sm mt-2">Sign in to your account</p>
         </div>
 
         {/* Password login */}
@@ -301,7 +361,7 @@ export default function LoginPage() {
           <>
             <form onSubmit={handleRequestCode} className="space-y-4">
               <p className="text-gray-400 text-sm">
-                We'll send a one-time code to your email address.
+                We'll send a one-time code and a temporary sign-in link to your email address.
               </p>
               <input
                 type="email"
@@ -340,6 +400,9 @@ export default function LoginPage() {
               <p className="text-gray-400 text-sm">
                 We sent a 6-digit sign-in code to <span className="text-white">{otpEmail}</span>. Enter it below — it expires in 10 minutes.
               </p>
+              <p className="text-gray-500 text-xs">
+                The email also includes a temporary sign-in link you can tap directly.
+              </p>
             </div>
             <form onSubmit={handleVerifyCode} className="space-y-4">
               {info && <p className="text-green-400 text-sm">{info}</p>}
@@ -358,10 +421,10 @@ export default function LoginPage() {
               {error && <p className="text-red-400 text-sm">{error}</p>}
               <button
                 type="submit"
-                disabled={loading || otp.length !== 6}
+                disabled={loading || magicLinkLoading || otp.length !== 6}
                 className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-semibold py-3 px-4 rounded-xl transition-colors"
               >
-                {loading ? 'Verifying...' : 'Sign in'}
+                {loading || magicLinkLoading ? 'Verifying...' : 'Sign in'}
               </button>
             </form>
             <div className="text-center">

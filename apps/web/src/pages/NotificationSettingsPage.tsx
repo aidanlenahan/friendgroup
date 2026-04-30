@@ -78,6 +78,74 @@ export default function NotificationSettingsPage() {
     }))
   }
 
+  const hasAnyPushEnabled = (prefs: Record<string, Record<string, boolean>>) =>
+    NOTIFICATION_TYPES.some((type) => prefs[type.key]?.push ?? true)
+
+  const upsertPushSubscription = async () => {
+    if (!config?.vapidPublicKey) {
+      throw new Error('Push is not configured on the server')
+    }
+
+    const registration = await navigator.serviceWorker.ready
+    let subscription = await registration.pushManager.getSubscription()
+
+    if (!subscription) {
+      subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToArrayBuffer(config.vapidPublicKey),
+      })
+    }
+
+    const subJson = subscription.toJSON()
+    if (!subJson.endpoint || !subJson.keys?.auth || !subJson.keys?.p256dh) {
+      throw new Error('Push subscription is missing required keys')
+    }
+
+    await apiFetch('/notifications/subscribe', {
+      method: 'POST',
+      body: JSON.stringify({
+        endpoint: subJson.endpoint,
+        keys: {
+          auth: subJson.keys.auth,
+          p256dh: subJson.keys.p256dh,
+        },
+      }),
+    })
+  }
+
+  const clearPushSubscription = async () => {
+    const registration = await navigator.serviceWorker.ready
+    const subscription = await registration.pushManager.getSubscription()
+    if (subscription) {
+      await subscription.unsubscribe()
+    }
+    await apiFetch('/notifications/subscribe', { method: 'DELETE' })
+  }
+
+  const syncPushSubscriptionForPrefs = async (prefs: Record<string, Record<string, boolean>>) => {
+    const pushEnabled = hasAnyPushEnabled(prefs)
+    if (!pushEnabled) {
+      await clearPushSubscription()
+      return
+    }
+
+    if (!('Notification' in window)) {
+      throw new Error('Push notifications are not supported in this browser')
+    }
+
+    if (Notification.permission === 'default') {
+      const result = await Notification.requestPermission()
+      setPushPermission(result)
+      if (result !== 'granted') {
+        throw new Error('Push permission was not granted')
+      }
+    } else if (Notification.permission !== 'granted') {
+      throw new Error('Push permission is denied in browser settings')
+    }
+
+    await upsertPushSubscription()
+  }
+
   const handleSave = async () => {
     const prefs: Array<{ type: string; channel: string; enabled: boolean }> = []
     for (const type of NOTIFICATION_TYPES) {
@@ -91,9 +159,11 @@ export default function NotificationSettingsPage() {
     }
     try {
       await updatePrefs.mutateAsync(prefs)
+      await syncPushSubscriptionForPrefs(localPrefs)
       toast.success('Notification preferences saved')
-    } catch {
-      toast.error('Failed to save preferences')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save preferences'
+      toast.error(message)
     }
   }
 
@@ -110,28 +180,9 @@ export default function NotificationSettingsPage() {
   }
 
   const subscribePush = async () => {
-    if (!config?.vapidPublicKey) {
-      toast.error('Push is not configured on the server')
-      return
-    }
     setSubscribing(true)
     try {
-      const registration = await navigator.serviceWorker.ready
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToArrayBuffer(config.vapidPublicKey),
-      })
-      const subJson = subscription.toJSON()
-      await apiFetch('/notifications/subscribe', {
-        method: 'POST',
-        body: JSON.stringify({
-          endpoint: subJson.endpoint,
-          keys: {
-            auth: subJson.keys?.auth,
-            p256dh: subJson.keys?.p256dh,
-          },
-        }),
-      })
+      await upsertPushSubscription()
       toast.success('Push subscription registered')
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to subscribe to push'

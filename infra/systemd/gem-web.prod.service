@@ -7,10 +7,9 @@ Wants=network-online.target
 Type=simple
 User=aidan
 Group=devs
-WorkingDirectory=/var/www/friendgroup
+WorkingDirectory=/var/www/gem
 Environment=NODE_ENV=production
 Environment=VITE_API_BASE_URL=https://api-gem.aidanlenahan.com
-ExecStartPre=/usr/bin/npm --workspace apps/web run build
 ExecStart=/usr/bin/npm --workspace apps/web run preview -- --host 127.0.0.1 --port 4173 --strictPort
 Restart=always
 RestartSec=3
@@ -18,7 +17,7 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/var/www/friendgroup /tmp
+ReadWritePaths=/var/www/gem /tmp
 LimitNOFILE=65535
 
 [Install]

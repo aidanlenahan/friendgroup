@@ -274,6 +274,31 @@ export default function GroupPage() {
     }
   }
 
+  const handleCopyInviteLink = async () => {
+    const inviteUrl = inviteCodeData?.inviteUrl ?? ''
+    if (!inviteUrl) return
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(inviteUrl)
+      } else {
+        const el = document.createElement('textarea')
+        el.value = inviteUrl
+        el.style.position = 'fixed'
+        el.style.opacity = '0'
+        document.body.appendChild(el)
+        el.focus()
+        el.select()
+        const ok = document.execCommand('copy')
+        document.body.removeChild(el)
+        if (!ok) throw new Error('execCommand failed')
+      }
+      setCopiedCode(true)
+      setTimeout(() => setCopiedCode(false), 2000)
+    } catch {
+      toast.error('Failed to copy invite link')
+    }
+  }
+
   const handleRegenerateCode = async () => {
     try {
       await regenerateCode.mutateAsync()
@@ -454,7 +479,7 @@ export default function GroupPage() {
                 <button type="button" onClick={() => setShowCalendarSubscribe(false)} className="text-gray-500 hover:text-gray-300 text-xs">✕</button>
               </div>
               <p className="text-xs text-gray-400">
-                Get a personal feed URL you can subscribe to in Apple Calendar, Google Calendar, Outlook, or any app that supports webcal/ICS feeds. Events are filtered by your tag subscriptions. The URL is private — revoke it any time.
+                Get the shared group feed URL for Apple Calendar, Google Calendar, Outlook, or any app that supports webcal/ICS feeds. Private events stay out of this shared feed. Any member can view the link; only admins can rotate it.
               </p>
               {feedUrl ? (
                 <>
@@ -478,26 +503,40 @@ export default function GroupPage() {
                   >
                     Open in calendar app
                   </a>
-                  <div>
-                    <button
-                      type="button"
-                      onClick={() => revokeFeedToken.mutate()}
-                      disabled={revokeFeedToken.isPending}
-                      className="text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
-                    >
-                      Revoke URL
-                    </button>
-                  </div>
+                  {isAdmin && (
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => generateFeedToken.mutate()}
+                        disabled={generateFeedToken.isPending}
+                        className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors disabled:opacity-50"
+                      >
+                        {generateFeedToken.isPending ? 'Rotating...' : 'Regenerate URL'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => revokeFeedToken.mutate()}
+                        disabled={revokeFeedToken.isPending}
+                        className="text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+                      >
+                        Disable URL
+                      </button>
+                    </div>
+                  )}
                 </>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => generateFeedToken.mutate()}
-                  disabled={generateFeedToken.isPending}
-                  className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:opacity-50"
-                >
-                  {generateFeedToken.isPending ? 'Generating…' : 'Generate feed URL'}
-                </button>
+                isAdmin ? (
+                  <button
+                    type="button"
+                    onClick={() => generateFeedToken.mutate()}
+                    disabled={generateFeedToken.isPending}
+                    className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+                  >
+                    {generateFeedToken.isPending ? 'Generating…' : 'Generate feed URL'}
+                  </button>
+                ) : (
+                  <p className="text-xs text-gray-500">An admin needs to generate the shared calendar URL before it can be copied here.</p>
+                )
               )}
             </div>
           )}
@@ -584,7 +623,22 @@ export default function GroupPage() {
           {/* Invite code panel — all members can view/copy; only admins can regen */}
           {showInviteCode && (
             <div className="bg-gray-900 rounded-xl border border-indigo-800 p-4 space-y-3">
-              <p className="text-sm text-gray-400">Share this code with people you want to invite. They can use it from the Groups page.</p>
+              <p className="text-sm text-gray-400">Share this invite link to open the join flow directly. The same underlying group code still powers requests to join.</p>
+              <div className="flex items-center gap-2">
+                <input
+                  readOnly
+                  value={inviteCodeData?.inviteUrl ?? ''}
+                  placeholder="Invite link will appear here"
+                  className="flex-1 min-w-0 text-xs bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-gray-300 font-mono"
+                />
+                <button
+                  onClick={handleCopyInviteLink}
+                  disabled={!inviteCodeData?.inviteUrl}
+                  className="px-3 py-2 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors text-sm disabled:opacity-50"
+                >
+                  {copiedCode ? 'Copied!' : 'Copy link'}
+                </button>
+              </div>
               <div className="flex items-center gap-2">
                 <code className="flex-1 font-mono text-lg tracking-widest text-indigo-300 bg-gray-800 rounded-lg px-4 py-2 select-all">
                   {inviteCodeData?.inviteCode
@@ -596,7 +650,7 @@ export default function GroupPage() {
                   disabled={!inviteCodeData?.inviteCode}
                   className="px-3 py-2 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors text-sm disabled:opacity-50"
                 >
-                  {copiedCode ? 'Copied!' : 'Copy'}
+                  Copy code
                 </button>
               </div>
               <div className="flex items-center justify-between">

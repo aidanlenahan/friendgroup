@@ -44,17 +44,16 @@ const faqs = [
   },
 ]
 
-export default function FAQPage() {
+export default function HelpPage() {
   const [openIndex, setOpenIndex] = useState<number | null>(null)
 
   const toggle = (i: number) => setOpenIndex(openIndex === i ? null : i)
 
   return (
     <div className="max-w-2xl mx-auto px-4 sm:px-6 py-16">
-      {/* Header */}
       <div className="mb-12 text-center">
         <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-gray-100">
-          Frequently asked questions
+          Help
         </h1>
         <p className="mt-3 text-gray-400">
           Can't find what you're looking for?{' '}
@@ -64,7 +63,6 @@ export default function FAQPage() {
         </p>
       </div>
 
-      {/* Accordion */}
       <div className="space-y-2">
         {faqs.map((faq, i) => (
           <div

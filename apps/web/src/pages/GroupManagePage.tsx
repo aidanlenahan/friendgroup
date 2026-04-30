@@ -240,6 +240,28 @@ export default function GroupManagePage() {
     }
   }
 
+  const handleCopyInviteLink = async () => {
+    const inviteUrl = inviteCodeData?.inviteUrl
+    if (!inviteUrl) return
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(inviteUrl)
+      } else {
+        const el = document.createElement('textarea')
+        el.value = inviteUrl
+        el.style.cssText = 'position:fixed;opacity:0'
+        document.body.appendChild(el)
+        el.select()
+        document.execCommand('copy')
+        document.body.removeChild(el)
+      }
+      setCopiedCode(true)
+      setTimeout(() => setCopiedCode(false), 2000)
+    } catch {
+      toast.error('Failed to copy invite link')
+    }
+  }
+
   const handleRegenerateCode = async () => {
     try {
       await regenerateCode.mutateAsync()
@@ -398,10 +420,10 @@ export default function GroupManagePage() {
         </form>
       </section>
 
-      {/* ── Invite Code ── */}
+      {/* ── Invite Link ── */}
       <section className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-base font-semibold text-white">Invite Code</h3>
+          <h3 className="text-base font-semibold text-white">Invite Link</h3>
           {!showCode && (
             <button
               onClick={handleShowCode}
@@ -413,7 +435,22 @@ export default function GroupManagePage() {
         </div>
         {showCode ? (
           <>
-            <p className="text-xs text-gray-500">Share this code so people can request to join the group.</p>
+            <p className="text-xs text-gray-500">Share this link so people can open the join flow with the group code already filled in.</p>
+            <div className="flex items-center gap-2">
+              <input
+                readOnly
+                value={inviteCodeData?.inviteUrl ?? ''}
+                placeholder="Invite link will appear here"
+                className="flex-1 min-w-0 text-xs bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-gray-300 font-mono"
+              />
+              <button
+                onClick={handleCopyInviteLink}
+                disabled={!inviteCodeData?.inviteUrl}
+                className="px-3 py-2 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors text-sm disabled:opacity-50"
+              >
+                {copiedCode ? 'Copied!' : 'Copy link'}
+              </button>
+            </div>
             <div className="flex items-center gap-2">
               <code className="flex-1 font-mono text-lg tracking-widest text-indigo-300 bg-gray-800 rounded-lg px-4 py-2 select-all">
                 {inviteCodeData?.inviteCode
@@ -425,7 +462,7 @@ export default function GroupManagePage() {
                 disabled={!inviteCodeData?.inviteCode}
                 className="px-3 py-2 rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors text-sm disabled:opacity-50"
               >
-                {copiedCode ? 'Copied!' : 'Copy'}
+                Copy code
               </button>
             </div>
             <div className="flex items-center justify-between pt-1">

@@ -40,30 +40,55 @@ export async function registerBestServiceWorker() {
     throw new Error('Service worker API is not available in this browser.')
   }
 
-  const candidates: ServiceWorkerCandidate[] = [
-    {
-      // public/ static file — Vite always serves this as text/javascript,
-      // no vite-plugin-pwa compilation required, no Host-header blocking.
-      url: '/sw-dev.js',
-      type: 'classic',
-      label: 'public static dev worker',
-    },
-    {
-      url: '/dev-sw.js?dev-sw',
-      type: 'module',
-      label: 'vite-pwa dev worker',
-    },
-    {
-      url: '/sw.js',
-      type: 'classic',
-      label: 'classic production worker',
-    },
-    {
-      url: '/sw.js',
-      type: 'module',
-      label: 'module production worker',
-    },
-  ]
+  if (import.meta.env.PROD) {
+    const registrations = await navigator.serviceWorker.getRegistrations()
+    await Promise.all(
+      registrations.map(async (registration) => {
+        const scriptUrl = registration.active?.scriptURL ?? registration.installing?.scriptURL ?? registration.waiting?.scriptURL ?? ''
+        if (scriptUrl.includes('/sw-dev.js') || scriptUrl.includes('/dev-sw.js')) {
+          await registration.unregister()
+        }
+      }),
+    )
+  }
+
+  const candidates: ServiceWorkerCandidate[] = import.meta.env.PROD
+    ? [
+        {
+          url: '/sw.js',
+          type: 'classic',
+          label: 'classic production worker',
+        },
+        {
+          url: '/sw.js',
+          type: 'module',
+          label: 'module production worker',
+        },
+      ]
+    : [
+        {
+          // public/ static file — Vite always serves this as text/javascript,
+          // no vite-plugin-pwa compilation required, no Host-header blocking.
+          url: '/sw-dev.js',
+          type: 'classic',
+          label: 'public static dev worker',
+        },
+        {
+          url: '/dev-sw.js?dev-sw',
+          type: 'module',
+          label: 'vite-pwa dev worker',
+        },
+        {
+          url: '/sw.js',
+          type: 'classic',
+          label: 'classic production worker',
+        },
+        {
+          url: '/sw.js',
+          type: 'module',
+          label: 'module production worker',
+        },
+      ]
 
   const errors: string[] = []
 

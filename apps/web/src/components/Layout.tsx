@@ -5,6 +5,7 @@ import { useGroups } from '../hooks/useGroups'
 import type { GroupSummary } from '../hooks/useGroups'
 import ToastContainer from './Toast'
 import Avatar from './Avatar'
+import NotificationBell from './NotificationBell'
 
 export default function Layout() {
   const getIsDesktop = () =>
@@ -91,16 +92,19 @@ export default function Layout() {
           <NavLink to="/groups" className="text-xl font-bold text-indigo-400 hover:text-indigo-300 transition-colors">GEM</NavLink>
           <p className="text-xs text-gray-500 mt-1">{user?.name}</p>
         </div>
-        {/* Close button on mobile */}
-        {!isDesktop && <button
-          onClick={closeSidebar}
-          aria-label="Close menu"
-          className="p-1 text-gray-400 hover:text-gray-100"
-        >
+        <div className="flex items-center gap-1">
+          <NotificationBell />
+          {/* Close button on mobile */}
+          {!isDesktop && <button
+            onClick={closeSidebar}
+            aria-label="Close menu"
+            className="p-1 text-gray-400 hover:text-gray-100"
+          >
           <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>
-        </button>}
+          </button>}
+        </div>
       </div>
       <nav aria-label="Main navigation" className="flex-1 overflow-y-auto p-3 space-y-1">
         {/* Collapsible Pages section */}
@@ -120,8 +124,8 @@ export default function Layout() {
         {pagesOpen && (
           <div className="mb-2 space-y-0.5">
             {[
-              { to: '/', label: 'Home', end: true },
-              { to: '/faq', label: 'FAQ', end: false },
+              { to: '/home', label: 'Home', end: true },
+              { to: '/help', label: 'Help', end: false },
               { to: '/contact', label: 'Contact', end: false },
             ].map(({ to, label, end }) => (
               <NavLink
@@ -270,19 +274,22 @@ export default function Layout() {
 
       {/* Main content */}
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
-        {/* Mobile top bar */}
-        {!isDesktop && <header className="flex items-center gap-3 px-4 py-3 bg-gray-900 border-b border-gray-800">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            aria-label="Open menu"
-            className="p-1 text-gray-400 hover:text-gray-100"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
-          <NavLink to="/groups" className="text-sm font-bold text-indigo-400 hover:text-indigo-300 transition-colors">GEM</NavLink>
-        </header>}
+        {/* Global top banner — mobile only */}
+        {!isDesktop && (
+          <header className="flex items-center gap-3 px-4 py-3 bg-gray-900 border-b border-gray-800">
+            <button
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open menu"
+              className="p-1 text-gray-400 hover:text-gray-100"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <NavLink to="/groups" className="text-sm font-bold text-indigo-400 hover:text-indigo-300 transition-colors flex-1">GEM</NavLink>
+            <NotificationBell />
+          </header>
+        )}
 
         {!isOnline && (
           <div className="px-4 py-2 bg-amber-900/60 border-b border-amber-700 text-amber-100 text-xs">

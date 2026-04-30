@@ -58,6 +58,7 @@ model Group {
   ownerId     String
   description String?
   avatarUrl   String?
+  calendarToken String?     @unique
   inviteCode  String?       @unique
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
@@ -79,7 +80,7 @@ model Membership {
   role      String   @default("member")  // owner, admin, member
   status    String   @default("active")  // active, pending
   mutedUntil DateTime?                   // null = not muted; future date = muted until then
-  calendarToken String? @unique          // secret token for ICS feed subscription
+  calendarToken String? @unique          // legacy per-user ICS feed token
   createdAt DateTime @default(now())
 
   // Relations
@@ -361,6 +362,7 @@ model NotificationEvent {
   eventId     String?
   title       String
   body        String
+  url         String?  // deep-link path (e.g. /events/:id, /groups/:id/channels/:id)
   createdAt   DateTime @default(now())
   sentAt      DateTime?
 
@@ -371,6 +373,7 @@ model NotificationEvent {
   @@index([recipientId])
   @@index([type])
   @@index([createdAt])
+  @@index([recipientId, createdAt(sort: Desc)])
 }
 
 // ============================================================================

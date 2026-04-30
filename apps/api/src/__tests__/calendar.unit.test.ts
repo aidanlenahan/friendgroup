@@ -18,12 +18,14 @@ describe("calendar domain helpers", () => {
     });
 
     expect(result).toContain("BEGIN:VCALENDAR");
-    expect(result).toContain("UID:evt_phase9@gem.dev");
+    expect(result).toContain("UID:evt_phase9@gem.app");
     expect(result).toContain("SUMMARY:Board Games\\, Pizza\\; Planning");
     expect(result).toContain("DESCRIPTION:Bring snacks\\\\nBring controllers");
     expect(result).toContain("Open in GEM:");
     expect(result).toContain("https://gem.app/events/evt_phase9");
     expect(result).toContain("DTEND:20260406T200000Z");
+    expect(result).toContain("REFRESH-INTERVAL;VALUE=DURATION:PT15M");
+    expect(result).toContain(`SEQUENCE:${Math.floor(event.updatedAt.getTime() / 1000)}`);
     expect(result).toContain("END:VCALENDAR");
   });
 

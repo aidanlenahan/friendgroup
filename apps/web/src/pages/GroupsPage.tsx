@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useGroups, useCreateGroup, useJoinGroup } from '../hooks/useGroups'
 import type { GroupSummary } from '../hooks/useGroups'
 import Modal from '../components/Modal'
@@ -47,6 +47,7 @@ function getGreeting(name: string): string {
 }
 
 export default function GroupsPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
   const { data, isLoading, isError, error, refetch } = useGroups()
   const isOnline = useIsOnline()
   const { user } = useAuthStore()
@@ -61,6 +62,24 @@ export default function GroupsPage() {
   const [joinCode, setJoinCode] = useState('')
   const [joinError, setJoinError] = useState('')
   const [joinSuccess, setJoinSuccess] = useState('')
+
+  useEffect(() => {
+    const inviteCode = searchParams.get('invite')
+    if (!inviteCode) {
+      return
+    }
+
+    const normalized = inviteCode.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12)
+    if (!normalized) {
+      return
+    }
+
+    const formatted = normalized.match(/.{1,4}/g)?.join('-') ?? normalized
+    setJoinCode(formatted)
+    setJoinError('')
+    setJoinSuccess('')
+    setShowJoinModal(true)
+  }, [searchParams])
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -95,6 +114,7 @@ export default function GroupsPage() {
       const result = await joinGroup.mutateAsync(rawCode)
       setJoinSuccess(`Join request sent for "${result.groupName}". The owner will review it shortly.`)
       setJoinCode('')
+      setSearchParams({}, { replace: true })
     } catch (err: unknown) {
       if (err instanceof ApiError && err.code === 'INVALID_INVITE_CODE') {
         setJoinError('Invalid invite code. Check the code and try again.')
@@ -117,7 +137,7 @@ export default function GroupsPage() {
         <h2 className="text-2xl font-bold text-white">Your Groups</h2>
         <div className="flex gap-2">
           <button
-            onClick={() => { setShowJoinModal(true); setJoinError(''); setJoinSuccess(''); setJoinCode('') }}
+            onClick={() => { setShowJoinModal(true); setJoinError(''); setJoinSuccess(''); setJoinCode(''); setSearchParams({}, { replace: true }) }}
             className="whitespace-nowrap bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
           >
             Join Group
@@ -154,7 +174,7 @@ export default function GroupsPage() {
           action={
             <div className="flex gap-3">
               <button
-                onClick={() => { setShowJoinModal(true); setJoinError(''); setJoinSuccess(''); setJoinCode('') }}
+                onClick={() => { setShowJoinModal(true); setJoinError(''); setJoinSuccess(''); setJoinCode(''); setSearchParams({}, { replace: true }) }}
                 className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
               >
                 Join Group
@@ -248,7 +268,7 @@ export default function GroupsPage() {
         </form>
       </Modal>
 
-      <Modal open={showJoinModal} onClose={() => { setShowJoinModal(false); setJoinError(''); setJoinSuccess(''); setJoinCode('') }}>
+      <Modal open={showJoinModal} onClose={() => { setShowJoinModal(false); setJoinError(''); setJoinSuccess(''); setJoinCode(''); setSearchParams({}, { replace: true }) }}>
         <h3 className="text-lg font-bold text-white mb-1">Join a Group</h3>
         <p className="text-gray-400 text-sm mb-4">Enter the invite code shared by the group owner (e.g. <span className="font-mono text-gray-300">XXXX-XXXX-XXXX</span>).</p>
         {joinSuccess ? (

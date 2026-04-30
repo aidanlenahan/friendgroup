@@ -1,4 +1,4 @@
-# Friendgroup Tech Stack
+# GEM Tech Stack
 
 ## Architecture
 - Frontend: React + TypeScript + Vite (single app powering web + PWA shell)
