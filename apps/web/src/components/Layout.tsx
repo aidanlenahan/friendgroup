@@ -7,6 +7,11 @@ import ToastContainer from './Toast'
 import Avatar from './Avatar'
 import NotificationBell from './NotificationBell'
 
+const isPwa =
+  typeof window !== 'undefined' &&
+  (window.matchMedia('(display-mode: standalone)').matches ||
+    (window.navigator as { standalone?: boolean }).standalone === true)
+
 export default function Layout() {
   const getIsDesktop = () =>
     typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches
@@ -23,6 +28,17 @@ export default function Layout() {
   const [showReconnected, setShowReconnected] = useState(false)
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
+  const [pushNudgeDismissed, setPushNudgeDismissed] = useState(
+    () => localStorage.getItem('pushNudgeDismissed') === '1',
+  )
+  const pushNotGranted =
+    typeof Notification !== 'undefined' && Notification.permission !== 'granted'
+  const showPushNudge = isPwa && pushNotGranted && !pushNudgeDismissed
+
+  const dismissPushNudge = () => {
+    localStorage.setItem('pushNudgeDismissed', '1')
+    setPushNudgeDismissed(true)
+  }
 
   // Close user menu on outside click
   useEffect(() => {
@@ -93,7 +109,7 @@ export default function Layout() {
           <p className="text-xs text-gray-500 mt-1">{user?.name}</p>
         </div>
         <div className="flex items-center gap-1">
-          <NotificationBell />
+          {isDesktop && <NotificationBell />}
           {/* Close button on mobile */}
           {!isDesktop && <button
             onClick={closeSidebar}
@@ -299,6 +315,24 @@ export default function Layout() {
         {isOnline && showReconnected && (
           <div className="px-4 py-2 bg-emerald-900/60 border-b border-emerald-700 text-emerald-100 text-xs">
             Reconnected. Live updates are back online.
+          </div>
+        )}
+        {showPushNudge && (
+          <div className="px-4 py-2 bg-indigo-950/80 border-b border-indigo-800 text-indigo-100 text-xs flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 shrink-0 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+            <span className="flex-1">
+              Enable push notifications to get updates when the app is closed.{' '}
+              <NavLink to="/settings/notifications" className="underline font-medium hover:text-white">
+                Go to notification settings →
+              </NavLink>
+            </span>
+            <button onClick={dismissPushNudge} aria-label="Dismiss" className="p-1 text-indigo-400 hover:text-white shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         )}
 

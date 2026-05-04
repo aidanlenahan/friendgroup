@@ -6,6 +6,8 @@ import {
   useUpdateNotificationPreferences,
   useTagPreferences,
   useUpdateTagPreference,
+  useUntaggedPreference,
+  useUpdateUntaggedPreference,
 } from '../hooks/useNotifications'
 import { useGroups } from '../hooks/useGroups'
 import { useToast } from '../hooks/useToast'
@@ -18,9 +20,16 @@ const NOTIFICATION_TYPES = [
   { key: 'event_changed', label: 'Event Changes' },
   { key: 'invite', label: 'Invitations' },
   { key: 'rsvp_update', label: 'RSVP Updates' },
+  { key: 'event_start', label: 'Event Starting' },
 ] as const
 
-const CHANNELS = ['push', 'email'] as const
+const CHANNELS = ['push', 'email', 'in_app'] as const
+
+const CHANNEL_LABELS: Record<string, string> = {
+  push: 'Push',
+  email: 'Email',
+  in_app: 'In-App',
+}
 
 function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
@@ -44,11 +53,30 @@ export default function NotificationSettingsPage() {
   const { data: groupsData } = useGroups()
   const [selectedGroupId, setSelectedGroupId] = useState<string>('')
   const { data: tagPrefsData } = useTagPreferences(selectedGroupId)
+  const { data: untaggedPrefData } = useUntaggedPreference(selectedGroupId)
 
-  const [pushPermission, setPushPermission] = useState(
-    typeof Notification !== 'undefined' ? Notification.permission : 'default',
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | 'unsupported'>(
+    typeof Notification !== 'undefined' ? Notification.permission : 'unsupported',
   )
   const [subscribing, setSubscribing] = useState(false)
+  const [showDeniedModal, setShowDeniedModal] = useState(false)
+
+  const isPwa =
+    typeof window !== 'undefined' &&
+    (window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as { standalone?: boolean }).standalone === true)
+  const isIOS = typeof navigator !== 'undefined' && /iPad|iPhone|iPod/.test(navigator.userAgent)
+  const isAndroid = typeof navigator !== 'undefined' && /Android/.test(navigator.userAgent)
+
+  const defaultTab = isPwa && isIOS ? 'ios' : isPwa && isAndroid ? 'android' : 'website'
+  const [deniedModalTab, setDeniedModalTab] = useState<'website' | 'ios' | 'android'>(defaultTab)
+  const updateUntaggedPref = useUpdateUntaggedPreference()
+
+  useEffect(() => {
+    if (typeof Notification !== 'undefined') {
+      setPushPermission(Notification.permission)
+    }
+  }, [])
 
   // Build a map of preferences for easy toggling
   const [localPrefs, setLocalPrefs] = useState<
@@ -79,7 +107,7 @@ export default function NotificationSettingsPage() {
   }
 
   const hasAnyPushEnabled = (prefs: Record<string, Record<string, boolean>>) =>
-    NOTIFICATION_TYPES.some((type) => prefs[type.key]?.push ?? true)
+    NOTIFICATION_TYPES.some((type) => prefs[type.key]?.['push'] ?? true)
 
   const upsertPushSubscription = async () => {
     if (!config?.vapidPublicKey) {
@@ -239,6 +267,15 @@ export default function NotificationSettingsPage() {
               Enable Push
             </button>
           )}
+          {pushPermission === 'denied' && (
+            <button
+              onClick={() => setShowDeniedModal(true)}
+              aria-label="How to re-enable push notifications"
+              className="w-5 h-5 rounded-full bg-gray-700 hover:bg-gray-600 text-gray-300 text-xs font-bold flex items-center justify-center transition-colors"
+            >
+              ?
+            </button>
+          )}
           {pushPermission === 'granted' && (
             <button
               onClick={subscribePush}
@@ -251,19 +288,111 @@ export default function NotificationSettingsPage() {
         </div>
       </div>
 
+      {showDeniedModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          onClick={() => setShowDeniedModal(false)}
+        >
+          <div
+            className="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-sm w-full shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between mb-4">
+              <h3 className="text-base font-semibold text-white">Re-enable Push Notifications</h3>
+              <button
+                onClick={() => setShowDeniedModal(false)}
+                className="text-gray-500 hover:text-gray-300 transition-colors ml-4 shrink-0"
+                aria-label="Close"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Tabs */}
+            <div className="flex gap-1 mb-4 bg-gray-800 rounded-lg p-1">
+              {(['website', 'ios', 'android'] as const).map((tab) => (
+                <button
+                  key={tab}
+                  onClick={() => setDeniedModalTab(tab)}
+                  className={`flex-1 text-xs py-1.5 rounded-md font-medium transition-colors ${
+                    deniedModalTab === tab
+                      ? 'bg-indigo-600 text-white'
+                      : 'text-gray-400 hover:text-gray-200'
+                  }`}
+                >
+                  {tab === 'website' ? 'Website' : tab === 'ios' ? 'iOS' : 'Android'}
+                </button>
+              ))}
+            </div>
+
+            {deniedModalTab === 'website' && (
+              <>
+                <p className="text-sm text-gray-400 mb-4 leading-relaxed">
+                  Push notifications are blocked in your browser. To re-enable them:
+                </p>
+                <ol className="text-sm text-gray-300 space-y-2 list-none">
+                  <li className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">1.</span>Click the lock or info icon in your browser&apos;s address bar.</li>
+                  <li className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">2.</span>Find <strong className="text-white">Notifications</strong> and change it to <strong className="text-white">Allow</strong>.</li>
+                  <li className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">3.</span>Reload the page.</li>
+                </ol>
+              </>
+            )}
+
+            {deniedModalTab === 'ios' && (
+              <>
+                <p className="text-sm text-gray-400 mb-4 leading-relaxed">
+                  On iOS, notifications are controlled in the Settings app:
+                </p>
+                <ol className="text-sm text-gray-300 space-y-2 list-none">
+                  <li className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">1.</span>Open the <strong className="text-white">Settings</strong> app.</li>
+                  <li className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">2.</span>Tap <strong className="text-white">Notifications</strong>.</li>
+                  <li className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">3.</span>Find and tap <strong className="text-white">GEM</strong>.</li>
+                  <li className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">4.</span>Toggle <strong className="text-white">Allow Notifications</strong> on.</li>
+                </ol>
+              </>
+            )}
+
+            {deniedModalTab === 'android' && (
+              <>
+                <p className="text-sm text-gray-400 mb-4 leading-relaxed">
+                  On Android, re-enable notifications from Chrome settings:
+                </p>
+                <ol className="text-sm text-gray-300 space-y-2 list-none">
+                  <li className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">1.</span>Open <strong className="text-white">Chrome</strong> and tap the three-dot menu <strong className="text-white">⋮</strong>.</li>
+                  <li className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">2.</span>Go to <strong className="text-white">Settings &gt; Site settings &gt; Notifications</strong>.</li>
+                  <li className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">3.</span>Find the <strong className="text-white">GEM</strong> site and tap it.</li>
+                  <li className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">4.</span>Change the permission to <strong className="text-white">Allow</strong>.</li>
+                  <li className="flex gap-2"><span className="text-indigo-400 font-bold shrink-0">5.</span>Reload the app.</li>
+                </ol>
+              </>
+            )}
+
+            <button
+              onClick={() => setShowDeniedModal(false)}
+              className="mt-6 w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 rounded-xl text-sm transition-colors"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Per-type preferences */}
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-4 mb-6">
-        <h3 className="text-sm font-semibold text-gray-300 mb-4">
+        <h3 className="text-sm font-semibold text-gray-300 mb-1">
           Notification Preferences
         </h3>
+        <p className="text-xs text-gray-500 mb-4">In-App controls what appears in your notification inbox. Push and Email require permission above.</p>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-gray-500">
                 <th className="text-left py-2">Type</th>
                 {CHANNELS.map((ch) => (
-                  <th key={ch} className="text-center py-2 capitalize">
-                    {ch}
+                  <th key={ch} className="text-center py-2">
+                    {CHANNEL_LABELS[ch] ?? ch}
                   </th>
                 ))}
               </tr>
