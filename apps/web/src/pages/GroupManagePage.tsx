@@ -921,18 +921,20 @@ export default function GroupManagePage() {
       {/* Audit Log */}
       {isAdmin && (
         <section ref={auditLogSectionRef} className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
-          <button
-            onClick={() => {
-              setShowAuditLog((v) => {
-                if (v) setAuditLogPage(0)
-                return !v
-              })
-            }}
-            className="w-full flex items-center justify-between text-left"
-          >
-            <h3 className="text-base font-semibold text-white">Activity Log</h3>
-            <span className="text-gray-400 text-sm">{showAuditLog ? '▲ Hide' : '▼ Show'}</span>
-          </button>
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => {
+                setShowAuditLog((v) => {
+                  if (v) setAuditLogPage(0)
+                  return !v
+                })
+              }}
+              className="flex-1 flex items-center justify-between text-left"
+            >
+              <h3 className="text-base font-semibold text-white">Activity Log</h3>
+              <span className="text-gray-400 text-sm">{showAuditLog ? '▲ Hide' : '▼ Show'}</span>
+            </button>
+          </div>
           {showAuditLog && (() => {
             const PAGE_SIZE = 10
             const allLogs = auditLogData?.logs ?? []
@@ -941,21 +943,67 @@ export default function GroupManagePage() {
             const pageLogs = allLogs.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE)
             const hasPrev = currentPage > 0
             const hasNext = currentPage < totalPages - 1
+
+            const actionLabel: Record<string, string> = {
+              member_approved: 'approved',
+              member_denied: 'denied',
+              member_removed: 'removed',
+              member_muted: 'muted',
+              member_unmuted: 'unmuted',
+              role_changed: 'changed role of',
+              member_joined: 'requested to join',
+              group_updated: 'updated group info',
+              tag_created: 'created tag',
+              tag_deleted: 'deleted tag',
+              invite_regenerated: 'regenerated invite code',
+            }
+
+            const exportCsv = () => {
+              const rows = [
+                ['Date', 'Action', 'Actor', 'Target', 'Details'],
+                ...allLogs.map((log) => {
+                  const meta = log.meta as { from?: string; to?: string; tagName?: string } | null
+                  const details = meta?.from && meta?.to
+                    ? `${meta.from} → ${meta.to}`
+                    : (meta?.tagName ?? '')
+                  return [
+                    new Date(log.createdAt).toLocaleString(),
+                    actionLabel[log.action] ?? log.action,
+                    log.actor.name,
+                    log.targetUser?.name ?? '',
+                    details,
+                  ]
+                }),
+              ]
+              const csv = rows.map((r) => r.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n')
+              const blob = new Blob([csv], { type: 'text/csv' })
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a')
+              a.href = url
+              a.download = `activity-log-${groupId}.csv`
+              a.click()
+              URL.revokeObjectURL(url)
+            }
+
             return (
               <div className="mt-4 space-y-2">
+                {allLogs.length > 0 && (
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={exportCsv}
+                      className="text-xs px-3 py-1.5 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 transition-colors"
+                    >
+                      Export CSV
+                    </button>
+                  </div>
+                )}
                 {!allLogs.length ? (
                   <p className="text-sm text-gray-500">No activity recorded yet.</p>
                 ) : (
                   pageLogs.map((log) => {
-                    const actionLabel: Record<string, string> = {
-                      member_approved: 'approved',
-                      member_denied: 'denied',
-                      member_removed: 'removed',
-                      role_changed: 'changed role of',
-                      member_joined: 'requested to join',
-                    }
                     const label = actionLabel[log.action] ?? log.action
-                    const meta = log.meta as { from?: string; to?: string } | null
+                    const meta = log.meta as { from?: string; to?: string; tagName?: string } | null
                     return (
                       <div key={log.id} className="flex items-start gap-3 py-2 border-b border-gray-800 last:border-0">
                         <Avatar name={log.actor.name} avatarUrl={log.actor.avatarUrl} size="sm" />
@@ -968,6 +1016,9 @@ export default function GroupManagePage() {
                             )}
                             {meta?.from && meta?.to && (
                               <span className="text-gray-400"> ({meta.from} → {meta.to})</span>
+                            )}
+                            {meta?.tagName && (
+                              <span className="text-gray-400"> "{meta.tagName}"</span>
                             )}
                           </p>
                           <p className="text-xs text-gray-500">
