@@ -13,14 +13,12 @@ Consolidated pending items from `todo.md` and `todo.txt`. Completed entries were
 
 ## General
 - [ ] update favicon and <title> block for all pages
-- [ ] update all email notifications to have accurate links
-- [ ] login links security hardening? [DO THIS LATER]
-- [ ] add 'social' functionality? can add friends via invite link, can search people by username global search, can see mutual groups
-- [ ] make group invite link
-- [ ] add changing member roles (demote/promote) to audit log in settings, add other things too as well as export functionality
-- [ ] add enable push notifications pop up if notis are not enabled
+- [x] update all email notifications to have accurate links
+- [ ] login links security hardening? 
+- [x] add changing member roles (demote/promote) to audit log in settings, add other things too as well as export functionality
+- [x] add enable push notifications pop up if notis are not enabled
 - [ ] add accent color setting per user
-- [ ] get rid of event chat
+- [x] get rid of event chat
 - [ ] group channels
     [ ] general channel for all groups
     [ ] manual channel creation (admins only)
@@ -36,7 +34,40 @@ api-gem.aidanlenahan.com/notifications/inbox:1  Failed to load resource: the ser
         - this defines what activities will show up in the in-app notifications section
 
 - [ ] add PWA install guide
-- [ ] add enable push notification reminder on PWA if notis not installed
-
-
+- [x] add enable push notification reminder on PWA if notis not installed
+- [x] refine notis for everything on noti list besides new event create 
+    Chat Messages - chat functionality not implemented yet, don't worry about it yet			
+    New Events - works just fine
+    Event Changes - doesn't work for push, in app or email
+    Invitations	- works for all		
+    RSVP Updates - doesn't work for push, in app or email
 REWIRED '/' LOGIC: DONE 2026-04-29
+
+- [x] question mark glyph, works on desktop
+    - [x] make sure works on PWA
+    - [x] add tabs in modal: one for website, one for iOS PWA, and one for Android PWA
+        - [x] iOS PWA instructions: go to settings > notifications > GEM > Allow notifications
+        - [x] Android PWA instructions: open Chrome ⋮ > Settings > Site settings > Notifications > find GEM > Allow
+
+- [x] on private events, mark event as private with a lock glyph. additionally, make sure that the private event checkbox in the event creation page works, and when it is a private event it doesn't notify everyone. also, when you invite someone, make sure that does not make it a private event automatically.
+- [ ] make sure no one gets notified for anything tied to past events
+- [ ] on private events, display list of users who were invited
+- [ ] when click calendar button in events, switch to pop-up modal
+    - [ ] make calendar link on per user basis, all users get their own link. get rid of regen link feature.
+    - [ ] mini calendar settings section where user can adjust which events are shown:
+        - select which tags are displayed on calendar
+        - OR only display events that RSVP Yes or Maybe to
+        - OR display all events
+        - all of these settings should be on per user basis, not group or userwide
+
+- [ ] add get notified feature on event start for RSVP yes events
+- [ ] put X next to each invited user on 'invite users' modal for admins, owners, and event creator to leverage
+- [ ] account creation code invite link in developer panel, devs can decide when link expires or expire it on click
+    - [ ] add functionality for account creation via invite link page, maybe '?ref=" in url? whichever is most secure
+
+
+
+LATER 
+- [ ] waitinglist to make account
+- [ ] demo mode (not logged in, temp session)
+- [ ] add 'social' functionality? can add friends via invite link, can search people by username global search, can see mutual groups [DO THIS LATER]
