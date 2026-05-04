@@ -68,6 +68,31 @@ export function useUpdateTagPreference() {
   })
 }
 
+export function useUntaggedPreference(groupId: string) {
+  return useQuery({
+    queryKey: ['notifications', 'preferences', 'untagged', groupId],
+    queryFn: () =>
+      apiFetch<{ notifyUntaggedEvents: boolean }>(
+        `/notifications/preferences/groups/${groupId}/untagged`,
+      ),
+    enabled: !!groupId,
+  })
+}
+
+export function useUpdateUntaggedPreference() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ groupId, notifyUntaggedEvents }: { groupId: string; notifyUntaggedEvents: boolean }) =>
+      apiFetch(`/notifications/preferences/groups/${groupId}/untagged`, {
+        method: 'PUT',
+        body: JSON.stringify({ notifyUntaggedEvents }),
+      }),
+    onSuccess: (_data, { groupId }) => {
+      qc.invalidateQueries({ queryKey: ['notifications', 'preferences', 'untagged', groupId] })
+    },
+  })
+}
+
 // ============================================================================
 // Notification Inbox
 // ============================================================================
@@ -79,6 +104,7 @@ export type InboxNotification = {
   body: string
   url: string | null
   createdAt: string
+  readAt: string | null
 }
 
 type InboxResponse = {
@@ -93,6 +119,49 @@ export function useNotificationInbox() {
     queryFn: () => apiFetch<InboxResponse>('/notifications/inbox'),
     refetchInterval: 30_000,
     staleTime: 15_000,
+  })
+}
+
+export function useMarkNotificationRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`/notifications/inbox/${id}/read`, { method: 'PATCH' }),
+    onMutate: async (id) => {
+      await qc.cancelQueries({ queryKey: INBOX_KEY })
+      const previous = qc.getQueryData<InboxResponse>(INBOX_KEY)
+      const now = new Date().toISOString()
+      qc.setQueryData<InboxResponse>(INBOX_KEY, (old) =>
+        old
+          ? { notifications: old.notifications.map((n) => n.id === id ? { ...n, readAt: now } : n) }
+          : old,
+      )
+      return { previous }
+    },
+    onError: (_err, _id, context) => {
+      if (context?.previous) qc.setQueryData(INBOX_KEY, context.previous)
+    },
+  })
+}
+
+export function useMarkAllNotificationsRead() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => apiFetch('/notifications/inbox/read-all', { method: 'PATCH' }),
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: INBOX_KEY })
+      const previous = qc.getQueryData<InboxResponse>(INBOX_KEY)
+      const now = new Date().toISOString()
+      qc.setQueryData<InboxResponse>(INBOX_KEY, (old) =>
+        old
+          ? { notifications: old.notifications.map((n) => ({ ...n, readAt: n.readAt ?? now })) }
+          : old,
+      )
+      return { previous }
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) qc.setQueryData(INBOX_KEY, context.previous)
+    },
   })
 }
 
