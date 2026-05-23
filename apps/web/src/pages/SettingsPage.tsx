@@ -69,7 +69,7 @@ export default function SettingsPage() {
   const { data: tagPrefsData } = useTagPreferences(tagGroupId)
   const updateTagPref = useUpdateTagPreference()
 
-  // Muted users
+  // Blocked (muted) users
   const { data: mutedData } = useQuery({
     queryKey: ['users', 'muted'],
     queryFn: () => apiFetch<{ mutedUsers: MutedUser[] }>('/users/muted'),
@@ -78,8 +78,26 @@ export default function SettingsPage() {
     mutationFn: (userId: string) =>
       apiFetch<{ muted: boolean }>(`/users/${userId}/mute`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['users', 'muted'] }),
-    onError: () => toast.error('Failed to unmute user'),
+    onError: () => toast.error('Failed to unblock user'),
   })
+
+  // Profile visibility
+  const [showEmailToggling, setShowEmailToggling] = useState(false)
+  const handleToggleShowEmail = async () => {
+    if (showEmailToggling) return
+    setShowEmailToggling(true)
+    try {
+      const data = await apiFetch<{ user: { showEmail: boolean } }>('/users/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ showEmail: !user?.showEmail }),
+      })
+      setUser({ ...user!, showEmail: data.user.showEmail })
+    } catch {
+      toast.error('Failed to update email visibility')
+    } finally {
+      setShowEmailToggling(false)
+    }
+  }
 
   // Duration presets
   const { presets: durationPresets, addPreset, removePreset } = useDurationPresetsStore()
@@ -569,13 +587,36 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Muted Users */}
+      {/* Profile Visibility */}
       <div className="space-y-4 mt-8">
-        <h3 className="text-lg font-semibold text-gray-200">Muted Users</h3>
+        <h3 className="text-lg font-semibold text-gray-200">Profile Visibility</h3>
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
-          <p className="text-xs text-gray-500">You won't receive notifications from muted users.</p>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-white">Show email on profile</p>
+              <p className="text-xs text-gray-500 mt-0.5">Other group members can see your email on your public profile</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!!user?.showEmail}
+              onClick={handleToggleShowEmail}
+              disabled={showEmailToggling}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none disabled:opacity-50 ${user?.showEmail ? 'bg-indigo-600' : 'bg-gray-700'}`}
+            >
+              <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${user?.showEmail ? 'translate-x-5' : 'translate-x-0'}`} />
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Blocked Users */}
+      <div className="space-y-4 mt-8">
+        <h3 className="text-lg font-semibold text-gray-200">Blocked Users</h3>
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+          <p className="text-xs text-gray-500">Blocked users won't appear in notifications. Unblock them from their profile or here.</p>
           {!mutedData?.mutedUsers?.length ? (
-            <p className="text-sm text-gray-500">No muted users.</p>
+            <p className="text-sm text-gray-500">No blocked users.</p>
           ) : (
             mutedData.mutedUsers.map((u) => (
               <div key={u.id} className="flex items-center gap-3">
@@ -592,7 +633,7 @@ export default function SettingsPage() {
                   disabled={unmuteUser.isPending}
                   className="text-xs text-gray-400 hover:text-white bg-gray-800 hover:bg-gray-700 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
                 >
-                  Unmute
+                  Unblock
                 </button>
               </div>
             ))
@@ -837,7 +878,7 @@ export default function SettingsPage() {
 
             {emailStep === 'verify' && (
               <form onSubmit={handleVerifyEmailChange} className="px-4 pb-4 pt-0 space-y-3 border-t border-gray-800">
-                <p className="pt-3 text-xs text-gray-400">A 6-digit code was sent to <span className="text-gray-200">{changeEmailNew}</span>. Enter it below to confirm the change.</p>
+                <p className="pt-3 text-xs text-gray-400">We sent a 6-digit code to <span className="text-gray-200">{changeEmailNew}</span>. Enter it below to confirm the change.</p>
                 <div>
                   <label className="block text-xs font-medium text-gray-400 mb-1">Verification code</label>
                   <input
@@ -927,7 +968,7 @@ export default function SettingsPage() {
             {deleteStep === 'verify' && (
               <form onSubmit={handleConfirmDeleteAccount} className="px-4 pb-4 pt-0 space-y-3 border-t border-red-900/40">
                 <p className="pt-3 text-xs text-gray-400">
-                  A 6-digit code was sent to <span className="text-gray-200">{user?.email}</span>. Enter it below to permanently delete your account.
+                  We sent a 6-digit code to <span className="text-gray-200">{user?.email}</span>. Enter it below to permanently delete your account.
                 </p>
                 <div>
                   <label className="block text-xs font-medium text-gray-400 mb-1">Verification code</label>

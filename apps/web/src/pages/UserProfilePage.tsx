@@ -175,19 +175,19 @@ export default function UserProfilePage() {
               disabled={muteLoading}
               className={`mt-3 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50 ${
                 isMuted
-                  ? 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                  ? 'bg-red-950 text-red-400 hover:bg-red-900'
                   : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-200'
               }`}
             >
-              {muteLoading ? '…' : isMuted ? 'Unmute' : 'Mute'}
+              {muteLoading ? '…' : isMuted ? 'Unblock' : 'Block'}
             </button>
           )}
         </div>
       </div>
 
       {isMuted && (
-        <p className="mt-2 text-xs text-amber-500 pl-1">
-          You won't receive notifications from this user.
+        <p className="mt-2 text-xs text-red-500 pl-1">
+          You have blocked this user. They won't appear in your notifications.
         </p>
       )}
 

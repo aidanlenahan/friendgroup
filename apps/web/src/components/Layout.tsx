@@ -1,12 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { Outlet, NavLink, useNavigate, useMatch } from 'react-router-dom'
 import { useAuthStore } from '../stores/authStore'
+import { useDemoStore } from '../stores/demoStore'
 import { useGroups } from '../hooks/useGroups'
 import type { GroupSummary } from '../hooks/useGroups'
 import { usePwaInstall } from '../hooks/usePwaInstall'
 import ToastContainer from './Toast'
 import Avatar from './Avatar'
 import NotificationBell from './NotificationBell'
+import DemoBanner from './DemoBanner'
+import { apiFetch } from '../lib/api'
 
 const isPwa =
   typeof window !== 'undefined' &&
@@ -18,6 +21,7 @@ export default function Layout() {
     typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches
 
   const { user, logout } = useAuthStore()
+  const { isDemoMode, endDemo } = useDemoStore()
   const navigate = useNavigate()
   const isChannelPage = !!useMatch('/groups/:groupId/channels/:channelId')
   const { data: groups } = useGroups()
@@ -47,10 +51,17 @@ export default function Layout() {
   }
 
   useEffect(() => {
-    const handler = () => setAuthExpired(true)
+    const handler = () => {
+      if (isDemoMode) {
+        void handleExitDemo()
+      } else {
+        setAuthExpired(true)
+      }
+    }
     window.addEventListener('auth:expired', handler)
     return () => window.removeEventListener('auth:expired', handler)
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDemoMode])
 
   // Close user menu on outside click
   useEffect(() => {
@@ -105,6 +116,13 @@ export default function Layout() {
   const handleLogout = () => {
     logout()
     navigate('/login')
+  }
+
+  const handleExitDemo = async () => {
+    try { await apiFetch('/demo/end', { method: 'POST' }) } catch { /* ignore */ }
+    endDemo()
+    logout()
+    navigate('/home', { replace: true })
   }
 
   const closeSidebar = () => {
@@ -195,8 +213,8 @@ export default function Layout() {
         ))}
       </nav>
       <div className="p-3 border-t border-gray-800">
-        {/* Developer panel link — admin only */}
-        {user?.isAdmin && (
+        {/* Developer panel link — admin only, hidden in demo */}
+        {user?.isAdmin && !isDemoMode && (
           <NavLink
             to="/developer"
             onClick={closeSidebar}
@@ -210,7 +228,25 @@ export default function Layout() {
             Developer
           </NavLink>
         )}
-        {/* User menu */}
+        {/* Demo mode: simplified exit button instead of full user menu */}
+        {isDemoMode ? (
+          <div className="flex items-center gap-2 px-3 py-2">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-gray-500 truncate">Demo User</p>
+              <p className="text-xs text-gray-600">@demo</p>
+            </div>
+            <button
+              onClick={handleExitDemo}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-red-900/60 hover:bg-red-800 text-red-300 hover:text-white border border-red-800 hover:border-red-600 transition-colors shrink-0"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              Exit Demo
+            </button>
+          </div>
+        ) : (
+        /* Normal user menu */
         <div
           ref={userMenuRef}
           className="relative"
@@ -318,6 +354,7 @@ export default function Layout() {
             </div>
           )}
         </div>
+        )}
       </div>
     </>
   )
@@ -363,6 +400,8 @@ export default function Layout() {
             <NotificationBell />
           </header>
         )}
+
+        {isDemoMode && <DemoBanner />}
 
         {authExpired && (
           <div className="px-4 py-3 bg-red-950/80 border-b border-red-800 text-red-100 text-sm">
