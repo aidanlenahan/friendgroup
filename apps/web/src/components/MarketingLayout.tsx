@@ -8,14 +8,15 @@ export default function MarketingLayout() {
   const [userMenuOpen, setUserMenuOpen] = useState(false)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const userMenuCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const { token, user, logout } = useAuthStore()
+  const { user, logout } = useAuthStore()
   const navigate = useNavigate()
 
   const navLinks = [
     { to: '/home', label: 'Home', end: true },
     { to: '/updates', label: 'Updates', end: false },
     { to: '/help', label: 'Help', end: false },
-    { to: '/contact', label: 'Contact', end: false },
+    { to: '/privacy', label: 'Privacy', end: false },
+    { to: '/terms', label: 'Terms', end: false },
   ]
 
   // Close user dropdown on outside click
@@ -67,7 +68,7 @@ export default function MarketingLayout() {
 
           {/* Right side — authenticated or not */}
           <div className="hidden md:flex items-center gap-2">
-            {token && user ? (
+            {user ? (
               <>
                 {/* App button */}
                 <button
@@ -146,6 +147,12 @@ export default function MarketingLayout() {
             ) : (
               <>
                 <Link
+                  to="/demo"
+                  className="px-3 py-1.5 rounded-lg text-sm font-medium text-indigo-300 hover:text-white bg-indigo-950/60 hover:bg-indigo-900/80 border border-indigo-700/60 hover:border-indigo-500 transition-colors"
+                >
+                  Try Demo
+                </Link>
+                <Link
                   to="/login"
                   className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-100 hover:bg-gray-800/60 transition-colors"
                 >
@@ -201,7 +208,7 @@ export default function MarketingLayout() {
             ))}
 
             <div className="mt-2 pt-2 border-t border-gray-800 flex flex-col gap-1">
-              {token && user ? (
+              {user ? (
                 <>
                   {/* User info row */}
                   <div className="flex items-center gap-2 px-3 py-2">
@@ -240,6 +247,13 @@ export default function MarketingLayout() {
               ) : (
                 <>
                   <Link
+                    to="/demo"
+                    onClick={() => setMenuOpen(false)}
+                    className="px-3 py-2 rounded-lg text-sm font-medium text-indigo-300 border border-indigo-700/60 bg-indigo-950/60 hover:bg-indigo-900/80 transition-colors"
+                  >
+                    Try Demo
+                  </Link>
+                  <Link
                     to="/login"
                     onClick={() => setMenuOpen(false)}
                     className="px-3 py-2 rounded-lg text-sm font-medium text-gray-400 hover:text-gray-100 hover:bg-gray-800/60 transition-colors"
@@ -272,8 +286,10 @@ export default function MarketingLayout() {
           <div className="flex gap-5">
             <Link to="/updates" className="hover:text-gray-300 transition-colors">Updates</Link>
             <Link to="/help" className="hover:text-gray-300 transition-colors">Help</Link>
-            <Link to="/contact" className="hover:text-gray-300 transition-colors">Contact</Link>
-            {!token && <Link to="/login" className="hover:text-gray-300 transition-colors">Log in</Link>}
+            <Link to="/help?contact=1" className="hover:text-gray-300 transition-colors">Contact</Link>
+            <Link to="/privacy" className="hover:text-gray-300 transition-colors">Privacy</Link>
+            <Link to="/terms" className="hover:text-gray-300 transition-colors">Terms</Link>
+            {!user && <Link to="/login" className="hover:text-gray-300 transition-colors">Log in</Link>}
           </div>
           <span>© {new Date().getFullYear()} GEM — Group Event Manager. All rights reserved.</span>
         </div>

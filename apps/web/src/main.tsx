@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
+import ErrorBoundary from './components/ErrorBoundary.tsx'
 import { initTheme } from './hooks/useTheme'
 import { registerBestServiceWorker } from './lib/serviceWorker'
 
@@ -83,10 +84,20 @@ async function registerServiceWorker() {
 
 void registerServiceWorker()
 
+// Stale chunk recovery: after a new deploy, old chunk hashes are gone from the
+// server. If any lazy-loaded chunk returns 404, reload so the new index.html
+// takes over and references the correct hashes.
+window.addEventListener('vite:preloadError', (event) => {
+  event.preventDefault()
+  window.location.reload()
+})
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </ErrorBoundary>
   </StrictMode>,
 )

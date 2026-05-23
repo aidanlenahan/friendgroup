@@ -2,7 +2,7 @@ import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClient, QueryClientProvider, QueryCache } from '@tanstack/react-query'
 import { useEffect, lazy, Suspense } from 'react'
 import { useAuthStore } from './stores/authStore'
-import { ApiError, apiFetch, getToken } from './lib/api'
+import { ApiError, apiFetch } from './lib/api'
 import { useThemeApplier } from './hooks/useTheme'
 import Layout from './components/Layout'
 import MarketingLayout from './components/MarketingLayout'
@@ -33,12 +33,17 @@ const ContactPage = lazy(() => import('./pages/ContactPage'))
 const UpdatesPage = lazy(() => import('./pages/UpdatesPage'))
 const GroupStatsPage = lazy(() => import('./pages/GroupStatsPage'))
 const GroupGalleryPage = lazy(() => import('./pages/GroupGalleryPage'))
+const DemoPage = lazy(() => import('./pages/DemoPage'))
+const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage'))
+const TermsOfServicePage = lazy(() => import('./pages/TermsOfServicePage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 
 const queryClient = new QueryClient({
   queryCache: new QueryCache({
     onError: (error) => {
-      if (error instanceof ApiError && error.status === 401 && getToken()) {
+      // Only fire auth:expired when the user was believed to be logged in
+      // (i.e. user object exists in store) to avoid spurious redirects.
+      if (error instanceof ApiError && error.status === 401 && useAuthStore.getState().user) {
         window.dispatchEvent(new CustomEvent('auth:expired'))
       }
     },
@@ -82,13 +87,13 @@ function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const token = useAuthStore((s) => s.token)
+  const user = useAuthStore((s) => s.user)
   const hydrated = useAuthStore((s) => s.hydrated)
   const location = useLocation()
   if (!hydrated) {
     return null
   }
-  if (token) {
+  if (user) {
     return <>{children}</>
   }
 
@@ -97,7 +102,7 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 }
 
 function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
-  const token = useAuthStore((s) => s.token)
+  const user = useAuthStore((s) => s.user)
   const hydrated = useAuthStore((s) => s.hydrated)
   const location = useLocation()
   if (!hydrated) {
@@ -105,19 +110,19 @@ function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
   }
   const next = new URLSearchParams(location.search).get('next')
   const target = next && next.startsWith('/') && !next.startsWith('//') ? next : '/groups'
-  return token ? <Navigate to={target} replace /> : <>{children}</>
+  return user ? <Navigate to={target} replace /> : <>{children}</>
 }
 
 function RootRedirect() {
-  const token = useAuthStore((s) => s.token)
+  const user = useAuthStore((s) => s.user)
   const hydrated = useAuthStore((s) => s.hydrated)
   if (!hydrated) return null
-  return <Navigate to={token ? '/groups' : '/home'} replace />
+  return <Navigate to={user ? '/groups' : '/home'} replace />
 }
 
 export default function App() {
   useThemeApplier()
-  const { token, user, login, hydrated } = useAuthStore()
+  const { user, login, logout, hydrated } = useAuthStore()
 
   if (!hydrated) {
     return (
@@ -127,19 +132,23 @@ export default function App() {
     )
   }
 
-  // Refresh user profile on mount so isAdmin and other fields stay in sync
+  // On mount, silently re-validate the session cookie and refresh user profile.
+  // Skip for demo users — their token already has the right expiry.
   useEffect(() => {
-    if (!token || !user) return
+    if (!user) return
+    if (user.isDemo) return
     apiFetch<{ user: typeof user & { isAdmin?: boolean } }>('/users/me')
-      .then((data) => { if (data.user) login(token, data.user) })
-      .catch(() => {/* silently ignore — stale store data is acceptable */})
+      .then((data) => { if (data.user) login(data.user) })
+      .catch((err) => {
+        if (err instanceof ApiError && err.status === 401) logout()
+      })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Keep push subscription healthy on app boot so background notifications
   // continue to work after SW updates or browser subscription invalidations.
   useEffect(() => {
-    if (!token) return
+    if (!user) return
     if (!('Notification' in window) || !('serviceWorker' in navigator)) return
     if (Notification.permission !== 'granted') return
 
@@ -192,7 +201,7 @@ export default function App() {
     return () => {
       canceled = true
     }
-  }, [token])
+  }, [user])
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -207,6 +216,9 @@ export default function App() {
           <Route path="contact" element={<ContactPage />} />
           <Route path="updates" element={<UpdatesPage />} />
           <Route path="about" element={<Navigate to="/updates" replace />} />
+          <Route path="demo" element={<DemoPage />} />
+          <Route path="privacy" element={<PrivacyPolicyPage />} />
+          <Route path="terms" element={<TermsOfServicePage />} />
           <Route path="login" element={<RedirectIfAuthed><LoginPage /></RedirectIfAuthed>} />
           <Route path="register" element={<RedirectIfAuthed><RegisterPage /></RedirectIfAuthed>} />
           <Route path="verify-email" element={<VerifyEmailPage />} />
@@ -216,7 +228,7 @@ export default function App() {
         {/* Legacy debug/diagnostic routes */}
         <Route path="/phase-7/debug" element={<Phase7DebugPage />} />
         <Route path="/phase-9/diagnostics" element={<Phase9DiagnosticsPage />} />
-        {/* Authenticated routes — RequireAuth redirects to /login if no token */}
+        {/* Authenticated routes — RequireAuth redirects to /login if no user */}
         <Route
           element={
             <RequireAuth>

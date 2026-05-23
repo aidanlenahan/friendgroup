@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import PageToolbar from '../components/PageToolbar'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../stores/authStore'
@@ -47,7 +47,7 @@ export default function SettingsPage() {
     return () => { document.title = 'GEM — Group Event Manager' }
   }, [])
 
-  const { user, login, token } = useAuthStore()
+  const { user, setUser, logout } = useAuthStore()
   const toast = useToast()
   const qc = useQueryClient()
 
@@ -140,8 +140,8 @@ export default function SettingsPage() {
         method: 'PATCH',
         body: JSON.stringify({ avatarUrl: publicUrl }),
       })
-      if (token && data.user) {
-        login(token, {
+      if (data.user) {
+        setUser({
           ...data.user,
           username: data.user.username ?? undefined,
           avatarUrl: data.user.avatarUrl ?? undefined,
@@ -181,8 +181,8 @@ export default function SettingsPage() {
         method: 'PATCH',
         body: JSON.stringify({ theme: newTheme }),
       })
-      if (token && data.user) {
-        login(token, {
+      if (data.user) {
+        setUser({
           ...data.user,
           username: data.user.username ?? undefined,
           avatarUrl: data.user.avatarUrl ?? undefined,
@@ -198,6 +198,144 @@ export default function SettingsPage() {
 
   const handleModeChange = (newMode: 'dark' | 'light') => saveTheme(newMode, currentAccent)
   const handleAccentChange = (newAccent: string) => saveTheme(currentTheme, newAccent)
+
+  const navigate = useNavigate()
+
+  // --- Change Password ---
+  const [changePwOpen, setChangePwOpen] = useState(false)
+  const [changePwCurrent, setChangePwCurrent] = useState('')
+  const [changePwNew, setChangePwNew] = useState('')
+  const [changePwConfirm, setChangePwConfirm] = useState('')
+  const [changePwLoading, setChangePwLoading] = useState(false)
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (changePwNew !== changePwConfirm) {
+      toast.error('New passwords do not match')
+      return
+    }
+    if (changePwNew.length < 8) {
+      toast.error('New password must be at least 8 characters')
+      return
+    }
+    setChangePwLoading(true)
+    try {
+      await apiFetch('/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword: changePwCurrent, newPassword: changePwNew }),
+      })
+      toast.success('Password updated')
+      setChangePwCurrent('')
+      setChangePwNew('')
+      setChangePwConfirm('')
+      setChangePwOpen(false)
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to change password'
+      toast.error(msg)
+    } finally {
+      setChangePwLoading(false)
+    }
+  }
+
+  // --- Change Email ---
+  type EmailStep = 'idle' | 'form' | 'verify'
+  const [emailStep, setEmailStep] = useState<EmailStep>('idle')
+  const [changeEmailPassword, setChangeEmailPassword] = useState('')
+  const [changeEmailNew, setChangeEmailNew] = useState('')
+  const [changeEmailCode, setChangeEmailCode] = useState('')
+  const [changeEmailLoading, setChangeEmailLoading] = useState(false)
+
+  const handleRequestEmailChange = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setChangeEmailLoading(true)
+    try {
+      await apiFetch('/auth/change-email', {
+        method: 'POST',
+        body: JSON.stringify({ password: changeEmailPassword, newEmail: changeEmailNew }),
+      })
+      setEmailStep('verify')
+      toast.success('Verification code sent to your new address')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to initiate email change'
+      toast.error(msg)
+    } finally {
+      setChangeEmailLoading(false)
+    }
+  }
+
+  const handleVerifyEmailChange = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setChangeEmailLoading(true)
+    try {
+      const data = await apiFetch<{ newEmail: string }>('/auth/verify-email-change', {
+        method: 'POST',
+        body: JSON.stringify({ code: changeEmailCode }),
+      })
+      if (user) {
+        setUser({ ...user, email: data.newEmail })
+      }
+      toast.success('Email address updated')
+      setEmailStep('idle')
+      setChangeEmailPassword('')
+      setChangeEmailNew('')
+      setChangeEmailCode('')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to verify email change'
+      toast.error(msg)
+    } finally {
+      setChangeEmailLoading(false)
+    }
+  }
+
+  // --- Delete Account ---
+  type DeleteStep = 'idle' | 'form' | 'verify'
+  const [deleteStep, setDeleteStep] = useState<DeleteStep>('idle')
+  const [deletePassword, setDeletePassword] = useState('')
+  const [deleteCode, setDeleteCode] = useState('')
+  const [deleteLoading, setDeleteLoading] = useState(false)
+
+  const handleRequestDeleteAccount = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setDeleteLoading(true)
+    try {
+      await apiFetch('/auth/request-account-deletion', {
+        method: 'POST',
+        body: JSON.stringify({ password: deletePassword }),
+      })
+      setDeleteStep('verify')
+      toast.success('Verification code sent to your email')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to send verification code'
+      toast.error(msg)
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
+
+  const handleConfirmDeleteAccount = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setDeleteLoading(true)
+    try {
+      await apiFetch('/users/me', {
+        method: 'DELETE',
+        body: JSON.stringify({ code: deleteCode }),
+      })
+      logout()
+      navigate('/home')
+      toast.success('Your account has been permanently deleted')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to delete account'
+      toast.error(msg)
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
+
+  const resetDeleteFlow = () => {
+    setDeleteStep('idle')
+    setDeletePassword('')
+    setDeleteCode('')
+  }
 
   const isStandalone =
     window.matchMedia('(display-mode: standalone)').matches ||
@@ -475,6 +613,276 @@ export default function SettingsPage() {
           )}
         </div>
       </div>
+
+      {/* Account Management */}
+      {!user?.isDemo && (
+        <div className="space-y-4 mt-8">
+          <h3 className="text-lg font-semibold text-gray-200">Account</h3>
+
+          {/* Change Password */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => { setChangePwOpen((v) => !v); setChangePwCurrent(''); setChangePwNew(''); setChangePwConfirm('') }}
+              className="w-full flex items-center justify-between px-4 py-4 text-left hover:bg-gray-800/40 transition-colors"
+            >
+              <div>
+                <p className="text-sm font-medium text-white">Change password</p>
+                <p className="text-xs text-gray-500 mt-0.5">Update your login password</p>
+              </div>
+              <svg xmlns="http://www.w3.org/2000/svg" className={`w-4 h-4 text-gray-500 transition-transform ${changePwOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            {changePwOpen && (
+              <form onSubmit={handleChangePassword} className="px-4 pb-4 pt-0 space-y-3 border-t border-gray-800">
+                <div className="pt-3">
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Current password</label>
+                  <input
+                    type="password"
+                    value={changePwCurrent}
+                    onChange={(e) => setChangePwCurrent(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">New password</label>
+                  <input
+                    type="password"
+                    value={changePwNew}
+                    onChange={(e) => setChangePwNew(e.target.value)}
+                    required
+                    minLength={8}
+                    autoComplete="new-password"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Confirm new password</label>
+                  <input
+                    type="password"
+                    value={changePwConfirm}
+                    onChange={(e) => setChangePwConfirm(e.target.value)}
+                    required
+                    autoComplete="new-password"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="submit"
+                    disabled={changePwLoading}
+                    className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    {changePwLoading ? 'Saving…' : 'Update password'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setChangePwOpen(false)}
+                    className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+
+          {/* Change Email */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => {
+                setEmailStep((s) => s === 'idle' ? 'form' : 'idle')
+                setChangeEmailPassword('')
+                setChangeEmailNew('')
+                setChangeEmailCode('')
+              }}
+              className="w-full flex items-center justify-between px-4 py-4 text-left hover:bg-gray-800/40 transition-colors"
+            >
+              <div>
+                <p className="text-sm font-medium text-white">Change email</p>
+                <p className="text-xs text-gray-500 mt-0.5">Current: {user?.email}</p>
+              </div>
+              <svg xmlns="http://www.w3.org/2000/svg" className={`w-4 h-4 text-gray-500 transition-transform ${emailStep !== 'idle' ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {emailStep === 'form' && (
+              <form onSubmit={handleRequestEmailChange} className="px-4 pb-4 pt-0 space-y-3 border-t border-gray-800">
+                <div className="pt-3">
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Confirm your password</label>
+                  <input
+                    type="password"
+                    value={changeEmailPassword}
+                    onChange={(e) => setChangeEmailPassword(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">New email address</label>
+                  <input
+                    type="email"
+                    value={changeEmailNew}
+                    onChange={(e) => setChangeEmailNew(e.target.value)}
+                    required
+                    autoComplete="email"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="submit"
+                    disabled={changeEmailLoading}
+                    className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    {changeEmailLoading ? 'Sending…' : 'Send verification code'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEmailStep('idle')}
+                    className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {emailStep === 'verify' && (
+              <form onSubmit={handleVerifyEmailChange} className="px-4 pb-4 pt-0 space-y-3 border-t border-gray-800">
+                <p className="pt-3 text-xs text-gray-400">A 6-digit code was sent to <span className="text-gray-200">{changeEmailNew}</span>. Enter it below to confirm the change.</p>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Verification code</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    value={changeEmailCode}
+                    onChange={(e) => setChangeEmailCode(e.target.value.replace(/\D/g, ''))}
+                    required
+                    placeholder="000000"
+                    className="w-32 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="submit"
+                    disabled={changeEmailLoading}
+                    className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    {changeEmailLoading ? 'Verifying…' : 'Confirm new email'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEmailStep('form')}
+                    className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm transition-colors"
+                  >
+                    Back
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+
+          {/* Delete Account */}
+          <div className="bg-gray-900 border border-red-900/40 rounded-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => { deleteStep === 'idle' ? setDeleteStep('form') : resetDeleteFlow() }}
+              className="w-full flex items-center justify-between px-4 py-4 text-left hover:bg-red-950/20 transition-colors"
+            >
+              <div>
+                <p className="text-sm font-medium text-red-400">Delete account</p>
+                <p className="text-xs text-gray-500 mt-0.5">Permanently remove your account and all data</p>
+              </div>
+              <svg xmlns="http://www.w3.org/2000/svg" className={`w-4 h-4 text-gray-500 transition-transform ${deleteStep !== 'idle' ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            {deleteStep === 'form' && (
+              <form onSubmit={handleRequestDeleteAccount} className="px-4 pb-4 pt-0 space-y-3 border-t border-red-900/40">
+                <p className="pt-3 text-xs text-gray-400">
+                  This action is <span className="text-red-400 font-medium">permanent and cannot be undone</span>. Your profile, group memberships, and all content you've created will be deleted.
+                </p>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Enter your password to continue</label>
+                  <input
+                    type="password"
+                    value={deletePassword}
+                    onChange={(e) => setDeletePassword(e.target.value)}
+                    required
+                    autoComplete="current-password"
+                    placeholder="Your current password"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="submit"
+                    disabled={deleteLoading || !deletePassword}
+                    className="px-4 py-2 rounded-lg bg-red-700 hover:bg-red-600 text-white text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    {deleteLoading ? 'Sending…' : 'Send verification code'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetDeleteFlow}
+                    className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {deleteStep === 'verify' && (
+              <form onSubmit={handleConfirmDeleteAccount} className="px-4 pb-4 pt-0 space-y-3 border-t border-red-900/40">
+                <p className="pt-3 text-xs text-gray-400">
+                  A 6-digit code was sent to <span className="text-gray-200">{user?.email}</span>. Enter it below to permanently delete your account.
+                </p>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">Verification code</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]{6}"
+                    maxLength={6}
+                    value={deleteCode}
+                    onChange={(e) => setDeleteCode(e.target.value.replace(/\D/g, ''))}
+                    required
+                    placeholder="000000"
+                    className="w-32 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm text-center tracking-widest focus:outline-none focus:ring-2 focus:ring-red-500"
+                  />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <button
+                    type="submit"
+                    disabled={deleteLoading || deleteCode.length !== 6}
+                    className="px-4 py-2 rounded-lg bg-red-700 hover:bg-red-600 text-white text-sm font-medium transition-colors disabled:opacity-50"
+                  >
+                    {deleteLoading ? 'Deleting…' : 'Delete my account'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setDeleteStep('form'); setDeleteCode('') }}
+                    className="px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm transition-colors"
+                  >
+                    Back
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
       {!isStandalone && (
         <div className="mt-8 space-y-4">

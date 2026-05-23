@@ -150,8 +150,13 @@ focus on reliability, UX rough edges, and prep for a small group of external use
 
 --- Infrastructure ---
 
+[x] Error boundary — React ErrorBoundary component wrapping the entire app in main.tsx;
+    renders a friendly reload-page fallback instead of a blank screen on render errors.
+    DONE 2026-05-22: ErrorBoundary.tsx added; wraps BrowserRouter in main.tsx.
+    Files: apps/web/src/components/ErrorBoundary.tsx, apps/web/src/main.tsx
+
 [ ] Error monitoring — integrate a lightweight error tracker (e.g. Sentry free tier) for
-    both API (Fastify plugin) and web (ErrorBoundary + Sentry.captureException)
+    both API (Fastify plugin) and web (Sentry.captureException in ErrorBoundary)
 
 [ ] Automated DB backups — nightly pg_dump cron job to a separate S3/R2 bucket;
     retention 7 days; alert on failure--how can we do this for free? how does it interact with api? different server?
@@ -200,8 +205,19 @@ Audience: developers + 1–2 invited external users (friends/family) who get a b
 [ ] Rate-limit invite code generation — max 10 active account codes at a time; prevent
     accidental open registration
 
-[ ] Account deletion — GDPR-style self-serve delete in Settings; removes all personal data
-    (profile, messages anonymised, photos deleted from storage); 30-day soft delete before purge
+[x] Account deletion — GDPR-style self-serve delete in Settings; password-confirmed.
+    DONE 2026-05-22: DELETE /users/me { password } — verifies password, cascades all user
+    relations via Prisma onDelete:Cascade, logs out and redirects to /home.
+    Files: apps/api/src/server.ts, apps/web/src/pages/SettingsPage.tsx
+
+[x] Change password while logged in — Settings → Account → Change password (requires current
+    password + new password + confirm). POST /auth/change-password.
+    DONE 2026-05-22. Files: apps/api/src/server.ts, apps/web/src/pages/SettingsPage.tsx
+
+[x] Change email address — Settings → Account → Change email; password-confirmed, sends
+    6-digit OTP to new address, verified before applying.
+    POST /auth/change-email + POST /auth/verify-email-change. OTP stored in Redis (1hr TTL).
+    DONE 2026-05-22. Files: apps/api/src/server.ts, apps/web/src/pages/SettingsPage.tsx
 
 --- Polish ---
 
@@ -214,8 +230,10 @@ Audience: developers + 1–2 invited external users (friends/family) who get a b
 [ ] PWA update prompt — when a new service worker is waiting, show a banner asking the
     user to refresh; currently the update is silent and may confuse new users
 
-[ ] Legal / privacy basics — add a minimal Privacy Policy page at /privacy explaining
-    what data is stored (email, photos, messages) and how it is used; linked from footer
+[x] Legal / privacy basics — Privacy Policy at /privacy and Terms of Service at /terms;
+    both linked from marketing navbar and footer. Contact page merged into Help as modal.
+    DONE 2026-05-22. Files: PrivacyPolicyPage.tsx, TermsOfServicePage.tsx, HelpPage.tsx,
+    ContactPage.tsx (now redirects), MarketingLayout.tsx, App.tsx
 
 === Later / Stretch ===
 

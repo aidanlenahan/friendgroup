@@ -2,6 +2,7 @@ import "dotenv/config"; // reloaded: 2026-04-16
 import * as Sentry from "@sentry/node";
 import Fastify, { type FastifyRequest, type FastifyReply } from "fastify";
 import cors from "@fastify/cors";
+import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
 import jwt from "@fastify/jwt";
 import rateLimit from "@fastify/rate-limit";
@@ -443,6 +444,313 @@ calendarSyncWorker.on("failed", (job, error) => {
     jobId: job?.id,
     error: error.message,
   });
+});
+
+// ============================================================================
+// Demo Cleanup Queue — auto-deletes demo user data after 5 minutes
+// ============================================================================
+
+interface DemoCleanupJobData {
+  sessionId: string;
+  userId: string;
+  deviceId: string;
+}
+
+const DEMO_DURATION_MS = 5 * 60 * 1000; // 5 minutes
+const DEMO_MAX_CONCURRENT = 5;
+const DEMO_SESSION_KEY = (id: string) => `demo:session:${id}`;
+const DEMO_DEVICE_KEY = (deviceId: string) => `demo:device:${deviceId}`;
+const DEMO_ACTIVE_SET = "demo:active_ids";
+const DEMO_QUEUE_ZSET = "demo:queue";
+
+async function cleanupDemoSession(sessionId: string, userId: string, deviceId: string) {
+  // Retrieve dummy user IDs stored at session creation
+  const dummyIdsRaw = await redis.hget(DEMO_SESSION_KEY(sessionId), "dummyUserIds");
+  const dummyUserIds: string[] = dummyIdsRaw ? JSON.parse(dummyIdsRaw) : [];
+
+  try {
+    await prisma.group.deleteMany({ where: { ownerId: userId } });
+  } catch {
+    // already gone
+  }
+  try {
+    await prisma.user.delete({ where: { id: userId } });
+  } catch {
+    // already gone
+  }
+  // Delete dummy (non-real) users created for this session
+  if (dummyUserIds.length > 0) {
+    try {
+      await prisma.user.deleteMany({ where: { id: { in: dummyUserIds } } });
+    } catch {
+      // already gone
+    }
+  }
+  await redis.del(DEMO_SESSION_KEY(sessionId));
+  await redis.srem(DEMO_ACTIVE_SET, sessionId);
+  if (deviceId) await redis.del(DEMO_DEVICE_KEY(deviceId));
+}
+
+async function seedDemoData(demoUserId: string): Promise<string[]> {
+  const now = new Date();
+  const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000);
+  const daysFrom = (d: number) => new Date(now.getTime() + d * 86_400_000);
+  const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000);
+
+  // Create 4 dummy users for this session (not real — deleted with session)
+  const dummyProfiles = [
+    { name: "Alex Kim",    username: `alex_${demoUserId.slice(0,6)}`,   email: `dummy-alex-${demoUserId}@gem-demo.internal` },
+    { name: "Sam Rivera",  username: `sam_${demoUserId.slice(0,6)}`,    email: `dummy-sam-${demoUserId}@gem-demo.internal` },
+    { name: "Jordan Lee",  username: `jordan_${demoUserId.slice(0,6)}`, email: `dummy-jordan-${demoUserId}@gem-demo.internal` },
+    { name: "Casey Morgan",username: `casey_${demoUserId.slice(0,6)}`,  email: `dummy-casey-${demoUserId}@gem-demo.internal` },
+  ];
+
+  const dummyUsers = await Promise.all(
+    dummyProfiles.map((p) =>
+      prisma.user.create({
+        data: { ...p, emailVerified: true, onboardingDone: true, passwordHash: "x" },
+        select: { id: true, name: true },
+      })
+    )
+  );
+  const [alex, sam, jordan, casey] = dummyUsers;
+
+  // ── Group 1: Weekend Hiking Club ──────────────────────────────────────────
+  const hikeGroup = await prisma.group.create({
+    data: {
+      name: "Weekend Hiking Club",
+      description: "We hike every weekend — all levels welcome. Bring snacks.",
+      ownerId: demoUserId,
+      inviteCode: randomBytes(6).toString("hex"),
+      memberships: {
+        create: [
+          { userId: demoUserId, role: "owner",  status: "active" },
+          { userId: alex.id,    role: "admin",  status: "active" },
+          { userId: sam.id,     role: "member", status: "active" },
+        ],
+      },
+      channels: {
+        create: { name: "general", isInviteOnly: false },
+      },
+    },
+    include: { channels: true },
+  });
+
+  const hikeChannel = hikeGroup.channels[0];
+
+  const hikeEvent1 = await prisma.event.create({
+    data: {
+      groupId: hikeGroup.id,
+      createdById: alex.id,
+      title: "Sunset Peak Trail Run",
+      details: "Meeting at the main trailhead. Bring water and sunscreen. Moderate difficulty, about 6 miles round trip.",
+      dateTime: daysFrom(4),
+      endsAt: new Date(daysFrom(4).getTime() + 3 * 3_600_000),
+      location: "Sunset Peak Trailhead, Parking Lot B",
+    },
+  });
+  const hikeEvent2 = await prisma.event.create({
+    data: {
+      groupId: hikeGroup.id,
+      createdById: demoUserId,
+      title: "Winter Summit Challenge",
+      details: "Our annual winter hike. Layers required. This one is strenuous — plan for 5–6 hours.",
+      dateTime: daysFrom(47),
+      location: "Mount Ridgeline Summit, North Face",
+    },
+  });
+  await prisma.event.create({
+    data: {
+      groupId: hikeGroup.id,
+      createdById: sam.id,
+      title: "Post-Hike BBQ",
+      details: "Last month's hike wrap-up BBQ. Great weather, great people!",
+      dateTime: daysAgo(8),
+      endsAt: new Date(daysAgo(8).getTime() + 2 * 3_600_000),
+      location: "Riverside Park Pavilion",
+    },
+  });
+
+  // RSVPs for upcoming events
+  await prisma.rSVP.createMany({
+    data: [
+      { eventId: hikeEvent1.id, userId: demoUserId, status: "yes" },
+      { eventId: hikeEvent1.id, userId: alex.id,    status: "yes" },
+      { eventId: hikeEvent1.id, userId: sam.id,     status: "maybe" },
+      { eventId: hikeEvent2.id, userId: demoUserId, status: "yes" },
+      { eventId: hikeEvent2.id, userId: alex.id,    status: "no" },
+    ],
+  });
+
+  // Channel messages (back-dated for realism)
+  await prisma.message.createMany({
+    data: [
+      { channelId: hikeChannel.id, userId: alex.id,    content: "Hey everyone! Trail map for Saturday is posted in the event details 🗺️", createdAt: hoursAgo(18) },
+      { channelId: hikeChannel.id, userId: sam.id,     content: "Will there be parking at Lot B or should we carpool?", createdAt: hoursAgo(17) },
+      { channelId: hikeChannel.id, userId: alex.id,    content: "Lot B usually has plenty of space early morning. Let's aim for 7am?", createdAt: hoursAgo(16) },
+      { channelId: hikeChannel.id, userId: demoUserId, content: "7am works for me. See everyone there!", createdAt: hoursAgo(15) },
+    ],
+  });
+
+  // ── Group 2: Movie Night Crew ──────────────────────────────────────────────
+  const movieGroup = await prisma.group.create({
+    data: {
+      name: "Movie Night Crew",
+      description: "Monthly movie nights + the occasional marathon. Popcorn mandatory.",
+      ownerId: demoUserId,
+      inviteCode: randomBytes(6).toString("hex"),
+      memberships: {
+        create: [
+          { userId: demoUserId, role: "owner",  status: "active" },
+          { userId: jordan.id,  role: "admin",  status: "active" },
+          { userId: casey.id,   role: "member", status: "active" },
+          { userId: alex.id,    role: "member", status: "active" },
+        ],
+      },
+      channels: {
+        create: { name: "general", isInviteOnly: false },
+      },
+    },
+    include: { channels: true },
+  });
+
+  const movieChannel = movieGroup.channels[0];
+
+  const movieEvent1 = await prisma.event.create({
+    data: {
+      groupId: movieGroup.id,
+      createdById: jordan.id,
+      title: "Marvel Marathon Night",
+      details: "Starting with the original Iron Man and going as far as we can. Jordan is hosting — BYOB snacks.",
+      dateTime: daysFrom(10),
+      endsAt: new Date(daysFrom(10).getTime() + 6 * 3_600_000),
+      location: "Jordan's Place",
+      maxAttendees: 8,
+    },
+  });
+  const movieEvent2 = await prisma.event.create({
+    data: {
+      groupId: movieGroup.id,
+      createdById: demoUserId,
+      title: "Classic Horror Double Feature",
+      details: "Halloween vibes all year round. Two films TBD by vote in #general. Starts at 8pm sharp.",
+      dateTime: daysFrom(23),
+      location: "Casey's basement setup",
+    },
+  });
+
+  await prisma.rSVP.createMany({
+    data: [
+      { eventId: movieEvent1.id, userId: demoUserId, status: "yes" },
+      { eventId: movieEvent1.id, userId: jordan.id,  status: "yes" },
+      { eventId: movieEvent1.id, userId: casey.id,   status: "yes" },
+      { eventId: movieEvent1.id, userId: alex.id,    status: "maybe" },
+      { eventId: movieEvent2.id, userId: demoUserId, status: "yes" },
+      { eventId: movieEvent2.id, userId: casey.id,   status: "yes" },
+    ],
+  });
+
+  await prisma.message.createMany({
+    data: [
+      { channelId: movieChannel.id, userId: jordan.id,  content: "OK so the Marvel marathon: are we doing MCU release order or story chronological order?", createdAt: hoursAgo(30) },
+      { channelId: movieChannel.id, userId: casey.id,   content: "Release order obviously 😤 that's how we experienced it", createdAt: hoursAgo(29) },
+      { channelId: movieChannel.id, userId: alex.id,    content: "I vote chronological just to mess with everyone", createdAt: hoursAgo(28) },
+      { channelId: movieChannel.id, userId: demoUserId, content: "Release order. Starting with Iron Man is non-negotiable.", createdAt: hoursAgo(27) },
+      { channelId: movieChannel.id, userId: jordan.id,  content: "Release order wins. Iron Man it is 🦾", createdAt: hoursAgo(26) },
+    ],
+  });
+
+  // ── Group 3: Book Club ─────────────────────────────────────────────────────
+  const bookGroup = await prisma.group.create({
+    data: {
+      name: "Book Club",
+      description: "Monthly reads, big discussions. Currently working through sci-fi classics.",
+      ownerId: demoUserId,
+      inviteCode: randomBytes(6).toString("hex"),
+      memberships: {
+        create: [
+          { userId: demoUserId, role: "owner",  status: "active" },
+          { userId: sam.id,     role: "member", status: "active" },
+          { userId: jordan.id,  role: "member", status: "active" },
+        ],
+      },
+      channels: {
+        create: [
+          { name: "general",      isInviteOnly: false },
+          { name: "current-read", isInviteOnly: false },
+        ],
+      },
+    },
+    include: { channels: true },
+  });
+
+  const bookGeneralChannel = bookGroup.channels.find((c) => c.name === "general")!;
+  const bookReadChannel    = bookGroup.channels.find((c) => c.name === "current-read")!;
+
+  const bookEvent1 = await prisma.event.create({
+    data: {
+      groupId: bookGroup.id,
+      createdById: sam.id,
+      title: "Monthly Discussion: Project Hail Mary",
+      details: "Chapters 1–15 this session. Come with theories. Spoilers allowed — we all agreed to read ahead if we want!",
+      dateTime: daysFrom(6),
+      endsAt: new Date(daysFrom(6).getTime() + 90 * 60_000),
+      location: "Sam's living room (or video call)",
+    },
+  });
+  await prisma.event.create({
+    data: {
+      groupId: bookGroup.id,
+      createdById: demoUserId,
+      title: "Next Month Vote — Pick Our Book",
+      details: "Three candidates on the table: Dune, The Martian, or Blindsight. Vote in the channel before Friday.",
+      dateTime: daysFrom(31),
+    },
+  });
+
+  await prisma.rSVP.createMany({
+    data: [
+      { eventId: bookEvent1.id, userId: demoUserId, status: "yes" },
+      { eventId: bookEvent1.id, userId: sam.id,     status: "yes" },
+      { eventId: bookEvent1.id, userId: jordan.id,  status: "maybe" },
+    ],
+  });
+
+  await prisma.message.createMany({
+    data: [
+      { channelId: bookGeneralChannel.id, userId: sam.id,     content: "Just finished chapter 10 and I have SO many questions 🤯", createdAt: daysAgo(2) },
+      { channelId: bookGeneralChannel.id, userId: jordan.id,  content: "Same, no spoilers from me but wow the reveal is wild", createdAt: daysAgo(2) },
+      { channelId: bookGeneralChannel.id, userId: demoUserId, content: "I'm on chapter 12 — this might be my favorite book we've read", createdAt: daysAgo(1) },
+      { channelId: bookReadChannel.id,    userId: sam.id,     content: "Theory: Rocky is the most interesting character in sci-fi in the last decade. Discuss.", createdAt: hoursAgo(5) },
+      { channelId: bookReadChannel.id,    userId: jordan.id,  content: "100% agree. The communication chapters are brilliant.", createdAt: hoursAgo(4) },
+      { channelId: bookReadChannel.id,    userId: demoUserId, content: "The way Weir builds their relationship is just chef's kiss", createdAt: hoursAgo(3) },
+    ],
+  });
+
+  return dummyUsers.map((u) => u.id);
+}
+
+const demoCleanupQueue = new Queue<DemoCleanupJobData>("demo-cleanup", {
+  connection: queueConnection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: { type: "exponential", delay: 1000 },
+    removeOnComplete: 100,
+    removeOnFail: 100,
+  },
+});
+
+const demoCleanupWorker = new Worker<DemoCleanupJobData>(
+  "demo-cleanup",
+  async (job) => {
+    const { sessionId, userId, deviceId } = job.data;
+    await cleanupDemoSession(sessionId, userId, deviceId);
+  },
+  { connection: workerConnection }
+);
+
+demoCleanupWorker.on("failed", (job, error) => {
+  console.error("Demo cleanup job failed", { jobId: job?.id, error: error.message });
 });
 
 const authSecret = process.env.AUTH_SECRET;
@@ -1015,9 +1323,41 @@ await app.register(cors, {
   methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 });
 
+await app.register(cookie);
+
 await app.register(jwt, {
   secret: authSecret,
+  cookie: {
+    cookieName: "gem_token",
+    signed: false,
+  },
 });
+
+// Derive cookie maxAge from jwtExpiresIn (e.g. "100d" → 8640000 seconds).
+// Falls back to 7 days if the format is unrecognised.
+function jwtExpiresInToSeconds(s: string): number {
+  const match = s.match(/^(\d+)(s|m|h|d)$/);
+  if (!match) return 7 * 24 * 3600;
+  const n = parseInt(match[1], 10);
+  const multipliers: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400 };
+  return n * (multipliers[match[2]] ?? 86400);
+}
+
+const cookieMaxAge = jwtExpiresInToSeconds(jwtExpiresIn);
+
+function setAuthCookie(reply: FastifyReply, token: string) {
+  reply.setCookie("gem_token", token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    path: "/",
+    maxAge: cookieMaxAge,
+  });
+}
+
+function clearAuthCookie(reply: FastifyReply) {
+  reply.clearCookie("gem_token", { path: "/" });
+}
 
 await app.register(rateLimit, {
   global: false,
@@ -1217,7 +1557,17 @@ app.post("/auth/dev-token", { config: { rateLimit: { max: effectiveDevTokenRateL
   }
 
   const token = await reply.jwtSign({ sub: user.id, email: user.email }, { expiresIn: jwtExpiresIn });
-  return reply.send({ token, user: { ...user, isAdmin: ADMIN_EMAILS.includes(user.email.toLowerCase()) } });
+  setAuthCookie(reply, token);
+  return reply.send({ user: { ...user, isAdmin: ADMIN_EMAILS.includes(user.email.toLowerCase()) } });
+});
+
+// ============================================================================
+// Auth Routes — Logout
+// ============================================================================
+
+app.post("/auth/logout", async (_request, reply) => {
+  clearAuthCookie(reply);
+  return reply.send({ ok: true });
 });
 
 // ============================================================================
@@ -1303,7 +1653,7 @@ function buildWelcomeEmail(name: string, webBase: string): { html: string; text:
       ${p("Your account is verified and ready to go. Here's a quick guide to get you started.")}
 
       ${h2("1. Join or create a group")}
-      ${p("Gem is built around groups — a private space for your friend circle. Tap <strong>Join a Group</strong> on your home screen and enter an invite code shared by a friend, or create your own group and invite people with a link or code.")}
+      ${p("GEM is built around groups — a private space for your friend circle. Tap <strong>Join a Group</strong> on your home screen and enter an invite code shared by a friend, or create your own group and invite people with a link or code.")}
 
       ${h2("2. Create an event")}
       ${p("Inside your group, go to the <strong>Events</strong> tab and tap the <strong>+</strong> button. Give the event a name, date, time, and location. Members can RSVP and chat directly on the event page.")}
@@ -1315,7 +1665,7 @@ function buildWelcomeEmail(name: string, webBase: string): { html: string; text:
       ${p("Attach photos to any event. Open an event, scroll to the Photos section, and upload from your device. Admins can create named albums from the group's Photos tab.")}
 
       <div style="margin:24px 0;">
-        ${btn(`${webBase}/groups`, "Open Gem →")}
+        ${btn(`${webBase}/groups`, "Open GEM →")}
       </div>
 
       <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
@@ -1532,7 +1882,7 @@ app.post("/auth/register", { config: { rateLimit: { max: 10, timeWindow: "1 minu
   await sendEmailCode(
     user.email,
     otpCode,
-    "Verify your Gem account",
+    "Verify your GEM account",
     "Enter this code to verify your email address:",
     {
       actionUrl: verifyUrl.toString(),
@@ -1572,7 +1922,8 @@ app.post("/auth/verify-email", { config: { rateLimit: { max: 20, timeWindow: "1 
   }
 
   const token = await reply.jwtSign({ sub: user.id, email: user.email }, { expiresIn: jwtExpiresIn });
-  return reply.send({ token, user: { ...user, isAdmin: ADMIN_EMAILS.includes(user.email.toLowerCase()) } });
+  setAuthCookie(reply, token);
+  return reply.send({ user: { ...user, isAdmin: ADMIN_EMAILS.includes(user.email.toLowerCase()) } });
 });
 
 app.post("/auth/verify-email-link", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
@@ -1610,7 +1961,8 @@ app.post("/auth/verify-email-link", { config: { rateLimit: { max: 10, timeWindow
 
   const { emailVerified: _ev, ...safeUser } = user;
   const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email }, { expiresIn: jwtExpiresIn });
-  return reply.send({ token, user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
+  setAuthCookie(reply, token);
+  return reply.send({ user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
 });
 
 app.post("/auth/resend-verification", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
@@ -1647,7 +1999,7 @@ app.post("/auth/resend-verification", { config: { rateLimit: { max: 10, timeWind
   await sendEmailCode(
     user.email,
     otpCode,
-    "Verify your Gem account",
+    "Verify your GEM account",
     "Enter this code to verify your email address:",
     {
       actionUrl: verifyUrl.toString(),
@@ -1701,7 +2053,8 @@ app.post("/auth/login", { config: { rateLimit: { max: 10, timeWindow: "1 minute"
 
   const { passwordHash: _omit, emailVerified: _ev, ...safeUser } = user;
   const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email }, { expiresIn: jwtExpiresIn });
-  return reply.send({ token, user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
+  setAuthCookie(reply, token);
+  return reply.send({ user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
 });
 
 app.post("/auth/request-login-code", { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } }, async (request, reply) => {
@@ -1781,7 +2134,8 @@ app.post("/auth/verify-login-link", { config: { rateLimit: { max: 10, timeWindow
 
   const { emailVerified: _ev, ...safeUser } = user;
   const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email }, { expiresIn: jwtExpiresIn });
-  return reply.send({ token, user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
+  setAuthCookie(reply, token);
+  return reply.send({ user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
 });
 
 app.post("/auth/verify-login-code", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
@@ -1820,7 +2174,8 @@ app.post("/auth/verify-login-code", { config: { rateLimit: { max: 10, timeWindow
 
   const { emailVerified: _ev, ...safeUser } = user;
   const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email }, { expiresIn: jwtExpiresIn });
-  return reply.send({ token, user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
+  setAuthCookie(reply, token);
+  return reply.send({ user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
 });
 
 app.post("/auth/forgot-password", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (request, reply) => {
@@ -1866,7 +2221,7 @@ app.post("/auth/forgot-password", { config: { rateLimit: { max: 5, timeWindow: "
           <p style="color:#64748b;font-size:12px;margin:0;">If you did not request a password reset, you can safely ignore this email. The link and code will expire automatically.</p>
         </div>
       `,
-      text: `Reset your Gem password\n\nClick this link to reset your password (expires in 1 hour):\n${resetUrl}\n\nOr enter this 6-digit code on the page where you requested the reset: ${otpCode}\n\nIf you did not request this, ignore this email.`,
+      text: `Reset your GEM password\n\nClick this link to reset your password (expires in 1 hour):\n${resetUrl}\n\nOr enter this 6-digit code on the page where you requested the reset: ${otpCode}\n\nIf you did not request this, ignore this email.`,
     });
 
     if (process.env.NODE_ENV !== "production") {
@@ -1934,6 +2289,210 @@ app.post("/auth/reset-password", { config: { rateLimit: { max: 10, timeWindow: "
   ]);
 
   return reply.send({ message: "Password updated. You can now sign in." });
+});
+
+// ============================================================================
+// Account Management Routes (change password, change email, delete account)
+// ============================================================================
+
+// POST /auth/change-password — change password while authenticated (requires current password)
+app.post("/auth/change-password", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  if (currentUser.isDemo) return reply.status(403).send({ error: "Not available in demo mode.", code: "DEMO_RESTRICTED" });
+
+  const body = await validateRequest(
+    z.object({
+      currentPassword: z.string().min(1),
+      newPassword: z.string().min(8, "New password must be at least 8 characters"),
+    }),
+    request.body
+  );
+
+  const user = await prisma.user.findUnique({
+    where: { id: currentUser.id },
+    select: { passwordHash: true },
+  });
+
+  if (!user?.passwordHash) {
+    return reply.status(400).send({ error: "No password set on this account.", code: "NO_PASSWORD" });
+  }
+
+  const valid = await verifyPassword(body.currentPassword, user.passwordHash);
+  if (!valid) {
+    return reply.status(401).send({ error: "Current password is incorrect.", code: "WRONG_PASSWORD" });
+  }
+
+  const newHash = await hashPassword(body.newPassword);
+  await prisma.user.update({ where: { id: currentUser.id }, data: { passwordHash: newHash } });
+
+  return reply.send({ message: "Password updated successfully." });
+});
+
+// POST /auth/change-email — initiate email change (requires password; sends OTP to new address)
+app.post("/auth/change-email", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  if (currentUser.isDemo) return reply.status(403).send({ error: "Not available in demo mode.", code: "DEMO_RESTRICTED" });
+
+  const body = await validateRequest(
+    z.object({
+      password: z.string().min(1),
+      newEmail: z.string().email("Invalid email address").toLowerCase(),
+    }),
+    request.body
+  );
+
+  const user = await prisma.user.findUnique({
+    where: { id: currentUser.id },
+    select: { passwordHash: true, email: true },
+  });
+
+  if (!user?.passwordHash) {
+    return reply.status(400).send({ error: "No password set on this account.", code: "NO_PASSWORD" });
+  }
+
+  const valid = await verifyPassword(body.password, user.passwordHash);
+  if (!valid) {
+    return reply.status(401).send({ error: "Password is incorrect.", code: "WRONG_PASSWORD" });
+  }
+
+  if (body.newEmail === user.email.toLowerCase()) {
+    return reply.status(400).send({ error: "New email is the same as your current email.", code: "SAME_EMAIL" });
+  }
+
+  const conflict = await prisma.user.findUnique({ where: { email: body.newEmail } });
+  if (conflict) {
+    return reply.status(409).send({ error: "That email address is already in use.", code: "EMAIL_TAKEN" });
+  }
+
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  const redisKey = `email-change:${currentUser.id}`;
+  await redis.set(redisKey, JSON.stringify({ newEmail: body.newEmail, code }), "EX", 3600);
+
+  await sendTransactionalEmail({
+    to: body.newEmail,
+    subject: "Confirm your new GEM email address",
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+        <h2 style="margin:0 0 16px 0;font-size:20px;color:#1e293b">Confirm your new email</h2>
+        <p style="margin:0 0 20px 0;color:#475569">Enter this 6-digit code on GEM to confirm your new email address. It expires in 1 hour.</p>
+        <div style="background:#f1f5f9;border-radius:8px;padding:20px;text-align:center;font-size:32px;font-weight:700;letter-spacing:6px;color:#1e293b;margin-bottom:20px">${code}</div>
+        <p style="color:#94a3b8;font-size:12px;margin:0">If you did not request this change, you can safely ignore this email.</p>
+      </div>
+    `,
+    text: `Your GEM email change code is: ${code}\n\nThis code expires in 1 hour. If you did not request this, ignore this email.`,
+  });
+
+  return reply.send({ message: "Verification code sent to your new email address." });
+});
+
+// POST /auth/verify-email-change — confirm the OTP and update email
+app.post("/auth/verify-email-change", { config: { rateLimit: { max: 10, timeWindow: "10 minutes" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  if (currentUser.isDemo) return reply.status(403).send({ error: "Not available in demo mode.", code: "DEMO_RESTRICTED" });
+
+  const body = await validateRequest(
+    z.object({ code: z.string().length(6) }),
+    request.body
+  );
+
+  const redisKey = `email-change:${currentUser.id}`;
+  const raw = await redis.get(redisKey);
+  if (!raw) {
+    return reply.status(400).send({ error: "No pending email change found or it has expired.", code: "NO_PENDING_CHANGE" });
+  }
+
+  const { newEmail, code } = JSON.parse(raw) as { newEmail: string; code: string };
+  if (body.code !== code) {
+    return reply.status(401).send({ error: "Incorrect verification code.", code: "WRONG_CODE" });
+  }
+
+  const conflict = await prisma.user.findUnique({ where: { email: newEmail } });
+  if (conflict && conflict.id !== currentUser.id) {
+    await redis.del(redisKey);
+    return reply.status(409).send({ error: "That email address is now taken by another account.", code: "EMAIL_TAKEN" });
+  }
+
+  await prisma.user.update({
+    where: { id: currentUser.id },
+    data: { email: newEmail, emailVerified: true },
+  });
+  await redis.del(redisKey);
+
+  return reply.send({ message: "Email address updated successfully.", newEmail });
+});
+
+// POST /auth/request-account-deletion — verify password and send OTP to current email
+app.post("/auth/request-account-deletion", { config: { rateLimit: { max: 3, timeWindow: "10 minutes" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  if (currentUser.isDemo) return reply.status(403).send({ error: "Not available in demo mode.", code: "DEMO_RESTRICTED" });
+
+  const body = await validateRequest(
+    z.object({ password: z.string().min(1) }),
+    request.body
+  );
+
+  const user = await prisma.user.findUnique({
+    where: { id: currentUser.id },
+    select: { passwordHash: true, email: true },
+  });
+
+  if (!user?.passwordHash) {
+    return reply.status(400).send({ error: "No password set on this account.", code: "NO_PASSWORD" });
+  }
+
+  const valid = await verifyPassword(body.password, user.passwordHash);
+  if (!valid) {
+    return reply.status(401).send({ error: "Password is incorrect.", code: "WRONG_PASSWORD" });
+  }
+
+  const code = Math.floor(100000 + Math.random() * 900000).toString();
+  const redisKey = `account-deletion:${currentUser.id}`;
+  await redis.set(redisKey, code, "EX", 900); // 15 minutes
+
+  await sendTransactionalEmail({
+    to: user.email,
+    subject: "Confirm your GEM account deletion",
+    html: `
+      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:24px">
+        <h2 style="margin:0 0 16px 0;font-size:20px;color:#1e293b">Confirm account deletion</h2>
+        <p style="margin:0 0 20px 0;color:#475569">We received a request to permanently delete your GEM account. Enter this 6-digit code to confirm. It expires in 15 minutes.</p>
+        <div style="background:#f1f5f9;border-radius:8px;padding:20px;text-align:center;font-size:32px;font-weight:700;letter-spacing:6px;color:#1e293b;margin-bottom:20px">${code}</div>
+        <p style="color:#94a3b8;font-size:12px;margin:0">If you did not request this, you can safely ignore this email. Your account will not be deleted.</p>
+      </div>
+    `,
+    text: `Your GEM account deletion code is: ${code}\n\nThis code expires in 15 minutes. If you did not request this, ignore this email.`,
+  });
+
+  return reply.send({ message: "Verification code sent to your email address." });
+});
+
+// DELETE /users/me — permanently delete the authenticated user's account (requires email OTP)
+app.delete("/users/me", { config: { rateLimit: { max: 5, timeWindow: "10 minutes" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  if (currentUser.isDemo) return reply.status(403).send({ error: "Not available in demo mode.", code: "DEMO_RESTRICTED" });
+
+  const body = await validateRequest(
+    z.object({ code: z.string().length(6) }),
+    request.body
+  );
+
+  const redisKey = `account-deletion:${currentUser.id}`;
+  const storedCode = await redis.get(redisKey);
+  if (!storedCode) {
+    return reply.status(400).send({ error: "No pending deletion request found or it has expired.", code: "NO_PENDING_DELETION" });
+  }
+
+  if (body.code !== storedCode) {
+    return reply.status(401).send({ error: "Incorrect verification code.", code: "WRONG_CODE" });
+  }
+
+  await redis.del(redisKey);
+
+  // Cascade deletes handle all related records via Prisma schema onDelete: Cascade.
+  // MediaAsset.uploader and a few others are SetNull — files remain but uploader ref is cleared.
+  await prisma.user.delete({ where: { id: currentUser.id } });
+
+  return reply.status(204).send();
 });
 
 // ============================================================================
@@ -2260,6 +2819,7 @@ app.get("/uploads/*", async (request, reply) => {
 
 app.post("/users/me/avatar", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
+  if (currentUser.isDemo) return reply.status(403).send({ error: "Media uploads are not available in demo mode.", code: "DEMO_RESTRICTED" });
 
   const data = await request.file();
   if (!data) return reply.status(400).send({ error: "No file uploaded", code: "NO_FILE" });
@@ -2366,6 +2926,7 @@ async function extractImageMeta(filePath: string, mimeType: string): Promise<Ext
 app.post("/events/:eventId/media", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const { eventId } = request.params as { eventId: string };
+  if (currentUser.isDemo) return reply.status(403).send({ error: "Media uploads are not available in demo mode.", code: "DEMO_RESTRICTED" });
 
   // Global gate
   if (!(await isMediaUploadGloballyEnabled())) {
@@ -3961,8 +4522,8 @@ app.post("/groups", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } }
   const currentUser = await requireAuth(request, reply, prisma);
   const body = await validateRequest(createGroupBodySchema, request.body);
 
-  // Beta gate: if GROUP_CREATION_BETA_REQUIRED is set, validate code
-  if (process.env.GROUP_CREATION_BETA_REQUIRED === "true") {
+  // Beta gate: if GROUP_CREATION_BETA_REQUIRED is set, validate code (skipped for demo users)
+  if (process.env.GROUP_CREATION_BETA_REQUIRED === "true" && !currentUser.isDemo) {
     if (!body.betaCode) {
       return reply.status(403).send({ error: "An invite code is required to create a group.", code: "BETA_CODE_REQUIRED" });
     }
@@ -4317,6 +4878,7 @@ app.post("/groups/:groupId/invite-code/regenerate", { config: { rateLimit: { max
 // POST /groups/join — any authenticated user joins a group via invite code (creates pending membership)
 app.post("/groups/join", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
+  if (currentUser.isDemo) return reply.status(403).send({ error: "Demo users cannot join existing groups.", code: "DEMO_RESTRICTED" });
   const body = await validateRequest(joinGroupBodySchema, request.body);
 
   const group = await prisma.group.findUnique({
@@ -6185,6 +6747,165 @@ chatIo = createChatServer(
   }
 );
 
+// ============================================================================
+// Demo Routes
+// ============================================================================
+
+// POST /demo/start — claim a demo slot or enter the queue
+app.post("/demo/start", { config: { rateLimit: { max: 15, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const body = z.object({ deviceId: z.string().min(8).max(64) }).safeParse(request.body);
+  if (!body.success) return reply.status(400).send({ error: "deviceId required", code: "VALIDATION_ERROR" });
+  const { deviceId } = body.data;
+
+  // Reuse existing active session for this device
+  const existingSessionId = await redis.get(DEMO_DEVICE_KEY(deviceId));
+  if (existingSessionId) {
+    const session = await redis.hgetall(DEMO_SESSION_KEY(existingSessionId));
+    if (session?.userId && session?.expiresAt) {
+      const expiresAt = parseInt(session.expiresAt, 10);
+      if (expiresAt > Date.now()) {
+        const remainingSeconds = Math.max(1, Math.ceil((expiresAt - Date.now()) / 1000));
+        const token = await reply.jwtSign(
+          { sub: session.userId, email: session.email, isDemo: true, demoSessionId: existingSessionId },
+          { expiresIn: `${remainingSeconds}s` }
+        );
+        reply.setCookie("gem_token", token, {
+          httpOnly: true, secure: process.env.NODE_ENV === "production",
+          sameSite: "strict", path: "/", maxAge: remainingSeconds,
+        });
+        return reply.send({
+          status: "active", sessionId: existingSessionId, expiresAt,
+          user: { id: session.userId, name: "Demo User", username: "demo", email: "email@example.com", isDemo: true },
+        });
+      }
+      // Expired — clean up stale keys without DB (user may already be deleted)
+      await redis.del(DEMO_SESSION_KEY(existingSessionId));
+      await redis.srem(DEMO_ACTIVE_SET, existingSessionId);
+      await redis.del(DEMO_DEVICE_KEY(deviceId));
+    }
+  }
+
+  // Check slot availability
+  const activeCount = await redis.scard(DEMO_ACTIVE_SET);
+  if (activeCount >= DEMO_MAX_CONCURRENT) {
+    const score = await redis.zscore(DEMO_QUEUE_ZSET, deviceId);
+    if (!score) await redis.zadd(DEMO_QUEUE_ZSET, Date.now(), deviceId);
+    const rank = await redis.zrank(DEMO_QUEUE_ZSET, deviceId);
+    return reply.send({ status: "queued", position: (rank ?? 0) + 1 });
+  }
+
+  // Remove from queue if waiting
+  await redis.zrem(DEMO_QUEUE_ZSET, deviceId);
+
+  // Create demo user in DB
+  const sessionId = randomUUID();
+  const sessionShort = sessionId.replace(/-/g, "").slice(0, 10);
+  const demoEmail = `demo-${sessionShort}@gem-demo.internal`;
+  const demoUsername = `demo_${sessionShort}`;
+  const expiresAt = Date.now() + DEMO_DURATION_MS;
+
+  const demoUser = await prisma.user.create({
+    data: {
+      email: demoEmail,
+      name: "Demo User",
+      username: demoUsername,
+      emailVerified: true,
+      onboardingDone: true,
+      passwordHash: await hashPassword(randomUUID()),
+    },
+    select: { id: true },
+  });
+
+  // Seed three demo groups with dummy users and events
+  const dummyUserIds = await seedDemoData(demoUser.id);
+
+  // Track session in Redis (including dummy user IDs for cleanup)
+  const sessionTtlSec = Math.ceil(DEMO_DURATION_MS / 1000) + 120;
+  await redis.hset(DEMO_SESSION_KEY(sessionId), {
+    userId: demoUser.id,
+    deviceId,
+    email: demoEmail,
+    startedAt: String(Date.now()),
+    expiresAt: String(expiresAt),
+    dummyUserIds: JSON.stringify(dummyUserIds),
+  });
+  await redis.expire(DEMO_SESSION_KEY(sessionId), sessionTtlSec);
+  await redis.sadd(DEMO_ACTIVE_SET, sessionId);
+  await redis.set(DEMO_DEVICE_KEY(deviceId), sessionId, "EX", sessionTtlSec);
+
+  // Schedule auto-cleanup after 5 min
+  await demoCleanupQueue.add(
+    "cleanup",
+    { sessionId, userId: demoUser.id, deviceId },
+    { delay: DEMO_DURATION_MS, jobId: `demo-cleanup-${sessionId}` }
+  );
+
+  // Issue short-lived JWT (5 min)
+  const token = await reply.jwtSign(
+    { sub: demoUser.id, email: demoEmail, isDemo: true, demoSessionId: sessionId },
+    { expiresIn: "5m" }
+  );
+  reply.setCookie("gem_token", token, {
+    httpOnly: true, secure: process.env.NODE_ENV === "production",
+    sameSite: "strict", path: "/", maxAge: Math.ceil(DEMO_DURATION_MS / 1000),
+  });
+
+  return reply.send({
+    status: "active", sessionId, expiresAt,
+    user: { id: demoUser.id, name: "Demo User", username: "demo", email: "email@example.com", isDemo: true },
+  });
+});
+
+// POST /demo/end — end demo session + cleanup all data
+app.post("/demo/end", async (request, reply) => {
+  try {
+    await request.jwtVerify();
+  } catch {
+    clearAuthCookie(reply);
+    return reply.send({ ok: true });
+  }
+  const payload = request.user as { sub?: string; isDemo?: boolean; demoSessionId?: string };
+  if (payload.isDemo && payload.demoSessionId) {
+    const sessionId = payload.demoSessionId;
+    const session = await redis.hgetall(DEMO_SESSION_KEY(sessionId));
+    if (session?.userId) {
+      await cleanupDemoSession(sessionId, session.userId, session.deviceId ?? "");
+    }
+  }
+  clearAuthCookie(reply);
+  return reply.send({ ok: true });
+});
+
+// GET /demo/status/:deviceId — poll for queue position or slot readiness
+app.get("/demo/status/:deviceId", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const { deviceId } = request.params as { deviceId: string };
+
+  // Check for active session
+  const sessionId = await redis.get(DEMO_DEVICE_KEY(deviceId));
+  if (sessionId) {
+    const session = await redis.hgetall(DEMO_SESSION_KEY(sessionId));
+    if (session?.expiresAt) {
+      const expiresAt = parseInt(session.expiresAt, 10);
+      if (expiresAt > Date.now()) {
+        return reply.send({ status: "active", sessionId, expiresAt });
+      }
+    }
+    await redis.del(DEMO_DEVICE_KEY(deviceId));
+  }
+
+  // Check queue position
+  const rank = await redis.zrank(DEMO_QUEUE_ZSET, deviceId);
+  if (rank !== null) {
+    const activeCount = await redis.scard(DEMO_ACTIVE_SET);
+    if (activeCount < DEMO_MAX_CONCURRENT) {
+      return reply.send({ status: "slot_ready" });
+    }
+    return reply.send({ status: "queued", position: rank + 1 });
+  }
+
+  return reply.send({ status: "none" });
+});
+
 await app.listen({ port, host });
 
 // Verify SMTP connectivity once at startup (non-blocking)
@@ -6209,6 +6930,8 @@ const _notificationPurgeInterval = setInterval(
 
 // Graceful shutdown
 const gracefulShutdown = async () => {
+  await demoCleanupWorker.close();
+  await demoCleanupQueue.close();
   await calendarSyncWorker.close();
   await calendarSyncQueue.close();
   await notificationWorker.close();
