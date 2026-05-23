@@ -1,4 +1,5 @@
 import webpush from "web-push";
+import { escapeHtml } from "./mailer.js";
 
 export type StoredPushSubscription = {
   endpoint: string;
@@ -58,8 +59,8 @@ export function buildNotificationEmail(params: {
 
   const html = `
   <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;line-height:1.5;color:#0f172a;max-width:560px;margin:0 auto;padding:20px;">
-    <h2 style="margin:0 0 12px 0;">${params.title}</h2>
-    <p style="margin:0;">${params.body}</p>
+    <h2 style="margin:0 0 12px 0;">${escapeHtml(params.title)}</h2>
+    <p style="margin:0;">${escapeHtml(params.body)}</p>
     ${cta}
     <p style="margin-top:24px;color:#64748b;font-size:12px;">You are receiving this because you are a member of a GEM group.</p>
   </div>

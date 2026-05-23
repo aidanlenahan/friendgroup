@@ -158,6 +158,25 @@ focus on reliability, UX rough edges, and prep for a small group of external use
 [ ] Error monitoring — integrate a lightweight error tracker (e.g. Sentry free tier) for
     both API (Fastify plugin) and web (Sentry.captureException in ErrorBoundary)
 
+--- Security & compliance ---
+
+[x] HTML injection in email templates — user-supplied strings (display names, group names,
+    event titles) were interpolated raw into HTML email bodies. Fixed by adding escapeHtml()
+    to lib/mailer.ts and applying it at all 6 injection sites (buildNotificationEmail,
+    buildWelcomeEmail, join-request/approval/denial emails, admin email debug).
+    DONE 2026-05-23. Files: lib/mailer.ts, lib/notifications.ts, server.ts
+
+[x] Birthdate at account creation — new registration form requires date of birth; server
+    enforces 13+ age gate (400 AGE_REQUIREMENT_NOT_MET if underage); birthdate stored with
+    birthdateSet=true on creation so it cannot be changed later.
+    DONE 2026-05-23. Files: schema.prisma, migrations/20260523051721_add_birthdate,
+    server.ts, authStore.ts, RegisterPage.tsx
+
+[x] Birthdate in Settings — existing accounts backfilled with Jan 1 2000 / birthdateSet=false
+    (one edit allowed). Settings shows editable date input while birthdateSet=false; after save
+    flips birthdateSet=true and renders disabled/greyed-out. Backend enforces lock with
+    422 BIRTHDATE_ALREADY_SET. DONE 2026-05-23. Files: server.ts, authStore.ts, SettingsPage.tsx
+
 [ ] Automated DB backups — nightly pg_dump cron job to a separate S3/R2 bucket;
     retention 7 days; alert on failure--how can we do this for free? how does it interact with api? different server?
 

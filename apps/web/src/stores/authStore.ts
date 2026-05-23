@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
-import { setToken } from '../lib/api'
+import { apiFetch } from '../lib/api'
 
 interface User {
   id: string
@@ -12,93 +12,47 @@ interface User {
   theme?: string | null
   showEmail?: boolean
   onboardingDone?: boolean
+  birthdate?: string | null
+  birthdateSet?: boolean
   isAdmin?: boolean
+  isDemo?: boolean
 }
 
 interface AuthState {
   user: User | null
-  token: string | null
   hydrated: boolean
-  login: (token: string, user: User) => void
+  login: (user: User) => void
   logout: () => void
   markHydrated: () => void
   setUser: (user: User) => void
 }
 
-function persistAuthSnapshot(user: User | null, token: string | null) {
-  if (typeof window === 'undefined') {
-    return
-  }
-
-  try {
-    window.localStorage.setItem(
-      'fg-auth',
-      JSON.stringify({
-        state: { user, token },
-        version: 0,
-      }),
-    )
-  } catch {
-    // Ignore storage write failures (quota/private mode); in-memory auth still works.
-  }
-}
-
-function readPersistedAuth(): Pick<AuthState, 'user' | 'token'> {
-  if (typeof window === 'undefined') {
-    return { user: null, token: null }
-  }
-
-  try {
-    const raw = window.localStorage.getItem('fg-auth')
-    if (!raw) return { user: null, token: null }
-
-    const parsed = JSON.parse(raw) as { state?: { user?: User | null; token?: string | null } }
-    return {
-      user: parsed.state?.user ?? null,
-      token: parsed.state?.token ?? null,
-    }
-  } catch {
-    return { user: null, token: null }
-  }
-}
-
-const bootstrappedAuth = readPersistedAuth()
-if (bootstrappedAuth.token) {
-  setToken(bootstrappedAuth.token)
-}
-
 export const useAuthStore = create<AuthState>()(
   persist(
     (set) => ({
-      user: bootstrappedAuth.user,
-      token: bootstrappedAuth.token,
+      user: null,
       hydrated: false,
-      login: (token, user) => {
-        setToken(token)
-        persistAuthSnapshot(user, token)
-        set({ token, user })
+      login: (user) => {
+        set({ user })
       },
       logout: () => {
-        setToken(null)
-        persistAuthSnapshot(null, null)
-        set({ token: null, user: null })
+        // Fire-and-forget: clear the HttpOnly cookie server-side.
+        apiFetch('/auth/logout', { method: 'POST' }).catch(() => {/* ignore */})
+        set({ user: null })
       },
       markHydrated: () => {
         set({ hydrated: true })
       },
       setUser: (user) => {
-        set((s) => {
-          persistAuthSnapshot(user, s.token)
-          return { user }
-        })
+        set({ user })
       },
     }),
     {
       name: 'fg-auth',
       storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({ user: state.user, token: state.token }),
+      // Only persist the user object — never the token (cookie handles auth).
+      partialize: (state) => ({ user: state.user }),
       onRehydrateStorage: () => (state) => {
-        if (state?.token) setToken(state.token)
         state?.markHydrated()
       },
     },

@@ -75,7 +75,7 @@ import {
   isWebPushConfigured,
   sendPushNotification,
 } from "./lib/notifications.js";
-import { getMailTransporter, isMailConfigured, sendTransactionalEmail, verifyMailTransporter } from "./lib/mailer.js";
+import { escapeHtml, getMailTransporter, isMailConfigured, sendTransactionalEmail, verifyMailTransporter } from "./lib/mailer.js";
 import { buildGoogleCalendarLink, buildIcsCalendar } from "./lib/calendar.js";
 
 // Initialize clients
@@ -917,6 +917,7 @@ const registerBodySchema = z.object({
     /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/,
     "Password must have at least one uppercase letter, one lowercase letter, and one number"
   ),
+  birthdate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Birthdate must be in YYYY-MM-DD format"),
   betaCode: z.string().min(1).max(100).optional(),
   inviteToken: z.string().min(1).max(64).optional(),
 });
@@ -1082,6 +1083,7 @@ const updateUserBodySchema = z.object({
   showEmail: z.boolean().optional(),
   onboardingDone: z.boolean().optional(),
   theme: z.string().regex(/^(dark|light)(:(indigo|violet|sky|emerald|rose|amber))?$/).optional(),
+  birthdate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Birthdate must be in YYYY-MM-DD format").optional(),
 });
 
 const useBetaCodeBodySchema = z.object({
@@ -1649,7 +1651,7 @@ function buildWelcomeEmail(name: string, webBase: string): { html: string; text:
 
   const html = `
     <div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;background:#fff;">
-      <h2 style="margin:0 0 4px 0;font-size:22px;color:#1e1b4b;">Welcome to Gem, ${name}!</h2>
+      <h2 style="margin:0 0 4px 0;font-size:22px;color:#1e1b4b;">Welcome to Gem, ${escapeHtml(name)}!</h2>
       ${p("Your account is verified and ready to go. Here's a quick guide to get you started.")}
 
       ${h2("1. Join or create a group")}
@@ -1820,6 +1822,17 @@ app.post("/auth/register", { config: { rateLimit: { max: 10, timeWindow: "1 minu
     }
   }
 
+  // Age gate: must be 13 or older
+  const birthdateObj = new Date(body.birthdate);
+  if (isNaN(birthdateObj.getTime())) {
+    return reply.status(400).send({ error: "Invalid birthdate", code: "INVALID_BIRTHDATE" });
+  }
+  const ageCutoff = new Date();
+  ageCutoff.setFullYear(ageCutoff.getFullYear() - 13);
+  if (birthdateObj > ageCutoff) {
+    return reply.status(400).send({ error: "You must be at least 13 years old to create an account", code: "AGE_REQUIREMENT_NOT_MET" });
+  }
+
   const fullName = `${body.firstName} ${body.lastName}`;
   const baseUsername = (body.firstName + body.lastName).toLowerCase().replace(/[^a-z0-9]/g, "");
 
@@ -1843,6 +1856,8 @@ app.post("/auth/register", { config: { rateLimit: { max: 10, timeWindow: "1 minu
         username,
         passwordHash,
         emailVerified: false,
+        birthdate: birthdateObj,
+        birthdateSet: true,
       },
       select: { id: true, email: true, name: true, username: true, avatarUrl: true, theme: true },
     });
@@ -4935,7 +4950,7 @@ app.post("/groups/join", { config: { rateLimit: { max: 10, timeWindow: "1 minute
       html: `
         <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
           <h2 style="margin:0 0 12px 0;">GEM</h2>
-          <p style="margin:0 0 16px 0;"><strong>${currentUser.name}</strong> (${currentUser.email}) has requested to join your group <strong>${group.name}</strong>.</p>
+          <p style="margin:0 0 16px 0;"><strong>${escapeHtml(currentUser.name)}</strong> (${escapeHtml(currentUser.email)}) has requested to join your group <strong>${escapeHtml(group.name)}</strong>.</p>
           <p style="margin:0 0 20px 0;">You can approve or deny their request from the Members tab of your group.</p>
           <p style="margin:0 0 20px 0;">
             <a href="${groupUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:600;">Review Request</a>
@@ -4996,7 +5011,7 @@ app.post("/groups/:groupId/members/:userId/approve", { config: { rateLimit: { ma
       html: `
         <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
           <h2 style="margin:0 0 12px 0;">GEM</h2>
-          <p style="margin:0 0 16px 0;">Your request to join <strong>${group?.name ?? "the group"}</strong> has been <strong style="color:#22c55e;">approved</strong>!</p>
+          <p style="margin:0 0 16px 0;">Your request to join <strong>${escapeHtml(group?.name ?? "the group")}</strong> has been <strong style="color:#22c55e;">approved</strong>!</p>
           <p style="margin:0 0 20px 0;">
             <a href="${groupUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;padding:12px 20px;text-decoration:none;border-radius:8px;font-weight:600;">Open Group</a>
           </p>
@@ -5063,7 +5078,7 @@ app.post("/groups/:groupId/members/:userId/deny", { config: { rateLimit: { max: 
       html: `
         <div style="font-family:system-ui,sans-serif;max-width:480px;margin:0 auto;padding:24px;">
           <h2 style="margin:0 0 12px 0;">GEM</h2>
-          <p style="margin:0 0 16px 0;">Your request to join <strong>${group?.name ?? "the group"}</strong> was not approved at this time.</p>
+          <p style="margin:0 0 16px 0;">Your request to join <strong>${escapeHtml(group?.name ?? "the group")}</strong> was not approved at this time.</p>
           <p style="color:#64748b;font-size:12px;margin:0;">You are receiving this because you requested to join this group.</p>
         </div>
       `,
@@ -5311,7 +5326,7 @@ app.get("/users/me", async (request, reply) => {
 
   const user = await prisma.user.findUnique({
     where: { id: currentUser.id },
-    select: { id: true, email: true, name: true, username: true, usernameChangedAt: true, avatarUrl: true, theme: true, showEmail: true, onboardingDone: true, createdAt: true },
+    select: { id: true, email: true, name: true, username: true, usernameChangedAt: true, avatarUrl: true, theme: true, showEmail: true, onboardingDone: true, birthdate: true, birthdateSet: true, createdAt: true },
   });
 
   const isAdmin = ADMIN_EMAILS.length > 0 && ADMIN_EMAILS.includes(currentUser.email.toLowerCase());
@@ -5395,6 +5410,27 @@ app.patch("/users/me", { config: { rateLimit: { max: 10, timeWindow: "1 minute" 
     }
   }
 
+  if (body.birthdate !== undefined) {
+    const birthdateDate = new Date(body.birthdate);
+    if (isNaN(birthdateDate.getTime())) {
+      return reply.status(400).send({ error: "Invalid birthdate", code: "INVALID_BIRTHDATE" });
+    }
+    const ageCutoff = new Date();
+    ageCutoff.setFullYear(ageCutoff.getFullYear() - 13);
+    if (birthdateDate > ageCutoff) {
+      return reply.status(400).send({ error: "Birthdate must be at least 13 years in the past", code: "AGE_REQUIREMENT_NOT_MET" });
+    }
+    const existing = await prisma.user.findUnique({
+      where: { id: currentUser.id },
+      select: { birthdateSet: true },
+    });
+    if (existing?.birthdateSet) {
+      return reply.status(422).send({ error: "Birthdate has already been set and cannot be changed.", code: "BIRTHDATE_ALREADY_SET" });
+    }
+    dataToUpdate.birthdate = birthdateDate;
+    dataToUpdate.birthdateSet = true;
+  }
+
   if (body.username !== undefined) {
     const existing = await prisma.user.findUnique({
       where: { id: currentUser.id },
@@ -5424,7 +5460,7 @@ app.patch("/users/me", { config: { rateLimit: { max: 10, timeWindow: "1 minute" 
   const user = await prisma.user.update({
     where: { id: currentUser.id },
     data: dataToUpdate,
-    select: { id: true, email: true, name: true, username: true, usernameChangedAt: true, bio: true, avatarUrl: true, theme: true, showEmail: true, onboardingDone: true, createdAt: true },
+    select: { id: true, email: true, name: true, username: true, usernameChangedAt: true, bio: true, avatarUrl: true, theme: true, showEmail: true, onboardingDone: true, birthdate: true, birthdateSet: true, createdAt: true },
   });
 
   return reply.send({ user });
@@ -5778,7 +5814,7 @@ app.post("/admin/dev/email-debug/send", async (request, reply) => {
 
   const subject = body.subject ?? "GEM Test Email";
   const textBody = body.body ?? `This is a test email sent from the GEM developer panel.\n\nSent by: ${currentUser.email}\nTimestamp: ${new Date().toISOString()}`;
-  const htmlBody = `<p>${textBody.replace(/\n/g, "<br>")}</p>`;
+  const htmlBody = `<p>${escapeHtml(textBody).replace(/\n/g, "<br>")}</p>`;
 
   let smtpError: string | null = null;
   const smtpConfigured = isMailConfigured();

@@ -24,6 +24,8 @@ type UpdateMeResponse = {
     usernameChangedAt?: string | null
     avatarUrl?: string | null
     theme?: string | null
+    birthdate?: string | null
+    birthdateSet?: boolean
   }
 }
 
@@ -200,6 +202,44 @@ export default function SettingsPage() {
   const handleAccentChange = (newAccent: string) => saveTheme(currentTheme, newAccent)
 
   const navigate = useNavigate()
+
+  // --- Birthdate ---
+  const [birthdateEdit, setBirthdateEdit] = useState('')
+  const [birthdateSaving, setBirthdateSaving] = useState(false)
+
+  const maxBirthdate = (() => {
+    const d = new Date()
+    d.setFullYear(d.getFullYear() - 13)
+    return d.toISOString().split('T')[0]
+  })()
+
+  const handleSaveBirthdate = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!birthdateEdit || birthdateEdit > maxBirthdate) return
+    setBirthdateSaving(true)
+    try {
+      const data = await apiFetch<UpdateMeResponse>('/users/me', {
+        method: 'PATCH',
+        body: JSON.stringify({ birthdate: birthdateEdit }),
+      })
+      if (data.user) {
+        setUser({
+          ...user!,
+          ...data.user,
+          username: data.user.username ?? undefined,
+          avatarUrl: data.user.avatarUrl ?? undefined,
+          theme: data.user.theme ?? 'dark',
+        })
+      }
+      toast.success('Date of birth saved')
+      setBirthdateEdit('')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Failed to save date of birth'
+      toast.error(msg)
+    } finally {
+      setBirthdateSaving(false)
+    }
+  }
 
   // --- Change Password ---
   const [changePwOpen, setChangePwOpen] = useState(false)
@@ -618,6 +658,47 @@ export default function SettingsPage() {
       {!user?.isDemo && (
         <div className="space-y-4 mt-8">
           <h3 className="text-lg font-semibold text-gray-200">Account</h3>
+
+          {/* Date of Birth */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <p className="text-sm font-medium text-white mb-0.5">Date of Birth</p>
+            <p className="text-xs text-gray-500 mb-3">
+              {user?.birthdateSet
+                ? 'This field is locked and cannot be changed.'
+                : 'You have one opportunity to set your date of birth.'}
+            </p>
+            {user?.birthdateSet ? (
+              <div>
+                <input
+                  type="date"
+                  value={user.birthdate ? user.birthdate.split('T')[0] : ''}
+                  disabled
+                  className="w-full bg-gray-800/50 border border-gray-700/50 rounded-lg px-3 py-2 text-gray-500 text-sm cursor-not-allowed"
+                />
+                <p className="text-xs text-gray-600 mt-1">Date of birth cannot be changed after it has been set.</p>
+              </div>
+            ) : (
+              <form onSubmit={handleSaveBirthdate} className="flex items-end gap-3">
+                <div className="flex-1">
+                  <input
+                    type="date"
+                    value={birthdateEdit}
+                    onChange={(e) => setBirthdateEdit(e.target.value)}
+                    max={maxBirthdate}
+                    required
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={birthdateSaving || !birthdateEdit || birthdateEdit > maxBirthdate}
+                  className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors disabled:opacity-50 shrink-0"
+                >
+                  {birthdateSaving ? 'Saving…' : 'Save'}
+                </button>
+              </form>
+            )}
+          </div>
 
           {/* Change Password */}
           <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">

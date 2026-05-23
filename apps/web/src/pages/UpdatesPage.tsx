@@ -46,6 +46,9 @@ const releases: Release[] = [
       { type: 'improved', text: 'Private channel member list — members of an invite-only channel can now see who else is in it; a member count button appears in the channel header for all subscribers, not just admins' },
       { type: 'improved', text: 'Message delete confirmation — deleting your own message now requires a confirmation step; desktop shows an inline Confirm/Cancel prompt; mobile shows a confirmation modal before the delete fires' },
       { type: 'improved', text: 'Browser tab titles — every page now sets an accurate title (e.g. "The Crew — GEM", "#general — GEM", "Settings — GEM") so browser history and tab switching are easier' },
+      { type: 'new', text: 'Date of birth at sign-up — new accounts must enter a date of birth; accounts must belong to someone 13 or older' },
+      { type: 'new', text: 'Date of birth in Settings — existing accounts show a one-time editable date of birth field; once saved it is locked and displayed as read-only' },
+      { type: 'fixed', text: 'HTML injection in notification emails — user-supplied content (names, group names) is now properly escaped before being embedded in email bodies' },
     ],
   },
   {

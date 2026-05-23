@@ -25,6 +25,8 @@ model User {
   theme                      String                      @default("dark")
   showEmail                  Boolean                     @default(false)
   onboardingDone             Boolean                     @default(false)
+  birthdate                  DateTime?
+  birthdateSet               Boolean                     @default(false)
   createdAt                  DateTime                    @default(now())
   updatedAt                  DateTime                    @updatedAt
 

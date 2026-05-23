@@ -25,11 +25,18 @@ export default function RegisterPage() {
   const [confirmEmail, setConfirmEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [birthdate, setBirthdate] = useState('')
   const [betaCode, setBetaCode] = useState('')
   const [error, setError] = useState('')
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+
+  const maxBirthdate = (() => {
+    const d = new Date()
+    d.setFullYear(d.getFullYear() - 13)
+    return d.toISOString().split('T')[0]
+  })()
 
   const validate = (): boolean => {
     const errs: Record<string, string> = {}
@@ -43,6 +50,11 @@ export default function RegisterPage() {
       errs.password = 'Password must contain uppercase, lowercase, and a number'
     }
     if (password !== confirmPassword) errs.confirmPassword = 'Passwords do not match'
+    if (!birthdate) {
+      errs.birthdate = 'Date of birth is required'
+    } else if (birthdate > maxBirthdate) {
+      errs.birthdate = 'You must be at least 13 years old to create an account'
+    }
     setFieldErrors(errs)
     return Object.keys(errs).length === 0
   }
@@ -59,6 +71,7 @@ export default function RegisterPage() {
         lastName: lastName.trim(),
         email: email.trim(),
         password,
+        birthdate,
       }
       if (inviteToken) {
         body.inviteToken = inviteToken
@@ -184,6 +197,23 @@ export default function RegisterPage() {
             />
             {fieldErrors.confirmPassword && (
               <p className="text-red-400 text-xs mt-1">{fieldErrors.confirmPassword}</p>
+            )}
+          </div>
+
+          {/* Date of birth */}
+          <div>
+            <label className="block text-xs font-medium text-gray-400 mb-1">Date of Birth</label>
+            <input
+              type="date"
+              value={birthdate}
+              onChange={(e) => setBirthdate(e.target.value)}
+              max={maxBirthdate}
+              required
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <p className="text-gray-500 text-xs mt-1">You must be at least 13 years old to join.</p>
+            {fieldErrors.birthdate && (
+              <p className="text-red-400 text-xs mt-1">{fieldErrors.birthdate}</p>
             )}
           </div>
 

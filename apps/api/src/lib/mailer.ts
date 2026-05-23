@@ -1,5 +1,15 @@
 import nodemailer, { Transporter } from "nodemailer";
 
+/** Escapes user-supplied strings before embedding them in HTML email bodies. */
+export function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+}
+
 let _transporter: Transporter | null = null;
 
 /**
