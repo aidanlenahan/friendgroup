@@ -63,7 +63,7 @@ export default function ForgotPasswordPage() {
     setError('')
     try {
       await sendRequest(email.trim())
-      setResendMessage('A new code and link have been sent.')
+      setResendMessage('Check your email for a new code and link.')
       startCooldown()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not resend')

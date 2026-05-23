@@ -849,7 +849,7 @@ export default function ChannelPage() {
             <div className="flex flex-col items-center py-12 text-gray-500 text-sm gap-2">
               <span className="text-3xl">#</span>
               <p>This is the beginning of <strong className="text-gray-300">#{channel?.name ?? 'this channel'}</strong>.</p>
-              <p>Be the first to say something!</p>
+              <p>No messages yet.</p>
             </div>
           ) : (
             allMessages.map((msg, i) => {
@@ -1317,7 +1317,20 @@ export default function ChannelPage() {
               Members subscribed to these tags will be notified of messages in this channel.
             </p>
             {groupTags.length === 0 ? (
-              <p className="text-sm text-gray-500 italic">No tags exist in this group yet.</p>
+              <p className="text-sm text-gray-500 italic">
+                No tags exist in this group yet.{' '}
+                {isAdminOrOwner ? (
+                  <a
+                    href={`/groups/${groupId}/manage#tags`}
+                    className="text-indigo-400 hover:text-indigo-300 underline not-italic"
+                    onClick={() => setShowTagModal(false)}
+                  >
+                    Create one
+                  </a>
+                ) : (
+                  <span className="not-italic text-gray-500">Ask an admin to create a tag.</span>
+                )}
+              </p>
             ) : (
               <div className="space-y-2">
                 {groupTags.map((tag) => (

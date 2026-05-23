@@ -1,29 +1,24 @@
 /// <reference lib="webworker" />
 
-import { precacheAndRoute } from 'workbox-precaching'
+import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching'
 
 declare let self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST: Array<string | { url: string; revision: string | null }>
 }
 
 const SW_VERSION = 'gem-sw-v1'
-const STATIC_CACHE = `${SW_VERSION}-static`
 const NAV_CACHE = `${SW_VERSION}-nav`
 
-const STATIC_DESTINATIONS = new Set([
-  'style',
-  'script',
-  'font',
-  'image',
-  'manifest',
-])
-
+// Workbox handles all hashed asset caching via precacheAndRoute.
+// The custom static cache is removed — it competed with Workbox's fetch
+// handler and caused the second event.respondWith() call to fail.
 precacheAndRoute(self.__WB_MANIFEST)
+cleanupOutdatedCaches()
 
-self.addEventListener('install', (event: ExtendableEvent) => {
-  event.waitUntil(
-    caches.open(STATIC_CACHE).then((cache) => cache.addAll(['/']))
-  )
+self.addEventListener('install', () => {
+  // Skip waiting so the new SW takes over immediately on deploy.
+  // Paired with the vite:preloadError reload in main.tsx, which recovers
+  // any open tabs that have stale chunk URLs after a deploy.
   self.skipWaiting()
 })
 
@@ -32,7 +27,9 @@ self.addEventListener('activate', (event: ExtendableEvent) => {
     caches.keys().then(async (keys) => {
       await Promise.all(
         keys
-          .filter((key) => !key.startsWith(SW_VERSION))
+          // Delete only gem-sw-v1-* caches from old builds, not Workbox caches.
+          // Workbox's cleanupOutdatedCaches() handles its own precache pruning.
+          .filter((key) => key.startsWith(SW_VERSION) && key !== NAV_CACHE)
           .map((oldKey) => caches.delete(oldKey))
       )
       await self.clients.claim()
@@ -68,14 +65,16 @@ self.addEventListener('fetch', (event: FetchEvent) => {
     return
   }
 
+  // Navigation requests: network-first so users always get fresh HTML after deploys.
+  // Falls back to cached shell only when offline.
   if (request.mode === 'navigate') {
     event.respondWith(networkFirst(request, NAV_CACHE))
     return
   }
 
-  if (STATIC_DESTINATIONS.has(request.destination)) {
-    event.respondWith(cacheFirst(request, STATIC_CACHE))
-  }
+  // All hashed static assets (JS/CSS/fonts/images) are handled by Workbox's
+  // precacheAndRoute above. We do NOT add a second respondWith here — doing so
+  // caused InvalidStateError and interfered with Workbox's fallback logic.
 })
 
 self.addEventListener('push', (event: PushEvent) => {
@@ -127,21 +126,6 @@ self.addEventListener('notificationclick', (event: NotificationEvent) => {
     })
   )
 })
-
-async function cacheFirst(request: Request, cacheName: string) {
-  const cache = await caches.open(cacheName)
-  const cached = await cache.match(request)
-
-  if (cached) {
-    return cached
-  }
-
-  const response = await fetch(request)
-  if (response.ok) {
-    await cache.put(request, response.clone())
-  }
-  return response
-}
 
 async function networkFirst(request: Request, cacheName: string) {
   const cache = await caches.open(cacheName)

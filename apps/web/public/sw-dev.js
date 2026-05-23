@@ -1,4 +1,4 @@
-// Gem dev service worker (classic, no module imports)
+// GEM dev service worker (classic, no module imports)
 // This file lives in public/ so Vite always serves it as text/javascript
 // regardless of vite-plugin-pwa build state or Host header.
 
@@ -32,12 +32,12 @@ self.addEventListener('push', function (event) {
   var title =
     typeof payload.title === 'string'
       ? payload.title
-      : 'Gem notification';
+      : 'GEM notification';
 
   var body =
     typeof payload.body === 'string'
       ? payload.body
-      : 'You have a new update in Gem.';
+      : 'You have a new update in GEM.';
 
   var eventId =
     typeof payload.eventId === 'string' ? payload.eventId : null;

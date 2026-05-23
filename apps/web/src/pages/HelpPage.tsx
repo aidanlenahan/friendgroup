@@ -6,17 +6,17 @@ const faqs = [
   {
     question: 'What is GEM?',
     answer:
-      'GEM is a private social app for friend groups. You can create groups, plan events, chat in channels, and share photos — all in one place, just for the people you actually hang out with.',
+      'GEM is a private app for friend groups — create groups, plan events, chat in channels, and share photos. No public feeds, no strangers.',
   },
   {
     question: 'How do I sign up?',
     answer:
-      "GEM is currently in beta. You'll need an invite code to create an account. If you have one, head to the sign up page. If not, reach out and we'll get you in.",
+      "GEM is in beta. You need an invite code to create an account. If you have one, head to the sign-up page. If not, email us at help@gem.aidanlenahan.com to request one.",
   },
   {
     question: 'Where do I get an invite code?',
     answer:
-      "Invite codes are currently distributed by the GEM team during the beta period. You can request one by reaching out, or get one from a friend who's already on GEM.",
+      "The GEM team distributes invite codes during beta. Email help@gem.aidanlenahan.com to request one, or ask a friend who's already on GEM.",
   },
   {
     question: 'Is GEM free?',
@@ -41,7 +41,7 @@ const faqs = [
   {
     question: 'How do I report a bug or problem?',
     answer:
-      "Use the contact form to report any issues. During beta, we're especially interested in feedback, so don't hesitate to reach out.",
+      "Use the contact form to report issues — during beta, we're especially interested in feedback. Email help@gem.aidanlenahan.com directly if you prefer.",
   },
 ]
 

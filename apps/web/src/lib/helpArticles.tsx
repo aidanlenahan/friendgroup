@@ -32,7 +32,7 @@ export const helpArticles: HelpArticle[] = [
     title: 'Create and manage events',
     body: (
       <>
-        <p>Events are the core of Gem — a place to coordinate plans, collect RSVPs, and keep the conversation in one spot.</p>
+        <p>Events are the core of GEM — a place to coordinate plans, collect RSVPs, and keep the conversation in one spot.</p>
         <p className="font-medium text-gray-200 mt-3">Creating an event</p>
         <ol className="list-decimal list-inside space-y-1 mt-1">
           <li>Open your group and go to the <strong>Events</strong> tab.</li>
@@ -45,7 +45,7 @@ export const helpArticles: HelpArticle[] = [
         <p className="font-medium text-gray-200 mt-3">Event chat</p>
         <p className="mt-1">Each event has its own chat thread. Use it to share details, directions, or last-minute changes — it stays attached to the event so nothing gets lost.</p>
         <p className="font-medium text-gray-200 mt-3">Legendary events</p>
-        <p className="mt-1">Admins can mark special events as <strong>Legendary</strong>. These are highlighted in the events list and preserved as group memories.</p>
+        <p className="mt-1">Admins can mark special events as <strong>Legendary</strong>. These are starred and highlighted at the top of the events list.</p>
         <p className="mt-3 text-gray-500 text-xs">Events sync to your calendar app via ICS — see <em>Subscribe your calendar to a group</em> for setup instructions.</p>
       </>
     ),
@@ -55,7 +55,7 @@ export const helpArticles: HelpArticle[] = [
     title: 'Chat with your friends',
     body: (
       <>
-        <p>Gem has two types of chat: <strong>Channels</strong> (topic-based, persistent rooms) and <strong>Event chat</strong> (tied to a specific event).</p>
+        <p>GEM has two types of chat: <strong>Channels</strong> (topic-based, persistent rooms) and <strong>Event chat</strong> (tied to a specific event).</p>
         <p className="font-medium text-gray-200 mt-3">Channels</p>
         <p className="mt-1">Channels live in your group's <strong>Channels</strong> tab. They're great for ongoing conversations — #general, #planning, #random. Join any open channel by tapping <strong>Join</strong>. Admins can create new channels and make them invite-only if needed.</p>
         <p className="font-medium text-gray-200 mt-3">Event chat</p>
@@ -76,13 +76,13 @@ export const helpArticles: HelpArticle[] = [
     title: "What's new — seeing GEM updates",
     body: (
       <>
-        <p>The Gem team ships updates regularly. Here's how to stay in the loop.</p>
+        <p>The GEM team ships updates regularly. Here's how to stay in the loop.</p>
         <p className="font-medium text-gray-200 mt-3">Updates page</p>
         <p className="mt-1">Visit <strong>/updates</strong> (tap the menu and choose <strong>What's New</strong>) for a full changelog of every version — new features, improvements, and fixes, listed newest first.</p>
         <p className="font-medium text-gray-200 mt-3">Version numbers</p>
-        <p className="mt-1">Gem uses simple version numbers like v0.9. Each release page describes exactly what changed so you know what's new without having to go hunting.</p>
+        <p className="mt-1">GEM uses simple version numbers like v0.9. Each release page describes exactly what changed so you know what's new without having to go hunting.</p>
         <p className="font-medium text-gray-200 mt-3">Stay notified</p>
-        <p className="mt-1">Enable push notifications (see <em>Enable push notifications</em>) to receive alerts for new events and messages. Major Gem updates may also be announced via email.</p>
+        <p className="mt-1">Enable push notifications (see <em>Enable push notifications</em>) to receive alerts for new events and messages. Major GEM updates may also be announced via email.</p>
         <p className="mt-3 text-gray-500 text-xs">Have a feature request? Let us know at help@gem.aidanlenahan.com — we read everything.</p>
       </>
     ),
@@ -104,7 +104,7 @@ export const helpArticles: HelpArticle[] = [
         <p className="mt-3">We're a small team and read every message. You'll usually hear back within a day or two.</p>
         <p className="font-medium text-gray-200 mt-3">Reporting a bug</p>
         <p className="mt-1">When reporting a bug, it helps to include: what you were doing, what you expected to happen, and what actually happened. Screenshots or screen recordings are always welcome.</p>
-        <p className="mt-3 text-gray-500 text-xs">Gem is in active development. If something feels off, it might be a known issue we're already working on — don't hesitate to ask.</p>
+        <p className="mt-3 text-gray-500 text-xs">GEM is in active development. If something feels off, ask — it might be a known issue we're already working on.</p>
       </>
     ),
   },

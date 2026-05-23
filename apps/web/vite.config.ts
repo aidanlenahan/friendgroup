@@ -4,20 +4,23 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
-  server: {
-    host: '0.0.0.0',
-    port: 5173,
-    strictPort: true,
-    allowedHosts: ['.ngrok-free.dev', '.ngrok-free.app', '.ngrok.io', '.ngrok.app', '.ngrok.dev', 'localhost', '127.0.0.1', 'gem.aidanlenahan.com'],
-    proxy: {
-      '/api': {
-        target: 'http://127.0.0.1:4000',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
+  plugins: [
+    {
+      name: 'cache-control-headers',
+      configurePreviewServer(server) {
+        server.middlewares.use((req, res, next) => {
+          // Hashed assets are content-addressed — safe to cache forever.
+          if (req.url?.startsWith('/assets/')) {
+            res.setHeader('Cache-Control', 'public, max-age=31536000, immutable')
+          } else {
+            // sw.js, index.html, manifest: no-store so browsers always fetch
+            // fresh after a deploy and never run a stale service worker.
+            res.setHeader('Cache-Control', 'no-store')
+          }
+          next()
+        })
       },
     },
-  },
-  plugins: [
     react(),
     VitePWA({
       registerType: 'autoUpdate',
@@ -60,6 +63,19 @@ export default defineConfig({
       },
     }),
   ],
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    strictPort: true,
+    allowedHosts: ['.ngrok-free.dev', '.ngrok-free.app', '.ngrok.io', '.ngrok.app', '.ngrok.dev', 'localhost', '127.0.0.1', 'gem.aidanlenahan.com', 'gem-dev.aidanlenahan.com'],
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:4000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+    },
+  },
   build: {
     rollupOptions: {
       output: {

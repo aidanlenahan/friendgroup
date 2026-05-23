@@ -1,5 +1,5 @@
 [Unit]
-Description=GEM API (production)
+Description=GEM API (dev)
 After=network-online.target docker.service
 Wants=network-online.target docker.service
 StartLimitIntervalSec=60
@@ -10,12 +10,12 @@ Type=simple
 User=aidan
 Group=devs
 WorkingDirectory=/var/www/gem
-EnvironmentFile=/etc/gem/gem-api.env
+EnvironmentFile=/etc/gem/gem-api-dev.env
 ExecStartPre=/usr/bin/mkdir -p /var/www/gem/apps/api/dist/generated
 ExecStartPre=/usr/bin/cp -r /var/www/gem/apps/api/src/generated/prisma /var/www/gem/apps/api/dist/generated/
 ExecStart=/usr/bin/node /var/www/gem/apps/api/dist/server.js
-Restart=always
-RestartSec=3
+Restart=on-failure
+RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full

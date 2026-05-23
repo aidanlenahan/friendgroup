@@ -753,7 +753,7 @@ export default function GroupManagePage() {
       </section>
 
       {/* ── Tags ── */}
-      <section className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+      <section id="tags" className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
         <h3 className="text-base font-semibold text-white">Tags</h3>
         <p className="text-xs text-gray-500">Tags categorize events and let members subscribe to topics. Click a tag to edit its color or delete it.</p>
 

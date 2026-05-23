@@ -1,5 +1,5 @@
 [Unit]
-Description=GEM Web (production preview)
+Description=GEM Web (dev preview)
 After=network-online.target
 Wants=network-online.target
 
@@ -9,10 +9,9 @@ User=aidan
 Group=devs
 WorkingDirectory=/var/www/gem
 Environment=NODE_ENV=production
-Environment=VITE_API_BASE_URL=https://api-gem.aidanlenahan.com
-ExecStart=/usr/bin/npm --workspace apps/web run preview -- --host 127.0.0.1 --port 4173 --strictPort
-Restart=always
-RestartSec=3
+ExecStart=/usr/bin/npm --workspace apps/web run preview -- --host 127.0.0.1 --port 4174 --strictPort
+Restart=on-failure
+RestartSec=5
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full

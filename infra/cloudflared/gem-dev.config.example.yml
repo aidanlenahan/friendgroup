@@ -1,0 +1,20 @@
+# Cloudflare tunnel ingress for the dev environment.
+# Add these two hostname entries to your existing tunnel config alongside the prod entries.
+# gem-dev.aidanlenahan.com and api-gem-dev.aidanlenahan.com must be added as CNAME records
+# in Cloudflare DNS pointing to your tunnel (same tunnel UUID as prod is fine).
+
+ingress:
+  # Dev web (Vite preview, port 4174)
+  - hostname: gem-dev.aidanlenahan.com
+    service: http://127.0.0.1:4174
+
+  # Dev API (Fastify, port 4001)
+  - hostname: api-gem-dev.aidanlenahan.com
+    service: http://127.0.0.1:4001
+
+  # Keep your existing prod entries below this line, then the catch-all:
+  # - hostname: gem.aidanlenahan.com
+  #   service: http://127.0.0.1:4173
+  # - hostname: api-gem.aidanlenahan.com
+  #   service: http://127.0.0.1:4000
+  # - service: http_status:404

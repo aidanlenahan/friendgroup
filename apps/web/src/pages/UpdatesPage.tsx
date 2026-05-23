@@ -22,8 +22,12 @@ const releases: Release[] = [
     version: '0.9',
     date: 'May 2026',
     label: 'Beta',
-    summary: 'Account management, Privacy Policy & Terms, user bios, #tag mentions in chat, leave group, inline member stats, sender names in notifications, and more.',
+    summary: 'Demo mode, account management, block/unblock users, profile visibility settings, Privacy Policy & Terms, user bios, #tag mentions in chat, and more.',
     changes: [
+      { type: 'new', text: 'Demo mode — explore GEM without creating an account; /demo starts a timed guest session with a live countdown banner; demo data is wiped when the session ends or you exit' },
+      { type: 'new', text: 'Block/unblock users — block a user from their profile to stop receiving notifications from them; blocked users are listed under Settings → Blocked Users and can be unblocked at any time' },
+      { type: 'improved', text: 'Profile visibility in Settings — the email visibility toggle now lives in Settings → Profile Visibility alongside other profile controls, no longer buried on the profile edit page' },
+      { type: 'improved', text: 'Invite code info on sign-up — a ? button next to the invite code field explains what the code is and how to get one without leaving the page' },
       { type: 'new', text: 'Change password — update your login password from Settings → Account; requires your current password before the change is applied' },
       { type: 'new', text: 'Change email address — update your email from Settings → Account; password-confirmed and verified with a one-time code sent to the new address' },
       { type: 'new', text: 'Delete account — permanently remove your account and all associated data from Settings → Account; requires password confirmation' },

@@ -1,11 +1,17 @@
 # Admin/ops scripts (not for version control)
 dev.sh
 
+
+db-backup*
+/*.sql
+/*.db
+backups/
+
 # Local scratch files
 tmp/
 notes.md
 CLAUDE.md
-phases.md
+phases.txt
 
 # Runtime user uploads (server-generated, not source code)
 uploads/
@@ -57,7 +63,9 @@ Thumbs.db
 test-results/
 sec-todo.md
 sec-gen-todo.md
+perform.md
 
 calendar-todo.txt
 
 .claude/
+skills/
