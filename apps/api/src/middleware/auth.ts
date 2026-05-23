@@ -7,11 +7,15 @@ export type CurrentUser = {
   email: string;
   name: string;
   username: string | null;
+  isDemo?: boolean;
+  demoSessionId?: string;
 };
 
 type JwtPayload = {
   sub?: string;
   email?: string;
+  isDemo?: boolean;
+  demoSessionId?: string;
 };
 
 export async function requireAuth(
@@ -35,8 +39,14 @@ export async function requireAuth(
     throw new AppError(401, "User not found for token", "UNAUTHORIZED");
   }
 
-  (request as FastifyRequest & { currentUser: CurrentUser }).currentUser = user;
-  return user;
+  const currentUser: CurrentUser = {
+    ...user,
+    isDemo: payload.isDemo === true,
+    demoSessionId: payload.demoSessionId,
+  };
+
+  (request as FastifyRequest & { currentUser: CurrentUser }).currentUser = currentUser;
+  return currentUser;
 }
 
 export function getCurrentUser(request: FastifyRequest): CurrentUser {

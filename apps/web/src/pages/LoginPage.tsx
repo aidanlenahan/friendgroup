@@ -3,8 +3,43 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { apiFetch, ApiError } from '../lib/api'
 import { useAuthStore } from '../stores/authStore'
 
+function BetaInfoModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70" onClick={onClose}>
+      <div
+        className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-base font-bold text-white">GEM is in beta</h2>
+          <button type="button" onClick={onClose} className="text-gray-500 hover:text-white transition-colors mt-0.5">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <p className="text-sm text-gray-300 leading-relaxed">
+          GEM is currently invite-only while we work out the kinks. Account creation requires an invite code from an existing member or the team.
+        </p>
+        <p className="text-sm text-gray-300 leading-relaxed">
+          To request access or send feedback, email us at{' '}
+          <a href="mailto:help@gem.aidanlenahan.com" className="text-indigo-400 hover:text-indigo-300 underline">
+            help@gem.aidanlenahan.com
+          </a>
+        </p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-full mt-1 py-2.5 px-4 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors"
+        >
+          Got it
+        </button>
+      </div>
+    </div>
+  )
+}
+
 type AuthResponse = {
-  token: string
   user: {
     id: string
     email: string
@@ -16,7 +51,6 @@ type AuthResponse = {
 }
 
 type VerifyResponse = {
-  token: string
   user: {
     id: string
     email: string
@@ -53,6 +87,7 @@ export default function LoginPage() {
   const [error, setError] = useState('')
   const [info, setInfo] = useState('')
   const [loading, setLoading] = useState(false)
+  const [showBetaModal, setShowBetaModal] = useState(false)
   // Email-not-verified inline verification
   const [verifyUserId, setVerifyUserId] = useState('')
   const [verifyCode, setVerifyCode] = useState('')
@@ -92,7 +127,7 @@ export default function LoginPage() {
     })
       .then((data) => {
         if (cancelled) return
-        login(data.token, { ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
+        login({ ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
         navigate(nextPath, { replace: true })
       })
       .catch((err) => {
@@ -145,7 +180,7 @@ export default function LoginPage() {
         method: 'POST',
         body: JSON.stringify({ emailOrUsername: email, password }),
       })
-      login(data.token, { ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
+      login({ ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
       navigate(nextPath)
     } catch (err) {
       if (err instanceof ApiError && err.code === 'EMAIL_NOT_VERIFIED') {
@@ -157,11 +192,11 @@ export default function LoginPage() {
             method: 'POST',
             body: JSON.stringify({ userId }),
           })
-          setResendMessage('A verification code has been sent to your email.')
+          setResendMessage('Check your email for a verification code.')
           startResendCooldown()
         } catch (resendErr) {
           if (resendErr instanceof ApiError && resendErr.code === 'RESEND_COOLDOWN') {
-            setResendMessage('A code was recently sent to your email. Check your inbox.')
+            setResendMessage('A code was already sent. Check your inbox.')
             const secs = (resendErr.data?.secondsRemaining as number) ?? RESEND_COOLDOWN
             setResendCooldown(secs)
             intervalRef.current = setInterval(() => {
@@ -190,7 +225,7 @@ export default function LoginPage() {
         method: 'POST',
         body: JSON.stringify({ userId: verifyUserId, code: verifyCode }),
       })
-      login(data.token, { ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
+      login({ ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
       navigate('/groups')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Verification failed')
@@ -208,7 +243,7 @@ export default function LoginPage() {
         method: 'POST',
         body: JSON.stringify({ userId: verifyUserId }),
       })
-      setResendMessage('A new code has been sent to your email.')
+      setResendMessage('Check your email for a new code.')
       startResendCooldown()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not resend code')
@@ -224,7 +259,7 @@ export default function LoginPage() {
         method: 'POST',
         body: JSON.stringify({ email: otpEmail }),
       })
-      setInfo('If that email is registered, a sign-in code and secure sign-in link have been sent.')
+      setInfo('If that email is registered, we sent a sign-in code and link.')
       setMode('email-code-verify')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not send code')
@@ -242,7 +277,7 @@ export default function LoginPage() {
         method: 'POST',
         body: JSON.stringify({ email: otpEmail, code: otp }),
       })
-      login(data.token, { ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
+      login({ ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
       navigate(nextPath)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Invalid code')
@@ -450,7 +485,18 @@ export default function LoginPage() {
             Create one
           </Link>
         </p>
+        <p className="text-center text-xs text-gray-600">
+          <button
+            type="button"
+            onClick={() => setShowBetaModal(true)}
+            className="hover:text-gray-400 transition-colors underline underline-offset-2"
+          >
+            GEM is in beta — request access
+          </button>
+        </p>
       </div>
+
+      {showBetaModal && <BetaInfoModal onClose={() => setShowBetaModal(false)} />}
     </div>
   )
 }

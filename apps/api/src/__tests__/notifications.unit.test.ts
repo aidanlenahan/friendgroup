@@ -85,7 +85,7 @@ describe("notification domain helpers", () => {
       ctaUrl: "https://gem.app/events/evt_123",
     });
 
-    expect(template.html).toContain("Open Gem");
+    expect(template.html).toContain("Open GEM");
     expect(template.text).toContain("Game night moved to 8pm.");
     expect(template.text).toContain("https://gem.app/events/evt_123");
   });

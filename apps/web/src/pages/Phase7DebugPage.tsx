@@ -99,7 +99,7 @@ export function Phase7DebugPage() {
 
   const [email, setEmail] = useState('owner@gem.dev')
   const [password, setPassword] = useState('')
-  const [token, setToken] = useState('')
+  const [authenticated, setAuthenticated] = useState(false)
   const [config, setConfig] = useState<NotificationConfig | null>(null)
   const [status, setStatus] = useState('Idle.')
   const [permission, setPermission] = useState<NotificationPermission | 'unsupported'>(
@@ -152,9 +152,9 @@ export function Phase7DebugPage() {
 
       if (devResponse.ok) {
         const { data } = await readJsonResponse(devResponse)
-        const payload = data as { token: string; user: { email: string } } | null
-        if (!payload?.token) throw new Error('Dev token response did not include a token.')
-        setToken(payload.token)
+        const payload = data as { user: { email: string } } | null
+        if (!payload?.user) throw new Error('Dev token response did not include a user.')
+        setAuthenticated(true)
         setStatus(`Authenticated as ${payload.user.email} via dev-token endpoint.`)
         return
       }
@@ -168,10 +168,11 @@ export function Phase7DebugPage() {
         const loginResponse = await fetch(`${apiBaseUrl}/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
           body: JSON.stringify({ emailOrUsername: email, password }),
         })
         const { data: loginData, message: loginMessage } = await readJsonResponse(loginResponse)
-        const loginPayload = loginData as { token: string; user: { email: string } } | { error?: string } | null
+        const loginPayload = loginData as { user: { email: string } } | { error?: string } | null
         if (!loginResponse.ok) {
           throw new Error(
             (loginPayload && 'error' in loginPayload && loginPayload.error) ||
@@ -179,11 +180,11 @@ export function Phase7DebugPage() {
               `Login failed (${loginResponse.status})`
           )
         }
-        if (!loginPayload || !('token' in loginPayload) || !loginPayload.token) {
-          throw new Error('Login response did not include a token.')
+        if (!loginPayload || !('user' in loginPayload)) {
+          throw new Error('Login response did not include a user.')
         }
-        setToken(loginPayload.token)
-        setStatus(`Authenticated as ${(loginPayload as { token: string; user: { email: string } }).user.email} via password login.`)
+        setAuthenticated(true)
+        setStatus(`Authenticated as ${(loginPayload as { user: { email: string } }).user.email} via password login.`)
         return
       }
 
@@ -237,7 +238,7 @@ export function Phase7DebugPage() {
       return
     }
 
-    if (!token) {
+    if (!authenticated) {
       setStatus('Get a dev token first so subscribe can be authenticated.')
       return
     }
@@ -306,10 +307,8 @@ export function Phase7DebugPage() {
       setStatus('Saving subscription to API...')
       const response = await fetch(`${apiBaseUrl}/notifications/subscribe`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           endpoint: serialized.endpoint,
           keys: { auth, p256dh },
@@ -342,7 +341,7 @@ export function Phase7DebugPage() {
   }
 
   async function sendPushTest() {
-    if (!token) {
+    if (!authenticated) {
       setStatus('Get a dev token first to call push test endpoint.')
       return
     }
@@ -351,10 +350,8 @@ export function Phase7DebugPage() {
     try {
       const response = await fetch(`${apiBaseUrl}/notifications/test/push`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           title: 'GEM PWA Test',
           body: 'If you can read this, Phase 7 push wiring works.',
@@ -408,7 +405,7 @@ export function Phase7DebugPage() {
       }
 
       setConfig(null)
-      setToken('')
+      setAuthenticated(false)
       setPermission(getNotificationPermissionState())
       setSubscriptionJson('No subscription yet.')
       setStatus(
@@ -488,7 +485,7 @@ export function Phase7DebugPage() {
           <button className={btnBase} onClick={loginForDevToken}>Get Token</button>
         </div>
         <p className="text-sm text-gray-400">
-          Token status: <span className={token ? 'text-green-400' : 'text-yellow-400'}>{token ? 'Authenticated' : 'Not authenticated'}</span>
+          Token status: <span className={authenticated ? 'text-green-400' : 'text-yellow-400'}>{authenticated ? 'Authenticated' : 'Not authenticated'}</span>
         </p>
       </section>
 

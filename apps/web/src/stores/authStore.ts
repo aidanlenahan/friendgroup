@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { createJSONStorage, persist } from 'zustand/middleware'
 import { apiFetch } from '../lib/api'
+import { queryClient } from '../lib/queryClient'
 
 interface User {
   id: string
@@ -38,6 +39,7 @@ export const useAuthStore = create<AuthState>()(
       logout: () => {
         // Fire-and-forget: clear the HttpOnly cookie server-side.
         apiFetch('/auth/logout', { method: 'POST' }).catch(() => {/* ignore */})
+        queryClient.clear()
         set({ user: null })
       },
       markHydrated: () => {

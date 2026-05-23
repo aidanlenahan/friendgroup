@@ -4,7 +4,6 @@ import { apiFetch } from '../lib/api'
 import { useAuthStore } from '../stores/authStore'
 
 type VerifyResponse = {
-  token: string
   user: {
     id: string
     email: string
@@ -49,7 +48,7 @@ export default function VerifyEmailPage() {
       method: 'POST',
       body: JSON.stringify({ token: magicToken }),
     }).then((data) => {
-      login(data.token, { ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
+      login({ ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
       navigate('/groups', { replace: true })
     }).catch((err) => {
       setError(err instanceof Error ? err.message : 'Verification link is invalid or has expired')
@@ -90,7 +89,7 @@ export default function VerifyEmailPage() {
         method: 'POST',
         body: JSON.stringify({ userId, code }),
       })
-      login(data.token, {
+      login({
         ...data.user,
         avatarUrl: data.user.avatarUrl ?? undefined,
       })
@@ -111,7 +110,7 @@ export default function VerifyEmailPage() {
         method: 'POST',
         body: JSON.stringify({ userId }),
       })
-      setResendMessage('A new code has been sent to your email.')
+      setResendMessage('Check your email for a new code.')
       startCooldown()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not resend code')

@@ -1,4 +1,5 @@
 import "dotenv/config"; // reloaded: 2026-04-16
+import ms from "ms";
 import * as Sentry from "@sentry/node";
 import Fastify, { type FastifyRequest, type FastifyReply } from "fastify";
 import cors from "@fastify/cors";
@@ -11,7 +12,7 @@ import { PrismaClient } from "./generated/prisma/index.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { Pool } from "pg";
 import { Redis } from "ioredis";
-import { randomUUID, scrypt, randomBytes, timingSafeEqual } from "crypto";
+import { randomUUID, scrypt, randomBytes, timingSafeEqual, createHash } from "crypto";
 import { promisify } from "util";
 
 const scryptAsync = promisify(scrypt);
@@ -28,10 +29,28 @@ async function verifyPassword(password: string, hash: string): Promise<boolean> 
   const storedBuf = Buffer.from(storedKey, "hex");
   return derivedKey.length === storedBuf.length && timingSafeEqual(derivedKey, storedBuf);
 }
+
+// P2 security: Hash OTP codes with SHA-256 before storing in Redis.
+// Mitigates Redis compromise: all active OTPs cannot be bulk-harvested.
+function hashOtp(code: string): string {
+  return createHash("sha256").update(code).digest("hex");
+}
+
+function verifyOtp(code: string, storedHash: string): boolean {
+  try {
+    return timingSafeEqual(Buffer.from(hashOtp(code)), Buffer.from(storedHash));
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeNotifText(text: string): string {
+  return text.replace(/[\r\n\t]/g, " ").replace(/\s{2,}/g, " ").trim().slice(0, 200);
+}
 import multipart from "@fastify/multipart";
 import { createReadStream, readFileSync } from "fs";
 import { readFile, stat } from "fs/promises";
-import { join } from "path";
+import { join, resolve } from "path";
 import exifr from "exifr";
 import { imageSize } from "image-size";
 import {
@@ -52,6 +71,7 @@ import { Queue, Worker } from "bullmq";
 import { errorHandler } from "./lib/errors.js";
 import { validateRequest, schemas } from "./lib/validation.js";
 import { requireAuth } from "./middleware/auth.js";
+import { makeCache } from "./lib/cache.js";
 import {
   canAccessEvent,
   requireGroupMembership,
@@ -84,6 +104,7 @@ const pool = new Pool({ connectionString });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
+const cache = makeCache(redis);
 const s3 = new S3Client({
   region: process.env.S3_REGION || "us-east-1",
   endpoint: process.env.S3_ENDPOINT || "http://localhost:9000",
@@ -410,10 +431,7 @@ notificationWorker.on("failed", (job, error) => {
       extra: { jobId: job?.id },
     });
   }
-  console.error("Notification fanout job failed", {
-    jobId: job?.id,
-    error: error.message,
-  });
+  app.log.error({ jobId: job?.id, err: error.message }, "Notification fanout job failed");
 });
 
 const calendarSyncWorker = new Worker<CalendarSyncJobData>(
@@ -440,10 +458,7 @@ calendarSyncWorker.on("failed", (job, error) => {
       extra: { jobId: job?.id },
     });
   }
-  console.error("Calendar sync job failed", {
-    jobId: job?.id,
-    error: error.message,
-  });
+  app.log.error({ jobId: job?.id, err: error.message }, "Calendar sync job failed");
 });
 
 // ============================================================================
@@ -750,7 +765,7 @@ const demoCleanupWorker = new Worker<DemoCleanupJobData>(
 );
 
 demoCleanupWorker.on("failed", (job, error) => {
-  console.error("Demo cleanup job failed", { jobId: job?.id, error: error.message });
+  app.log.error({ jobId: job?.id, err: error.message }, "Demo cleanup job failed");
 });
 
 const authSecret = process.env.AUTH_SECRET;
@@ -772,7 +787,19 @@ if (configuredWebOrigins.length === 0) {
   throw new Error("Set WEB_BASE_URL or WEB_ALLOWED_ORIGINS to allowed web origins");
 }
 
-const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "100d";
+// P1 security: JWT expiry must not exceed 30 days. Default: 7 days.
+// Validates expiry on startup to prevent token hijacking.
+const jwtExpiresIn = process.env.JWT_EXPIRES_IN || "7d";
+const validateJwtExpiry = () => {
+  const expiryMs = ms(jwtExpiresIn as ms.StringValue);
+  if (!expiryMs || expiryMs > ms("30d")) {
+    throw new Error(
+      `JWT_EXPIRES_IN must be a valid duration ≤ 30 days; got "${jwtExpiresIn}"`
+    );
+  }
+  console.info(`[startup] JWT expiry configured: ${jwtExpiresIn} (${expiryMs / 1000}s)`);
+};
+validateJwtExpiry();
 
 const configuredWebSocketOrigins = configuredWebOrigins.map((origin) => {
   if (origin.startsWith("https://")) return origin.replace("https://", "wss://");
@@ -790,12 +817,19 @@ const app = Fastify({
         "req.headers.authorization",
         "req.headers.cookie",
         "body.password",
+        "body.newPassword",
+        "body.currentPassword",
         "body.token",
         "body.code",
         "body.otp",
+        "body.resetCode",
+        "body.verificationCode",
         "body.betaCode",
         "body.calendarToken",
+        "body.p256dh",
+        "body.auth",
       ],
+      censor: "[REDACTED]",
     },
   },
   trustProxy: 1,
@@ -874,7 +908,7 @@ const createEventBodySchema = z.object({
   maxAttendees: z.number().int().positive().optional(),
   location: z.string().max(200).optional(),
   tagIds: z.array(schemas.id).max(3, "You can add up to 3 tags per event").optional(),
-});
+}).strict();
 
 const updateEventParamsSchema = z.object({
   id: schemas.id,
@@ -889,7 +923,7 @@ const updateEventBodySchema = z.object({
   maxAttendees: z.number().int().positive().nullable().optional(),
   location: z.string().max(200).nullable().optional(),
   tagIds: z.array(schemas.id).max(3, "You can add up to 3 tags per event").optional(),
-});
+}).strict();
 
 const rsvpBodySchema = z.object({
   status: schemas.rsvpStatus,
@@ -920,7 +954,7 @@ const registerBodySchema = z.object({
   birthdate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Birthdate must be in YYYY-MM-DD format"),
   betaCode: z.string().min(1).max(100).optional(),
   inviteToken: z.string().min(1).max(64).optional(),
-});
+}).strict();
 
 const loginBodySchema = z.object({
   emailOrUsername: z.string().min(1).max(255),
@@ -1057,14 +1091,14 @@ const createGroupBodySchema = z.object({
   description: z.string().max(500).optional(),
   avatarUrl: z.string().url().optional(),
   betaCode: z.string().optional(),
-});
+}).strict();
 
 const updateGroupBodySchema = z.object({
   name: z.string().min(1).max(60).optional(),
   description: z.string().max(500).optional(),
   avatarUrl: z.string().url().nullable().optional(),
   statsEnabled: z.boolean().optional(),
-});
+}).strict();
 
 const groupMemberBodySchema = z.object({
   email: schemas.email,
@@ -1084,7 +1118,7 @@ const updateUserBodySchema = z.object({
   onboardingDone: z.boolean().optional(),
   theme: z.string().regex(/^(dark|light)(:(indigo|violet|sky|emerald|rose|amber))?$/).optional(),
   birthdate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Birthdate must be in YYYY-MM-DD format").optional(),
-});
+}).strict();
 
 const useBetaCodeBodySchema = z.object({
   code: z.string().min(1).max(100),
@@ -1103,7 +1137,7 @@ const updateMemberRoleBodySchema = z.object({
 
 const joinGroupBodySchema = z.object({
   inviteCode: z.string().length(12),
-});
+}).strict();
 
 const memberApprovalParamsSchema = z.object({
   groupId: schemas.id,
@@ -1113,12 +1147,12 @@ const memberApprovalParamsSchema = z.object({
 const createTagBodySchema = z.object({
   name: z.string().min(1).max(100),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-});
+}).strict();
 
 const updateTagBodySchema = z.object({
   name: z.string().min(1).max(100).optional(),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).nullable().optional(),
-});
+}).strict();
 
 const tagParamsSchema = z.object({
   groupId: schemas.id,
@@ -1128,7 +1162,7 @@ const tagParamsSchema = z.object({
 const createChannelBodySchema = z.object({
   name: z.string().min(1).max(100),
   isInviteOnly: z.boolean().optional(),
-});
+}).strict();
 
 const channelParamsSchema = z.object({
   groupId: schemas.id,
@@ -1273,8 +1307,8 @@ async function scheduleEventStartNotification(event: { id: string; groupId: stri
         type: "event_start",
         groupId: event.groupId,
         eventId: event.id,
-        title: event.title,
-        body: reminderBody(offset, event.title),
+        title: sanitizeNotifText(event.title),
+        body: sanitizeNotifText(reminderBody(offset, event.title)),
         url: `/events/${event.id}`,
         reminderOffsetMinutes: offset,
       },
@@ -1361,10 +1395,39 @@ function clearAuthCookie(reply: FastifyReply) {
   reply.clearCookie("gem_token", { path: "/" });
 }
 
+const REFRESH_TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
+
+async function issueRefreshToken(reply: FastifyReply, userId: string, email: string): Promise<void> {
+  const rawToken = randomBytes(32).toString("hex");
+  const hash = createHash("sha256").update(rawToken).digest("hex");
+  await redis.set(`refresh:${hash}`, JSON.stringify({ userId, email }), "EX", REFRESH_TOKEN_TTL_SECONDS);
+  reply.setCookie("refresh_token", rawToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    path: "/auth/refresh",
+    maxAge: REFRESH_TOKEN_TTL_SECONDS,
+  });
+}
+
+async function revokeRefreshToken(request: FastifyRequest): Promise<void> {
+  const rawToken = request.cookies["refresh_token"];
+  if (rawToken) {
+    const hash = createHash("sha256").update(rawToken).digest("hex");
+    await redis.del(`refresh:${hash}`);
+  }
+}
+
+function clearRefreshCookie(reply: FastifyReply) {
+  reply.clearCookie("refresh_token", { path: "/auth/refresh" });
+}
+
 await app.register(rateLimit, {
-  global: false,
+  global: true,
+  max: 120,
+  timeWindow: "1 minute",
   redis,
-  keyGenerator: (request) => (request as any).user?.id ?? request.ip,
+  keyGenerator: (request) => request.ip,
 });
 
 await app.register(multipart, {
@@ -1411,6 +1474,9 @@ app.addHook("onResponse", async (request, reply) => {
 // ============================================================================
 
 app.get("/health", async (request, reply) => {
+  if (process.env.NODE_ENV === "production" && request.ip === "127.0.0.1") {
+    app.log.warn("trustProxy misconfiguration: request.ip is 127.0.0.1 — check proxy hop count");
+  }
   return reply.send({ status: "ok", timestamp: new Date().toISOString() });
 });
 
@@ -1567,8 +1633,47 @@ app.post("/auth/dev-token", { config: { rateLimit: { max: effectiveDevTokenRateL
 // Auth Routes — Logout
 // ============================================================================
 
-app.post("/auth/logout", async (_request, reply) => {
+app.post("/auth/logout", async (request, reply) => {
+  await revokeRefreshToken(request);
   clearAuthCookie(reply);
+  clearRefreshCookie(reply);
+  return reply.send({ ok: true });
+});
+
+app.post("/auth/refresh", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const rawToken = request.cookies["refresh_token"];
+  if (!rawToken) {
+    return reply.status(401).send({ error: "No refresh token", code: "NO_REFRESH_TOKEN" });
+  }
+
+  const hash = createHash("sha256").update(rawToken).digest("hex");
+  const stored = await redis.get(`refresh:${hash}`);
+  if (!stored) {
+    // Token not found — either expired or already rotated (possible reuse attack).
+    clearRefreshCookie(reply);
+    return reply.status(401).send({ error: "Refresh token expired or already used", code: "REFRESH_INVALID" });
+  }
+
+  const { userId, email } = JSON.parse(stored) as { userId: string; email: string };
+
+  // Rotate: delete old token, issue new pair atomically.
+  const pipe = redis.pipeline();
+  pipe.del(`refresh:${hash}`);
+  const newRawToken = randomBytes(32).toString("hex");
+  const newHash = createHash("sha256").update(newRawToken).digest("hex");
+  pipe.set(`refresh:${newHash}`, JSON.stringify({ userId, email }), "EX", REFRESH_TOKEN_TTL_SECONDS);
+  await pipe.exec();
+
+  const newAccessToken = await reply.jwtSign({ sub: userId, email }, { expiresIn: jwtExpiresIn });
+  setAuthCookie(reply, newAccessToken);
+  reply.setCookie("refresh_token", newRawToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "strict",
+    path: "/auth/refresh",
+    maxAge: REFRESH_TOKEN_TTL_SECONDS,
+  });
+
   return reply.send({ ok: true });
 });
 
@@ -1883,9 +1988,9 @@ app.post("/auth/register", { config: { rateLimit: { max: 10, timeWindow: "1 minu
     return newUser;
   });
 
-  // Store 6-digit OTP in Redis (10 min TTL)
+  // Store 6-digit OTP in Redis (10 min TTL), hashed with SHA-256
   const otpCode = generateOtpCode();
-  await redis.setex(`verify:email:${user.id}`, 600, otpCode);
+  await redis.setex(`verify:email:${user.id}`, 600, hashOtp(otpCode));
 
   // Magic link token valid for 24 hours
   const verifyLinkToken = randomBytes(32).toString("hex");
@@ -1917,7 +2022,14 @@ app.post("/auth/verify-email", { config: { rateLimit: { max: 20, timeWindow: "1 
   const body = await validateRequest(verifyEmailBodySchema, request.body);
 
   const stored = await redis.get(`verify:email:${body.userId}`);
-  if (!stored || stored !== body.code) {
+  if (!stored) {
+    return reply.status(400).send({ error: "Invalid or expired verification code", code: "INVALID_CODE" });
+  }
+  if (!verifyOtp(body.code, stored)) {
+    const failKey = `otp:failures:email:${body.userId}`;
+    const failures = await redis.incr(failKey);
+    if (failures === 1) await redis.expire(failKey, 600);
+    if (failures >= 5) await redis.del(`verify:email:${body.userId}`, failKey);
     return reply.status(400).send({ error: "Invalid or expired verification code", code: "INVALID_CODE" });
   }
 
@@ -1938,6 +2050,7 @@ app.post("/auth/verify-email", { config: { rateLimit: { max: 20, timeWindow: "1 
 
   const token = await reply.jwtSign({ sub: user.id, email: user.email }, { expiresIn: jwtExpiresIn });
   setAuthCookie(reply, token);
+  await issueRefreshToken(reply, user.id, user.email);
   return reply.send({ user: { ...user, isAdmin: ADMIN_EMAILS.includes(user.email.toLowerCase()) } });
 });
 
@@ -1977,6 +2090,7 @@ app.post("/auth/verify-email-link", { config: { rateLimit: { max: 10, timeWindow
   const { emailVerified: _ev, ...safeUser } = user;
   const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email }, { expiresIn: jwtExpiresIn });
   setAuthCookie(reply, token);
+  await issueRefreshToken(reply, safeUser.id, safeUser.email);
   return reply.send({ user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
 });
 
@@ -2002,7 +2116,7 @@ app.post("/auth/resend-verification", { config: { rateLimit: { max: 10, timeWind
   }
 
   const otpCode = generateOtpCode();
-  await redis.setex(`verify:email:${body.userId}`, 600, otpCode);
+  await redis.setex(`verify:email:${body.userId}`, 600, hashOtp(otpCode));
   await redis.setex(`verify:cooldown:${body.userId}`, 60, "1");
 
   const verifyLinkToken = randomBytes(32).toString("hex");
@@ -2029,6 +2143,21 @@ app.post("/auth/resend-verification", { config: { rateLimit: { max: 10, timeWind
 app.post("/auth/login", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
   const body = await validateRequest(loginBodySchema, request.body);
 
+  // P1 security: Per-account login lockout after 10 failed attempts
+  const normalizedEmail = body.emailOrUsername.toLowerCase();
+  const lockKey = `login:failures:${normalizedEmail}`;
+  const lockoutTtl = 15 * 60; // 15-minute window
+
+  const failureCount = await redis.get(lockKey);
+  if (failureCount && parseInt(failureCount) > 10) {
+    const ttl = await redis.ttl(lockKey);
+    return reply.status(429).send({
+      error: "Account temporarily locked due to too many failed login attempts. Try again later.",
+      code: "ACCOUNT_LOCKED",
+      retryAfterSeconds: ttl > 0 ? ttl : lockoutTtl,
+    });
+  }
+
   // Accept email or @username
   const isEmail = body.emailOrUsername.includes("@");
   const user = isEmail
@@ -2050,13 +2179,26 @@ app.post("/auth/login", { config: { rateLimit: { max: 10, timeWindow: "1 minute"
   const invalidCreds = { error: "Invalid email or password", code: "INVALID_CREDENTIALS" };
 
   if (!user || !user.passwordHash) {
+    // Track failed attempt
+    const failures = await redis.incr(lockKey);
+    if (failures === 1) {
+      await redis.expire(lockKey, lockoutTtl);
+    }
     return reply.status(401).send(invalidCreds);
   }
 
   const valid = await verifyPassword(body.password, user.passwordHash);
   if (!valid) {
+    // Track failed attempt
+    const failures = await redis.incr(lockKey);
+    if (failures === 1) {
+      await redis.expire(lockKey, lockoutTtl);
+    }
     return reply.status(401).send(invalidCreds);
   }
+
+  // Clear failure counter on successful login
+  await redis.del(lockKey);
 
   if (!user.emailVerified) {
     return reply.status(403).send({
@@ -2069,6 +2211,7 @@ app.post("/auth/login", { config: { rateLimit: { max: 10, timeWindow: "1 minute"
   const { passwordHash: _omit, emailVerified: _ev, ...safeUser } = user;
   const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email }, { expiresIn: jwtExpiresIn });
   setAuthCookie(reply, token);
+  await issueRefreshToken(reply, safeUser.id, safeUser.email);
   return reply.send({ user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
 });
 
@@ -2092,7 +2235,7 @@ app.post("/auth/request-login-code", { config: { rateLimit: { max: 5, timeWindow
         await redis.del(`login:link:${previousLinkToken}`);
       }
 
-      await redis.setex(`login:code:${user.id}`, 600, otpCode);
+      await redis.setex(`login:code:${user.id}`, 600, hashOtp(otpCode));
       await redis.setex(`login:link:${linkToken}`, 600, user.id);
       await redis.setex(`login:link:user:${user.id}`, 600, linkToken);
       await redis.setex(`login:cooldown:${user.id}`, 60, "1");
@@ -2150,6 +2293,7 @@ app.post("/auth/verify-login-link", { config: { rateLimit: { max: 10, timeWindow
   const { emailVerified: _ev, ...safeUser } = user;
   const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email }, { expiresIn: jwtExpiresIn });
   setAuthCookie(reply, token);
+  await issueRefreshToken(reply, safeUser.id, safeUser.email);
   return reply.send({ user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
 });
 
@@ -2166,7 +2310,14 @@ app.post("/auth/verify-login-code", { config: { rateLimit: { max: 10, timeWindow
   }
 
   const stored = await redis.get(`login:code:${user.id}`);
-  if (!stored || stored !== body.code) {
+  if (!stored) {
+    return reply.status(401).send({ error: "Invalid or expired code", code: "INVALID_CODE" });
+  }
+  if (!verifyOtp(body.code, stored)) {
+    const failKey = `otp:failures:login:${user.id}`;
+    const failures = await redis.incr(failKey);
+    if (failures === 1) await redis.expire(failKey, 600);
+    if (failures >= 5) await redis.del(`login:code:${user.id}`, failKey);
     return reply.status(401).send({ error: "Invalid or expired code", code: "INVALID_CODE" });
   }
 
@@ -2190,6 +2341,7 @@ app.post("/auth/verify-login-code", { config: { rateLimit: { max: 10, timeWindow
   const { emailVerified: _ev, ...safeUser } = user;
   const token = await reply.jwtSign({ sub: safeUser.id, email: safeUser.email }, { expiresIn: jwtExpiresIn });
   setAuthCookie(reply, token);
+  await issueRefreshToken(reply, safeUser.id, safeUser.email);
   return reply.send({ user: { ...safeUser, isAdmin: ADMIN_EMAILS.includes(safeUser.email.toLowerCase()) } });
 });
 
@@ -2217,7 +2369,7 @@ app.post("/auth/forgot-password", { config: { rateLimit: { max: 5, timeWindow: "
 
     // Also generate a 6-digit OTP so the user can verify directly on the page
     const otpCode = generateOtpCode();
-    await redis.setex(`reset:code:${user.id}`, 3600, otpCode);
+    await redis.setex(`reset:code:${user.id}`, 3600, hashOtp(otpCode));
 
     const resetUrl = `${process.env.WEB_BASE_URL}/reset-password?token=${rawToken}`;
 
@@ -2263,7 +2415,7 @@ app.post("/auth/verify-reset-code", { config: { rateLimit: { max: 10, timeWindow
   }
 
   const stored = await redis.get(`reset:code:${user.id}`);
-  if (!stored || stored !== body.code) {
+  if (!stored || !verifyOtp(body.code, stored)) {
     return reply.status(401).send(invalidError);
   }
 
@@ -2522,9 +2674,32 @@ app.get("/notifications/config", async (request, reply) => {
   });
 });
 
+const PUSH_ENDPOINT_ALLOWLIST = [
+  "fcm.googleapis.com",
+  "updates.push.services.mozilla.com",
+  "push.services.mozilla.com",
+  "notify.windows.com",
+  "wns2.notify.windows.com",
+  "web.push.apple.com",
+];
+
+function isPushEndpointAllowed(endpoint: string): boolean {
+  try {
+    const { protocol, hostname } = new URL(endpoint);
+    if (protocol !== "https:") return false;
+    return PUSH_ENDPOINT_ALLOWLIST.some((allowed) => hostname === allowed || hostname.endsWith(`.${allowed}`));
+  } catch {
+    return false;
+  }
+}
+
 app.post("/notifications/subscribe", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const body = await validateRequest(notificationSubscribeBodySchema, request.body);
+
+  if (!isPushEndpointAllowed(body.endpoint)) {
+    return reply.status(400).send({ error: "Invalid push endpoint", code: "INVALID_ENDPOINT" });
+  }
 
   const subscription = await prisma.notificationSubscription.upsert({
     where: { userId: currentUser.id },
@@ -2798,13 +2973,18 @@ async function getGlobalMediaUsedBytes(): Promise<number> {
 // GET /uploads/* — serve local media files
 // ---------------------------------------------------------------------------
 
-app.get("/uploads/*", async (request, reply) => {
+app.get("/uploads/*", { config: { rateLimit: { max: 300, timeWindow: "1 minute" } } }, async (request, reply) => {
+  await requireAuth(request, reply, prisma);
+
   const relativePath = (request.params as Record<string, string>)["*"];
-  if (!relativePath || relativePath.includes("..")) {
+  if (!relativePath) {
     return reply.status(400).send({ error: "Invalid path" });
   }
 
-  const absPath = join(UPLOAD_DIR, relativePath);
+  const absPath = resolve(join(UPLOAD_DIR, relativePath));
+  if (!absPath.startsWith(resolve(UPLOAD_DIR) + "/")) {
+    return reply.status(400).send({ error: "Invalid path" });
+  }
   try {
     const fileStat = await stat(absPath);
     if (!fileStat.isFile()) return reply.status(404).send({ error: "Not found" });
@@ -2864,6 +3044,7 @@ app.post("/users/me/avatar", { config: { rateLimit: { max: 10, timeWindow: "1 mi
 
   await prisma.user.update({ where: { id: currentUser.id }, data: { avatarUrl } });
 
+  await cache.del(`cache:userme:${currentUser.id}`);
   return reply.status(201).send({ avatarUrl });
 });
 
@@ -3456,6 +3637,20 @@ app.get("/events/:id", async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const { id } = request.params as { id: string };
 
+  const eventCacheKey = `cache:event:${id}:${currentUser.id}`;
+  const cachedEvent = await cache.get<{ event: { groupId: string } }>(eventCacheKey);
+  if (cachedEvent) {
+    const membership = await prisma.membership.findUnique({
+      where: { userId_groupId: { userId: currentUser.id, groupId: cachedEvent.event.groupId } },
+      select: { status: true },
+    });
+    if (!membership || membership.status !== "active") {
+      await cache.del(eventCacheKey);
+      return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
+    }
+    return reply.send(cachedEvent);
+  }
+
   const event = await prisma.event.findUnique({
     where: { id },
     include: {
@@ -3506,7 +3701,9 @@ app.get("/events/:id", async (request, reply) => {
     limitBytes: groupLimitBytes,
   };
 
-  return reply.send({ event: { ...event, avgRating, myRating, ratingCount: event.ratings.length }, isAdmin, isCreator, mediaUpload });
+  const eventResult = { event: { ...event, avgRating, myRating, ratingCount: event.ratings.length }, isAdmin, isCreator, mediaUpload };
+  await cache.set(eventCacheKey, eventResult, 20);
+  return reply.send(eventResult);
 });
 
 app.get("/events", async (request, reply) => {
@@ -3518,6 +3715,10 @@ app.get("/events", async (request, reply) => {
     currentUser.id,
     query.groupId
   );
+
+  const eventsCacheKey = `cache:events:${query.groupId}:${currentUser.id}:${query.from ?? ""}:${query.to ?? ""}`;
+  const cachedEvents = await cache.get(eventsCacheKey);
+  if (cachedEvents) return reply.send(cachedEvents);
 
   const events = await prisma.event.findMany({
     where: {
@@ -3555,7 +3756,9 @@ app.get("/events", async (request, reply) => {
     return { ...event, avgRating, myRating, ratingCount: event.ratings.length };
   });
 
-  return reply.send({ events: eventsWithRatings });
+  const eventsResult = { events: eventsWithRatings };
+  await cache.set(eventsCacheKey, eventsResult, 20);
+  return reply.send(eventsResult);
 });
 
 app.post("/events", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
@@ -3594,12 +3797,13 @@ app.post("/events", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
       actorUserId: currentUser.id,
       eventId: event.id,
       tagIds: event.tags.map((tag) => tag.id),
-      title: `New event: ${event.title}`,
-      body: `${currentUser.name} created an event in your group.`,
+      title: sanitizeNotifText(`New event: ${event.title}`),
+      body: sanitizeNotifText(`${currentUser.name} created an event in your group.`),
       url: `/events/${event.id}`,
     });
   }
 
+  await cache.delPattern(`cache:events:${body.groupId}:*`);
   await queueCalendarSync(body.groupId, "event_created", event.id);
   await scheduleEventStartNotification(event);
 
@@ -3613,8 +3817,8 @@ app.post("/events", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
         actorUserId: currentUser.id,
         eventId: event.id,
         recipientUserIds: [target.id],
-        title: `${actorLabel} mentioned you`,
-        body: body.details.slice(0, 140),
+        title: sanitizeNotifText(`${actorLabel} mentioned you`),
+        body: sanitizeNotifText(body.details.slice(0, 140)),
         url: `/events/${event.id}`,
       });
     }
@@ -3664,8 +3868,8 @@ app.patch("/events/:id", async (request, reply) => {
     groupId: access.event.groupId,
     actorUserId: currentUser.id,
     eventId: event.id,
-    title: `Event updated: ${event.title}`,
-    body: `${currentUser.name} updated event details.`,
+    title: sanitizeNotifText(`Event updated: ${event.title}`),
+    body: sanitizeNotifText(`${currentUser.name} updated event details.`),
     url: `/events/${event.id}`,
   };
 
@@ -3683,6 +3887,10 @@ app.patch("/events/:id", async (request, reply) => {
     await scheduleEventStartNotification({ id: event.id, groupId: access.event.groupId, title: event.title, dateTime: event.dateTime });
   }
 
+  await Promise.all([
+    cache.delPattern(`cache:event:${params.id}:*`),
+    cache.delPattern(`cache:events:${access.event.groupId}:*`),
+  ]);
   return reply.send({ event });
 });
 
@@ -3701,6 +3909,10 @@ app.delete("/events/:id", async (request, reply) => {
   await prisma.event.delete({ where: { id: params.id } });
   await cancelEventStartNotification(params.id);
   await queueCalendarSync(access.event.groupId, "event_deleted", params.id);
+  await Promise.all([
+    cache.delPattern(`cache:event:${params.id}:*`),
+    cache.delPattern(`cache:events:${access.event.groupId}:*`),
+  ]);
   return reply.status(204).send();
 });
 
@@ -3709,6 +3921,7 @@ app.post("/events/:id/rsvps", async (request, reply) => {
   const params = await validateRequest(updateEventParamsSchema, request.params);
   const body = await validateRequest(rsvpBodySchema, request.body);
   const access = await canAccessEvent(prisma, params.id, currentUser.id);
+  await cache.del(`cache:event:${params.id}:${currentUser.id}`);
 
   // Per-user-per-group rate limit: 3 RSVPs per minute
   const rsvpRateKey = `rsvp_rate:${currentUser.id}:${access.event.groupId}`;
@@ -3748,8 +3961,8 @@ app.post("/events/:id/rsvps", async (request, reply) => {
         groupId: access.event.groupId,
         actorUserId: currentUser.id,
         eventId: params.id,
-        title: `RSVP on ${access.event.title}`,
-        body: `${currentUser.name} is going.`,
+        title: sanitizeNotifText(`RSVP on ${access.event.title}`),
+        body: sanitizeNotifText(`${currentUser.name} is going.`),
         url: `/events/${params.id}`,
       });
     }
@@ -3789,8 +4002,8 @@ app.post("/events/:id/rsvps", async (request, reply) => {
         groupId: access.event.groupId,
         actorUserId: currentUser.id,
         eventId: params.id,
-        title: `RSVP updated on ${access.event.title}`,
-        body: `${currentUser.name} is going.`,
+        title: sanitizeNotifText(`RSVP updated on ${access.event.title}`),
+        body: sanitizeNotifText(`${currentUser.name} is going.`),
         url: `/events/${params.id}`,
       });
     }
@@ -3810,8 +4023,8 @@ app.post("/events/:id/rsvps", async (request, reply) => {
       groupId: access.event.groupId,
       actorUserId: currentUser.id,
       eventId: params.id,
-      title: `RSVP updated on ${access.event.title}`,
-      body: `${currentUser.name} is going.`,
+      title: sanitizeNotifText(`RSVP updated on ${access.event.title}`),
+      body: sanitizeNotifText(`${currentUser.name} is going.`),
       url: `/events/${params.id}`,
     });
   }
@@ -3831,6 +4044,8 @@ app.patch("/events/:id/rsvps/:userId", async (request, reply) => {
       code: "FORBIDDEN",
     });
   }
+
+  await cache.del(`cache:event:${params.id}:${params.userId}`);
 
   const where = {
     eventId_userId: {
@@ -3861,8 +4076,8 @@ app.patch("/events/:id/rsvps/:userId", async (request, reply) => {
       groupId: access.event.groupId,
       actorUserId: currentUser.id,
       eventId: params.id,
-      title: `RSVP updated on ${access.event.title}`,
-      body: `${rsvpUserName} changed their RSVP to ${body.status}.`,
+      title: sanitizeNotifText(`RSVP updated on ${access.event.title}`),
+      body: sanitizeNotifText(`${rsvpUserName} changed their RSVP to ${body.status}.`),
       url: `/events/${params.id}`,
     });
   };
@@ -3992,8 +4207,8 @@ app.post("/events/:id/invites", { config: { rateLimit: { max: 20, timeWindow: "1
     actorUserId: currentUser.id,
     eventId: params.id,
     recipientUserIds: [body.userId],
-    title: `${currentUser.name} invited you`,
-    body: `"${access.event.title}"`,
+    title: sanitizeNotifText(`${currentUser.name} invited you`),
+    body: sanitizeNotifText(`"${access.event.title}"`),
     url: `/events/${params.id}`,
   });
 
@@ -4507,6 +4722,10 @@ app.post("/calendar/sync/webhook", async (request, reply) => {
 app.get("/groups", async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
 
+  const cacheKey = `cache:groups:${currentUser.id}`;
+  const cached = await cache.get<{ groups: unknown[] }>(cacheKey);
+  if (cached) return reply.send(cached);
+
   const memberships = await prisma.membership.findMany({
     where: { userId: currentUser.id },
     include: {
@@ -4530,7 +4749,9 @@ app.get("/groups", async (request, reply) => {
     joinedAt: m.createdAt,
   }));
 
-  return reply.send({ groups });
+  const result = { groups };
+  await cache.set(cacheKey, result, 30);
+  return reply.send(result);
 });
 
 app.post("/groups", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
@@ -4588,6 +4809,7 @@ app.post("/groups", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } }
     },
   });
 
+  await cache.del(`cache:groups:${currentUser.id}`);
   return reply.status(201).send({ group });
 });
 
@@ -4596,6 +4818,10 @@ app.get("/groups/:groupId", async (request, reply) => {
   const params = await validateRequest(groupIdParamsSchema, request.params);
 
   await requireGroupMembership(prisma, currentUser.id, params.groupId);
+
+  const groupCacheKey = `cache:group:${params.groupId}`;
+  const cachedGroup = await cache.get(groupCacheKey);
+  if (cachedGroup) return reply.send(cachedGroup);
 
   const group = await prisma.group.findUnique({
     where: { id: params.groupId },
@@ -4608,7 +4834,9 @@ app.get("/groups/:groupId", async (request, reply) => {
     return reply.status(404).send({ error: "Group not found", code: "NOT_FOUND" });
   }
 
-  return reply.send({ group });
+  const groupResult = { group };
+  await cache.set(groupCacheKey, groupResult, 30);
+  return reply.send(groupResult);
 });
 
 app.patch("/groups/:groupId", async (request, reply) => {
@@ -4637,6 +4865,7 @@ app.patch("/groups/:groupId", async (request, reply) => {
     },
   });
 
+  await cache.del(`cache:group:${params.groupId}`, `cache:groups:${currentUser.id}`);
   return reply.send({ group });
 });
 
@@ -4655,6 +4884,11 @@ app.delete("/groups/:groupId/leave", async (request, reply) => {
     where: { userId_groupId: { userId: currentUser.id, groupId: params.groupId } },
   });
 
+  await prisma.userCalendarPreference.deleteMany({
+    where: { userId: currentUser.id, groupId: params.groupId },
+  });
+
+  await cache.del(`cache:groups:${currentUser.id}`);
   return reply.status(204).send();
 });
 
@@ -4666,6 +4900,7 @@ app.delete("/groups/:groupId", async (request, reply) => {
   requireRole(membership.role, ["owner"]);
 
   await prisma.group.delete({ where: { id: params.groupId } });
+  await cache.del(`cache:group:${params.groupId}`, `cache:groups:${currentUser.id}`);
   return reply.status(204).send();
 });
 
@@ -4729,6 +4964,10 @@ app.delete("/groups/:groupId/members/:userId", async (request, reply) => {
 
   await prisma.membership.delete({
     where: { userId_groupId: { userId: params.userId, groupId: params.groupId } },
+  });
+
+  await prisma.userCalendarPreference.deleteMany({
+    where: { userId: params.userId, groupId: params.groupId },
   });
 
   await prisma.auditLog.create({
@@ -4966,6 +5205,7 @@ app.post("/groups/join", { config: { rateLimit: { max: 10, timeWindow: "1 minute
     }
   }
 
+  await cache.del(`cache:groups:${currentUser.id}`);
   return reply.status(201).send({
     message: "Join request sent. The group owner will review your request.",
     groupId: group.id,
@@ -5324,13 +5564,19 @@ app.get("/groups/:groupId/members/:userId/stats", async (request, reply) => {
 app.get("/users/me", async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
 
+  const meCacheKey = `cache:userme:${currentUser.id}`;
+  const cachedMe = await cache.get(meCacheKey);
+  if (cachedMe) return reply.send(cachedMe);
+
   const user = await prisma.user.findUnique({
     where: { id: currentUser.id },
     select: { id: true, email: true, name: true, username: true, usernameChangedAt: true, avatarUrl: true, theme: true, showEmail: true, onboardingDone: true, birthdate: true, birthdateSet: true, createdAt: true },
   });
 
   const isAdmin = ADMIN_EMAILS.length > 0 && ADMIN_EMAILS.includes(currentUser.email.toLowerCase());
-  return reply.send({ user: { ...user, isAdmin } });
+  const meResult = { user: { ...user, isAdmin } };
+  await cache.set(meCacheKey, meResult, 60);
+  return reply.send(meResult);
 });
 
 app.get("/users/:username", async (request, reply) => {
@@ -5463,6 +5709,7 @@ app.patch("/users/me", { config: { rateLimit: { max: 10, timeWindow: "1 minute" 
     select: { id: true, email: true, name: true, username: true, usernameChangedAt: true, bio: true, avatarUrl: true, theme: true, showEmail: true, onboardingDone: true, birthdate: true, birthdateSet: true, createdAt: true },
   });
 
+  await cache.del(`cache:userme:${currentUser.id}`);
   return reply.send({ user });
 });
 
@@ -5867,12 +6114,18 @@ app.get("/groups/:groupId/tags", async (request, reply) => {
 
   await requireGroupMembership(prisma, currentUser.id, params.groupId);
 
+  const tagsCacheKey = `cache:tags:${params.groupId}`;
+  const cachedTags = await cache.get(tagsCacheKey);
+  if (cachedTags) return reply.send(cachedTags);
+
   const tags = await prisma.tag.findMany({
     where: { groupId: params.groupId },
     orderBy: { name: "asc" },
   });
 
-  return reply.send({ tags });
+  const tagsResult = { tags };
+  await cache.set(tagsCacheKey, tagsResult, 60);
+  return reply.send(tagsResult);
 });
 
 app.post("/groups/:groupId/tags", async (request, reply) => {
@@ -5900,6 +6153,7 @@ app.post("/groups/:groupId/tags", async (request, reply) => {
     },
   });
 
+  await cache.del(`cache:tags:${params.groupId}`);
   return reply.status(201).send({ tag });
 });
 
@@ -5927,6 +6181,7 @@ app.patch("/groups/:groupId/tags/:tagId", async (request, reply) => {
     },
   });
 
+  await cache.del(`cache:tags:${params.groupId}`);
   return reply.send({ tag: updated });
 });
 
@@ -5955,6 +6210,7 @@ app.delete("/groups/:groupId/tags/:tagId", async (request, reply) => {
   });
 
   await prisma.tag.delete({ where: { id: params.tagId } });
+  await cache.del(`cache:tags:${params.groupId}`);
   return reply.status(204).send();
 });
 
@@ -6725,6 +6981,7 @@ chatIo = createChatServer(
   authSecret,
   configuredWebOrigins,
   app.log,
+  redis,
   async ({ channelId, groupId, userId, name, username, content }) => {
     const channel = await prisma.channel.findUnique({
       where: { id: channelId },
@@ -6738,8 +6995,8 @@ chatIo = createChatServer(
       actorUserId: userId,
       channelId: channel.id,
       tagIds: channel.tags.map((t) => t.id),
-      title: `${senderLabel} in #${channel.name}`,
-      body: content.slice(0, 140),
+      title: sanitizeNotifText(`${senderLabel} in #${channel.name}`),
+      body: sanitizeNotifText(content.slice(0, 140)),
       url: `/groups/${groupId}/channels/${channel.id}`,
     });
 
@@ -6753,8 +7010,8 @@ chatIo = createChatServer(
           actorUserId: userId,
           channelId: channel.id,
           recipientUserIds: [target.id],
-          title: `${actorLabel} mentioned you in #${channel.name}`,
-          body: content.slice(0, 140),
+          title: sanitizeNotifText(`${actorLabel} mentioned you in #${channel.name}`),
+          body: sanitizeNotifText(content.slice(0, 140)),
           url: `/groups/${groupId}/channels/${channel.id}`,
         });
       }
@@ -6774,8 +7031,8 @@ chatIo = createChatServer(
           actorUserId: userId,
           channelId: channel.id,
           recipientUserIds: recipients,
-          title: `${actorLabel} mentioned #${tm.tagName} in #${channel.name}`,
-          body: content.slice(0, 140),
+          title: sanitizeNotifText(`${actorLabel} mentioned #${tm.tagName} in #${channel.name}`),
+          body: sanitizeNotifText(content.slice(0, 140)),
           url: `/groups/${groupId}/channels/${channel.id}`,
         });
       }

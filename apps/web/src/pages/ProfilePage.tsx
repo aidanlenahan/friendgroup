@@ -25,7 +25,7 @@ export default function ProfilePage() {
     return () => { document.title = 'GEM — Group Event Manager' }
   }, [])
 
-  const { user, login, token } = useAuthStore()
+  const { user, setUser } = useAuthStore()
   const toast = useToast()
   const avatarInputRef = useRef<HTMLInputElement>(null)
 
@@ -78,8 +78,8 @@ export default function ProfilePage() {
         body: formData,
       })
       setAvatarUrl(newUrl)
-      if (token && user) {
-        login(token, { ...user, avatarUrl: newUrl })
+      if (user) {
+        setUser({ ...user, avatarUrl: newUrl })
       }
       toast.success('Profile photo updated')
     } catch (err) {
@@ -99,8 +99,8 @@ export default function ProfilePage() {
         method: 'PATCH',
         body: JSON.stringify({ showEmail: newValue }),
       })
-      if (token && data.user) {
-        login(token, { ...user!, ...data.user, username: data.user.username ?? undefined, avatarUrl: data.user.avatarUrl ?? undefined })
+      if (data.user) {
+        setUser({ ...user!, ...data.user, username: data.user.username ?? undefined, avatarUrl: data.user.avatarUrl ?? undefined })
       }
     } catch {
       toast.error('Failed to update email visibility')
@@ -122,8 +122,8 @@ export default function ProfilePage() {
         method: 'PATCH',
         body: JSON.stringify(payload),
       })
-      if (token && data.user) {
-        login(token, {
+      if (data.user) {
+        setUser({
           ...data.user,
           username: data.user.username ?? undefined,
           avatarUrl: data.user.avatarUrl ?? undefined,

@@ -28,7 +28,7 @@ const features = [
       </svg>
     ),
     title: 'Group Channels',
-    description: 'Stay in sync with dedicated channels for every topic, trip, or plan.',
+    description: 'Ongoing group chats by topic — #general, #trips, #random. Separate from events.',
   },
   {
     icon: (
@@ -45,8 +45,8 @@ const features = [
         <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
       </svg>
     ),
-    title: 'Smart Notifications',
-    description: 'Get notified about what matters — never miss a plan or update.',
+    title: 'Notifications',
+    description: 'Push alerts for new events, messages, and RSVPs — sent to your home screen.',
   },
   {
     icon: (
@@ -55,12 +55,12 @@ const features = [
       </svg>
     ),
     title: 'Works Everywhere',
-    description: 'Install as a PWA on any device. Fast, offline-capable, always with you.',
+    description: 'Install as a PWA on iOS or Android. No app store needed.',
   },
 ]
 
 export default function LandingPage() {
-  const { token } = useAuthStore()
+  const { user } = useAuthStore()
 
   useEffect(() => {
     document.title = 'GEM — Group Event Manager'
@@ -90,11 +90,11 @@ export default function LandingPage() {
           </h1>
 
           <p className="mt-5 text-lg sm:text-xl text-gray-400 max-w-xl mx-auto leading-relaxed">
-            GEM is the Group Event Manager for your crew — organize events, chat in channels, and share memories in one private space.
+            Organize events, chat in channels, and share photos — all private, just for your group.
           </p>
 
           <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
-            {token ? (
+            {user ? (
               <Link
                 to="/groups"
                 className="w-full sm:w-auto px-6 py-3 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors shadow-lg shadow-indigo-600/20"
@@ -107,7 +107,7 @@ export default function LandingPage() {
                   to="/register"
                   className="w-full sm:w-auto px-6 py-3 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors shadow-lg shadow-indigo-600/20"
                 >
-                  Get started free
+                  Create account
                 </Link>
                 <Link
                   to="/login"
@@ -156,13 +156,13 @@ export default function LandingPage() {
             <div className="absolute -bottom-10 -left-10 w-56 h-56 bg-indigo-400/20 rounded-full blur-2xl" />
           </div>
           <h2 className="relative text-2xl sm:text-3xl font-bold text-white">
-            Ready to bring your group together?
+            GEM is in beta — get in with an invite code.
           </h2>
           <p className="relative mt-2 text-indigo-100 text-sm">
-            Sign up with a beta invite code and start planning today.
+            Sign up with a beta invite code.
           </p>
           <div className="relative mt-6 flex flex-col sm:flex-row items-center justify-center gap-3">
-            {token ? (
+            {user ? (
               <Link
                 to="/groups"
                 className="px-6 py-3 rounded-xl text-sm font-semibold bg-white text-indigo-600 hover:bg-indigo-50 transition-colors"

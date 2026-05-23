@@ -92,8 +92,6 @@ export class ApiError extends Error {
   }
 }
 
-let inMemoryToken: string | null = null
-
 export function getApiErrorMessage(error: unknown, fallback: string): string {
   if (error instanceof ApiError) {
     if (error.status === 0 || error.code === 'NETWORK_ERROR') {
@@ -118,34 +116,26 @@ export function getApiErrorMessage(error: unknown, fallback: string): string {
   return fallback
 }
 
-export function getToken(): string | null {
-  return inMemoryToken
-}
-
-export function setToken(t: string | null) {
-  inMemoryToken = t
-}
-
 /**
  * Typed fetch wrapper used by all app UI hooks.
+ * Auth is handled via HttpOnly cookie — no Authorization header needed.
  * Reads the API base URL dynamically at call time so it respects
  * the host-aware resolution logic above.
  */
-export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+export async function apiFetch<T>(path: string, init: RequestInit = {}, _isRetry = false): Promise<T> {
   // Resolve base URL at call time so ngrok/remote hosts work correctly.
   const base =
     typeof window !== 'undefined'
       ? resolveApiBaseUrl()
       : (import.meta.env.VITE_API_BASE_URL ?? '/api')
 
-  const token = getToken()
   let res: Response
   try {
     res = await fetch(`${base}${path}`, {
       ...init,
+      credentials: 'include',
       headers: {
         ...(init.body !== undefined && !(init.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...init.headers,
       },
     })
@@ -155,6 +145,18 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
       'NETWORK_ERROR',
       'Network request failed',
     )
+  }
+
+  if (res.status === 401 && !_isRetry && path !== '/auth/refresh') {
+    // Attempt silent token refresh once, then retry the original request.
+    try {
+      await fetch(`${base}/auth/refresh`, { method: 'POST', credentials: 'include' })
+      return apiFetch<T>(path, init, true)
+    } catch {
+      // Refresh failed — signal the app to log the user out.
+      window.dispatchEvent(new CustomEvent('auth:expired'))
+      throw new ApiError(401, 'UNAUTHORIZED', 'Session expired')
+    }
   }
 
   if (!res.ok) {

@@ -3,7 +3,7 @@ import type { Socket } from 'socket.io-client'
 import { io } from 'socket.io-client'
 import { useQueryClient } from '@tanstack/react-query'
 import type { InfiniteData } from '@tanstack/react-query'
-import { getToken, resolveApiBaseUrl } from '../lib/api'
+import { resolveApiBaseUrl } from '../lib/api'
 import { acquireSocket, releaseSocket } from '../lib/socket'
 import type { ChannelMessagesPage } from './useMessages'
 
@@ -36,7 +36,7 @@ export function useChat(eventId: string) {
       import.meta.env.VITE_SOCKET_URL ??
       (typeof window !== 'undefined' ? resolveApiBaseUrl() : '')
     const socket = io(socketUrl, {
-      auth: { token: getToken() },
+      withCredentials: true,
       transports: ['websocket'],
     })
     socketRef.current = socket

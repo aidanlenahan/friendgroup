@@ -1,11 +1,12 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import { QueryClient, QueryClientProvider, QueryCache } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 import { useEffect, lazy, Suspense } from 'react'
 import { useAuthStore } from './stores/authStore'
 import { ApiError, apiFetch } from './lib/api'
 import { useThemeApplier } from './hooks/useTheme'
 import Layout from './components/Layout'
 import MarketingLayout from './components/MarketingLayout'
+import { queryClient } from './lib/queryClient'
 
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
@@ -38,42 +39,6 @@ const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage'))
 const TermsOfServicePage = lazy(() => import('./pages/TermsOfServicePage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 
-const queryClient = new QueryClient({
-  queryCache: new QueryCache({
-    onError: (error) => {
-      // Only fire auth:expired when the user was believed to be logged in
-      // (i.e. user object exists in store) to avoid spurious redirects.
-      if (error instanceof ApiError && error.status === 401 && useAuthStore.getState().user) {
-        window.dispatchEvent(new CustomEvent('auth:expired'))
-      }
-    },
-  }),
-  defaultOptions: {
-    queries: {
-      staleTime: 30_000,
-      retry: (failureCount, error) => {
-        const apiError = error instanceof ApiError ? error : null
-        if (apiError?.status === 401 || apiError?.status === 403 || apiError?.status === 404) {
-          return false
-        }
-
-        if (apiError?.status === 429 || (apiError && apiError.status >= 500) || apiError?.status === 0) {
-          return failureCount < 3
-        }
-
-        return failureCount < 2
-      },
-      retryDelay: (attemptIndex, error) => {
-        if (error instanceof ApiError && error.status === 429 && error.retryAfterSeconds) {
-          return error.retryAfterSeconds * 1000
-        }
-
-        const base = 600
-        return Math.min(base * 2 ** attemptIndex, 5_000)
-      },
-    },
-  },
-})
 
 function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4)

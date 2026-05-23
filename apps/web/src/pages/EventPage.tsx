@@ -12,7 +12,7 @@ import Avatar from '../components/Avatar'
 import Spinner from '../components/Spinner'
 import DurationPicker from '../components/DurationPicker'
 import DateTimePicker from '../components/DateTimePicker'
-import { apiFetch, ApiError, getApiErrorMessage, getToken } from '../lib/api'
+import { apiFetch, ApiError, getApiErrorMessage } from '../lib/api'
 import { MediaLightbox } from '../components/MediaLightbox'
 import { useIsOnline } from '../hooks/useIsOnline'
 import EmptyState from '../components/EmptyState'
@@ -367,9 +367,8 @@ export default function EventPage() {
   const counts = attendance?.counts ?? { yes: 0, no: 0, maybe: 0 }
 
   const handleIcsDownload = async () => {
-    const token = getToken()
     const res = await fetch(`/api/events/${eventId}/calendar.ics`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'include',
     })
     if (!res.ok) { toast.error('Failed to download calendar file'); return }
     const blob = await res.blob()

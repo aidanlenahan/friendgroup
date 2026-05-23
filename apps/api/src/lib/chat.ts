@@ -3,6 +3,8 @@ import type { Server as HTTPServer } from "http";
 import { Server as SocketIOServer, Socket } from "socket.io";
 import type { PrismaClient } from "../generated/prisma/index.js";
 import type { FastifyBaseLogger } from "fastify";
+import type { Redis } from "ioredis";
+import { z } from "zod";
 
 // ---------------------------------------------------------------------------
 // JWT helpers for Socket.IO (not inside Fastify request lifecycle)
@@ -31,6 +33,23 @@ function verifyHS256JWT(token: string, secret: string): Record<string, unknown> 
 }
 
 // ---------------------------------------------------------------------------
+// Zod schemas for Socket.IO event payloads
+// ---------------------------------------------------------------------------
+
+const JoinChannelSchema = z.object({
+  channelId: z.string().uuid(),
+  groupId: z.string().uuid(),
+}).strict();
+
+const SendMessageSchema = z.object({
+  channelId: z.string().uuid(),
+  content: z.string().min(1).max(2000),
+  replyToId: z.string().uuid().nullable().optional(),
+}).strict();
+
+const ChannelIdSchema = z.string().uuid();
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
@@ -49,44 +68,35 @@ interface AuthedSocket extends Socket {
 }
 
 // ---------------------------------------------------------------------------
-// Tiered sliding-window rate limiting
+// Redis-backed fixed-window rate limiting
 //   Tier 1:  3 messages /  10 s  — burst guard
 //   Tier 2: 10 messages /  30 s  — sustained chat guard
 //   Tier 3: 20 messages /  60 s  — per-minute hard cap
 // ---------------------------------------------------------------------------
 
 const RATE_TIERS = [
-  { windowMs: 10_000, limit: 3 },
-  { windowMs: 30_000, limit: 10 },
-  { windowMs: 60_000, limit: 20 },
+  { windowSec: 10, limit: 3 },
+  { windowSec: 30, limit: 10 },
+  { windowSec: 60, limit: 20 },
 ] as const;
 
-const MAX_WINDOW_MS = Math.max(...RATE_TIERS.map((t) => t.windowMs));
-
-const userMessageTimestamps = new Map<string, number[]>();
-
-function consumeChatQuota(userId: string): { limited: boolean; retryAfterSeconds: number } {
-  const now = Date.now();
-  const timestamps = userMessageTimestamps.get(userId) ?? [];
-
-  // Drop timestamps outside the widest window to keep memory bounded.
-  const fresh = timestamps.filter((t) => now - t < MAX_WINDOW_MS);
-
-  for (const { windowMs, limit } of RATE_TIERS) {
-    const inWindow = fresh.filter((t) => now - t < windowMs);
-    if (inWindow.length >= limit) {
-      // Cooldown ends when the oldest timestamp in this window ages out.
-      const oldest = Math.min(...inWindow);
-      const retryAfterMs = oldest + windowMs - now;
-      return {
-        limited: true,
-        retryAfterSeconds: Math.max(1, Math.ceil(retryAfterMs / 1000)),
-      };
+async function consumeChatQuota(
+  redis: Redis,
+  userId: string,
+): Promise<{ limited: boolean; retryAfterSeconds: number }> {
+  for (const { windowSec, limit } of RATE_TIERS) {
+    // Bucket key rotates on window boundaries — good enough for fixed-window.
+    const bucket = Math.floor(Date.now() / 1000 / windowSec);
+    const key = `chat:rate:${userId}:${windowSec}s:${bucket}`;
+    const count = await redis.incr(key);
+    if (count === 1) await redis.expire(key, windowSec);
+    if (count > limit) {
+      // Next bucket starts at the next window boundary.
+      const windowStartSec = bucket * windowSec;
+      const retryAfterSeconds = windowSec - (Math.floor(Date.now() / 1000) - windowStartSec);
+      return { limited: true, retryAfterSeconds: Math.max(1, retryAfterSeconds) };
     }
   }
-
-  fresh.push(now);
-  userMessageTimestamps.set(userId, fresh);
   return { limited: false, retryAfterSeconds: 0 };
 }
 
@@ -100,6 +110,7 @@ export function createChatServer(
   jwtSecret: string,
   corsOrigin: string | string[],
   logger: FastifyBaseLogger,
+  redis: Redis,
   onChannelMessageCreated?: (payload: {
     messageId: string;
     channelId: string;
@@ -120,7 +131,14 @@ export function createChatServer(
   // ---- Auth middleware -------------------------------------------------
   io.use(async (socket, next) => {
     try {
-      const token = (socket.handshake.auth?.token ?? "") as string;
+      // Prefer HttpOnly cookie sent automatically by the browser; fall back to
+      // the legacy auth.token field for backwards compatibility with older clients.
+      let token = (socket.handshake.auth?.token ?? "") as string;
+      if (!token) {
+        const cookieHeader = socket.handshake.headers.cookie ?? "";
+        const match = cookieHeader.match(/(?:^|;\s*)gem_token=([^;]+)/);
+        token = match ? decodeURIComponent(match[1]) : "";
+      }
       if (!token) return next(new Error("Authentication required"));
 
       const payload = verifyHS256JWT(token, jwtSecret);
@@ -149,16 +167,12 @@ export function createChatServer(
 
     // -- join:channel ---------------------------------------------------
     socket.on("join:channel", async (data: unknown) => {
-      if (
-        typeof data !== "object" ||
-        data === null ||
-        typeof (data as Record<string, unknown>).channelId !== "string" ||
-        typeof (data as Record<string, unknown>).groupId !== "string"
-      ) {
+      const parsed = JoinChannelSchema.safeParse(data);
+      if (!parsed.success) {
         socket.emit("error", { code: "BAD_REQUEST", message: "channelId and groupId must be strings" });
         return;
       }
-      const { channelId, groupId } = data as { channelId: string; groupId: string };
+      const { channelId, groupId } = parsed.data;
       try {
         const membership = await prisma.membership.findUnique({
           where: { userId_groupId: { userId: user.id, groupId } },
@@ -195,27 +209,23 @@ export function createChatServer(
     });
 
     // -- leave:channel --------------------------------------------------
-    socket.on("leave:channel", (channelId: unknown) => {
-      if (typeof channelId !== "string") return;
+    socket.on("leave:channel", (data: unknown) => {
+      const parsed = ChannelIdSchema.safeParse(data);
+      if (!parsed.success) return;
+      const channelId = parsed.data;
       socket.leave(`channel:${channelId}`);
       socket.emit("left:channel", { channelId });
     });
 
     // -- channel:message:send -------------------------------------------
     socket.on("channel:message:send", async (data: unknown) => {
-      if (
-        typeof data !== "object" ||
-        data === null ||
-        typeof (data as Record<string, unknown>).channelId !== "string" ||
-        typeof (data as Record<string, unknown>).content !== "string"
-      ) {
+      const parsed = SendMessageSchema.safeParse(data);
+      if (!parsed.success) {
         socket.emit("error", { code: "BAD_REQUEST", message: "Invalid channel message payload" });
         return;
       }
-      const raw = data as { channelId: string; content: string; replyToId?: string | null };
-      const { channelId, content } = raw;
-      const replyToId = typeof raw.replyToId === "string" ? raw.replyToId : null;
-      const trimmed = content.trim().slice(0, 2000);
+      const { channelId, content, replyToId } = parsed.data;
+      const trimmed = content.trim();
       if (!trimmed) {
         socket.emit("error", { code: "BAD_REQUEST", message: "Message content is empty" });
         return;
@@ -224,7 +234,7 @@ export function createChatServer(
         socket.emit("error", { code: "FORBIDDEN", message: "Join the channel room first" });
         return;
       }
-      const quota = consumeChatQuota(user.id);
+      const quota = await consumeChatQuota(redis, user.id);
       if (quota.limited) {
         socket.emit("error", {
           code: "RATE_LIMITED",
@@ -282,8 +292,10 @@ export function createChatServer(
     });
 
     // -- channel:typing:start -------------------------------------------
-    socket.on("channel:typing:start", (channelId: unknown) => {
-      if (typeof channelId !== "string") return;
+    socket.on("channel:typing:start", (data: unknown) => {
+      const parsed = ChannelIdSchema.safeParse(data);
+      if (!parsed.success) return;
+      const channelId = parsed.data;
       if (!socket.rooms.has(`channel:${channelId}`)) return;
       socket.to(`channel:${channelId}`).emit("channel:typing:start", {
         userId: user.id,
@@ -293,8 +305,10 @@ export function createChatServer(
     });
 
     // -- channel:typing:stop --------------------------------------------
-    socket.on("channel:typing:stop", (channelId: unknown) => {
-      if (typeof channelId !== "string") return;
+    socket.on("channel:typing:stop", (data: unknown) => {
+      const parsed = ChannelIdSchema.safeParse(data);
+      if (!parsed.success) return;
+      const channelId = parsed.data;
       if (!socket.rooms.has(`channel:${channelId}`)) return;
       socket.to(`channel:${channelId}`).emit("channel:typing:stop", {
         userId: user.id,

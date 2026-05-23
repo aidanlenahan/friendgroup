@@ -73,7 +73,7 @@ describe('Phase7DebugPage', () => {
     })
 
     renderPage()
-    await userEvent.click(screen.getByRole('button', { name: 'Get Dev Token' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Get Token' }))
 
     await screen.findByText(/Authenticated as owner@gem.dev via /)
     await screen.findByText(/Token status:/)
