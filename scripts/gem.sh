@@ -134,29 +134,35 @@ echo
 case "$choice" in
   1)
     setup_notifications "$(_gem_smtp_env)" "Deploy -> Production"
+    set -x
     deploy_prod
     ;;
   2)
     setup_notifications "$(_gem_smtp_env)" "Deploy -> Production + Stop Dev"
+    set -x
     deploy_prod
     stop_dev
     ;;
   3)
     setup_notifications "$(_gem_smtp_env)" "Deploy -> Dev"
+    set -x
     deploy_dev
     ;;
   4)
     setup_notifications "$(_gem_smtp_env)" "Stop Dev"
+    set -x
     stop_dev
     ;;
   5)
     [[ -f "$PROD_ENV" ]] || die "Missing $PROD_ENV"
     setup_notifications "$(_gem_smtp_env)" "Restart Production (no build)"
+    set -x
     restart_prod
     ;;
   6)
     [[ -f "$DEV_ENV" ]] || die "Missing $DEV_ENV"
     setup_notifications "$(_gem_smtp_env)" "Restart Dev (no build)"
+    set -x
     restart_dev
     ;;
   q|Q|"")

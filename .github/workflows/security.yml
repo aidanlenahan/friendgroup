@@ -68,13 +68,83 @@ jobs:
           SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
 
   # -----------------------------------------------------------------------
-  # Notify on failure — emails both recipients with run details and log link
+  # Notify on success — emails both recipients when all checks pass
   #
   # Required GitHub secrets (copy values from apps/api/.env):
   #   SMTP_HOST  — smtp.titan.email
   #   SMTP_PORT  — 465
   #   SMTP_USER  — noreply@gem.aidanlenahan.com
   #   SMTP_PASS  — (value from .env)
+  # -----------------------------------------------------------------------
+  notify_success:
+    name: Success Notification
+    runs-on: ubuntu-latest
+    needs: [audit, secrets, sast]
+    if: ${{ needs.audit.result == 'success' && needs.secrets.result == 'success' && needs.sast.result == 'success' }}
+    steps:
+      - name: Send success email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          secure: true
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          subject: "[GEM] ✓ Security passed — ${{ github.ref_name }} (Run #${{ github.run_number }})"
+          to: aidanlenahan@gmail.com,awood4555@gmail.com
+          from: "GEM Security <${{ secrets.SMTP_USER }}>"
+          html_body: |
+            <div style="font-family:system-ui,sans-serif;max-width:640px;margin:0 auto">
+              <div style="background:#16a34a;color:#fff;padding:16px 24px;border-radius:8px 8px 0 0">
+                <p style="margin:0;font-size:11px;letter-spacing:.08em;opacity:.85;text-transform:uppercase">GEM Security</p>
+                <h2 style="margin:4px 0 0;font-size:20px;font-weight:600">✓ All checks passed</h2>
+              </div>
+              <div style="border:1px solid #d1fae5;border-top:none;padding:24px;border-radius:0 0 8px 8px">
+
+                <table style="border-collapse:collapse;font-size:13px;width:100%;margin-bottom:20px">
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Repository</td>    <td style="font-family:monospace">${{ github.repository }}</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Branch</td>        <td style="font-family:monospace">${{ github.ref_name }}</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Commit</td>        <td style="font-family:monospace">${{ github.sha }}</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Message</td>       <td>${{ github.event.head_commit.message || github.event.pull_request.title }}</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Author</td>        <td>${{ github.event.head_commit.author.name || github.event.pull_request.user.login || github.actor }}</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Triggered by</td>  <td>${{ github.actor }}</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Event</td>         <td>${{ github.event_name }}</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Run</td>           <td style="font-family:monospace">#${{ github.run_number }} (ID ${{ github.run_id }})</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Runner OS</td>     <td>ubuntu-latest</td></tr>
+                </table>
+
+                <h3 style="font-size:13px;font-weight:600;color:#374151;margin:0 0 10px">Checks</h3>
+                <table style="border-collapse:collapse;font-size:13px;width:100%;margin-bottom:24px">
+                  <tr style="background:#f0fdf4">
+                    <td style="padding:8px 12px;border:1px solid #d1fae5">✅ Dependency Audit</td>
+                    <td style="padding:8px 12px;border:1px solid #d1fae5;color:#15803d">Passed — no high/critical CVEs in npm packages</td>
+                  </tr>
+                  <tr>
+                    <td style="padding:8px 12px;border:1px solid #d1fae5">✅ Secret Scan</td>
+                    <td style="padding:8px 12px;border:1px solid #d1fae5;color:#15803d">Passed — no verified secrets detected in commit history</td>
+                  </tr>
+                  <tr style="background:#f0fdf4">
+                    <td style="padding:8px 12px;border:1px solid #d1fae5">✅ SAST (Semgrep)</td>
+                    <td style="padding:8px 12px;border:1px solid #d1fae5;color:#15803d">Passed — no OWASP / Node.js / TypeScript violations</td>
+                  </tr>
+                </table>
+
+                <p style="margin:0 0 24px">
+                  <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                     style="background:#16a34a;color:#fff;padding:8px 16px;text-decoration:none;border-radius:4px;display:inline-block;font-size:13px">
+                    View run logs →
+                  </a>
+                </p>
+
+                <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 16px">
+                <p style="color:#9ca3af;font-size:11px;margin:0">
+                  GEM · ${{ github.repository }} · Run #${{ github.run_number }} · ${{ github.run_id }}
+                </p>
+              </div>
+            </div>
+
+  # -----------------------------------------------------------------------
+  # Notify on failure — emails both recipients with run details and log link
   # -----------------------------------------------------------------------
   notify:
     name: Failure Notification
@@ -108,32 +178,41 @@ jobs:
           secure: true
           username: ${{ secrets.SMTP_USER }}
           password: ${{ secrets.SMTP_PASS }}
-          subject: "[GEM] Security check failed — ${{ github.ref_name }} (${{ github.sha }})"
+          subject: "[GEM] ✗ Security check failed — ${{ github.ref_name }} (Run #${{ github.run_number }})"
           to: aidanlenahan@gmail.com,awood4555@gmail.com
           from: "GEM Security <${{ secrets.SMTP_USER }}>"
           html_body: |
-            <h2 style="color:#c0392b">⚠️ GEM Security Check Failed</h2>
+            <div style="font-family:system-ui,sans-serif;max-width:640px;margin:0 auto">
+              <div style="background:#dc2626;color:#fff;padding:16px 24px;border-radius:8px 8px 0 0">
+                <p style="margin:0;font-size:11px;letter-spacing:.08em;opacity:.85;text-transform:uppercase">GEM Security</p>
+                <h2 style="margin:4px 0 0;font-size:20px;font-weight:600">⚠️ Security check failed</h2>
+              </div>
+              <div style="border:1px solid #fecaca;border-top:none;padding:24px;border-radius:0 0 8px 8px">
 
-            <table style="border-collapse:collapse;font-family:monospace;font-size:14px">
-              <tr><td style="padding:4px 12px 4px 0;color:#666">Repository</td><td>${{ github.repository }}</td></tr>
-              <tr><td style="padding:4px 12px 4px 0;color:#666">Branch</td><td>${{ github.ref_name }}</td></tr>
-              <tr><td style="padding:4px 12px 4px 0;color:#666">Commit</td><td>${{ github.sha }}</td></tr>
-              <tr><td style="padding:4px 12px 4px 0;color:#666">Triggered by</td><td>${{ github.actor }}</td></tr>
-              <tr><td style="padding:4px 12px 4px 0;color:#666">Event</td><td>${{ github.event_name }}</td></tr>
-            </table>
+                <table style="border-collapse:collapse;font-size:13px;width:100%;margin-bottom:20px">
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Repository</td>    <td style="font-family:monospace">${{ github.repository }}</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Branch</td>        <td style="font-family:monospace">${{ github.ref_name }}</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Commit</td>        <td style="font-family:monospace">${{ github.sha }}</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Message</td>       <td>${{ github.event.head_commit.message || github.event.pull_request.title }}</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Author</td>        <td>${{ github.event.head_commit.author.name || github.event.pull_request.user.login || github.actor }}</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Triggered by</td>  <td>${{ github.actor }}</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Event</td>         <td>${{ github.event_name }}</td></tr>
+                  <tr><td style="padding:5px 16px 5px 0;color:#6b7280;white-space:nowrap">Run</td>           <td style="font-family:monospace">#${{ github.run_number }} (ID ${{ github.run_id }})</td></tr>
+                </table>
 
-            <h3>Failed checks</h3>
-            <pre style="background:#fdf2f2;padding:12px;border-left:4px solid #c0392b;white-space:pre-wrap">${{ steps.summary.outputs.failed_jobs }}</pre>
+                <h3 style="font-size:13px;font-weight:600;color:#374151;margin:0 0 10px">Failed checks</h3>
+                <pre style="background:#fef2f2;padding:12px;border-left:4px solid #dc2626;white-space:pre-wrap;font-size:13px;margin:0 0 24px">${{ steps.summary.outputs.failed_jobs }}</pre>
 
-            <h3>Full logs</h3>
-            <p>
-              <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-                 style="background:#c0392b;color:#fff;padding:8px 16px;text-decoration:none;border-radius:4px;display:inline-block">
-                View run logs →
-              </a>
-            </p>
+                <p style="margin:0 0 24px">
+                  <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                     style="background:#dc2626;color:#fff;padding:8px 16px;text-decoration:none;border-radius:4px;display:inline-block;font-size:13px">
+                    View run logs →
+                  </a>
+                </p>
 
-            <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
-            <p style="color:#999;font-size:12px">
-              GEM · ${{ github.repository }} · Run #${{ github.run_id }}
-            </p>
+                <hr style="border:none;border-top:1px solid #e5e7eb;margin:0 0 16px">
+                <p style="color:#9ca3af;font-size:11px;margin:0">
+                  GEM · ${{ github.repository }} · Run #${{ github.run_number }} · ${{ github.run_id }}
+                </p>
+              </div>
+            </div>
