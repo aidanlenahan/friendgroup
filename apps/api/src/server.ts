@@ -2,6 +2,7 @@ import "dotenv/config"; // reloaded: 2026-04-16
 import ms from "ms";
 import * as Sentry from "@sentry/node";
 import Fastify, { type FastifyRequest, type FastifyReply } from "fastify";
+import compress from "@fastify/compress";
 import cors from "@fastify/cors";
 import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
@@ -44,8 +45,20 @@ function verifyOtp(code: string, storedHash: string): boolean {
   }
 }
 
+// Generates a weak ETag from an ISO-8601 updatedAt string. Compact and cheap.
+function weakETag(updatedAt: string | Date): string {
+  const ms = typeof updatedAt === "string" ? new Date(updatedAt).getTime() : updatedAt.getTime();
+  return `W/"${ms.toString(36)}"`;
+}
+
 function sanitizeNotifText(text: string): string {
   return text.replace(/[\r\n\t]/g, " ").replace(/\s{2,}/g, " ").trim().slice(0, 200);
+}
+
+// P3: Strip control chars and truncate user-controlled values before they appear
+// in log entries, preventing log injection into SIEM / aggregator rules.
+function sanitizeForLog(s: string, maxLen = 200): string {
+  return s.replace(/[\r\n\t]/g, " ").slice(0, maxLen);
 }
 import multipart from "@fastify/multipart";
 import { createReadStream, readFileSync } from "fs";
@@ -97,13 +110,35 @@ import {
 } from "./lib/notifications.js";
 import { escapeHtml, getMailTransporter, isMailConfigured, sendTransactionalEmail, verifyMailTransporter } from "./lib/mailer.js";
 import { buildGoogleCalendarLink, buildIcsCalendar } from "./lib/calendar.js";
+import { reportError } from "./lib/errorReporter.js";
 
 // Initialize clients
+
+// P3: Enforce TLS for Redis in production (skip for loopback — no TLS needed on localhost).
+const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
+const redisIsLoopback = /^rediss?:\/\/(127\.0\.0\.1|localhost)(:\d+)?/.test(redisUrl);
+if (process.env.NODE_ENV === "production" && !redisIsLoopback && !redisUrl.startsWith("rediss://")) {
+  throw new Error("Production Redis must use TLS — set REDIS_URL to a rediss:// connection string");
+}
+
+// P3: Enforce SSL for Postgres in production (skip for loopback — no TLS needed on localhost).
 const connectionString = process.env.DATABASE_URL || "postgresql://gem:gem@localhost:5432/gem_dev";
-const pool = new Pool({ connectionString });
+const dbIsLoopback = /[@/](127\.0\.0\.1|localhost)(:\d+)?\//.test(connectionString);
+if (process.env.NODE_ENV === "production" && !dbIsLoopback && !connectionString.includes("sslmode=")) {
+  throw new Error("Production DATABASE_URL must include sslmode=require");
+}
+
+// P4: Explicit pool limits prevent connection exhaustion on free-tier Postgres.
+const pool = new Pool({
+  connectionString,
+  max: Number(process.env.DB_POOL_MAX || 10),
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
+  ssl: process.env.NODE_ENV === "production" && !dbIsLoopback ? { rejectUnauthorized: true } : false,
+});
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
-const redis = new Redis(process.env.REDIS_URL || "redis://localhost:6379");
+const redis = new Redis(redisUrl);
 const cache = makeCache(redis);
 const s3 = new S3Client({
   region: process.env.S3_REGION || "us-east-1",
@@ -134,17 +169,22 @@ const ADMIN_EMAILS = (process.env.ADMIN_EMAILS ?? "")
   .map((e) => e.trim().toLowerCase())
   .filter(Boolean);
 
-const queueConnection = new Redis(process.env.REDIS_URL || "redis://localhost:6379", {
+const queueConnection = new Redis(redisUrl, {
   maxRetriesPerRequest: null,
 });
-const workerConnection = new Redis(process.env.REDIS_URL || "redis://localhost:6379", {
+const workerConnection = new Redis(redisUrl, {
   maxRetriesPerRequest: null,
 });
+
+// P3: Namespaced prefix prevents Redis key collisions if the instance is shared.
+// Braces enable hash-slot consistency on Redis Cluster.
+const QUEUE_PREFIX = "{gem}";
 
 const notificationQueue = new Queue<NotificationFanoutJobData>(
   "notification-fanout",
   {
     connection: queueConnection,
+    prefix: QUEUE_PREFIX,
     defaultJobOptions: {
       attempts: 3,
       backoff: {
@@ -159,6 +199,7 @@ const notificationQueue = new Queue<NotificationFanoutJobData>(
 
 const calendarSyncQueue = new Queue<CalendarSyncJobData>("calendar-sync", {
   connection: queueConnection,
+  prefix: QUEUE_PREFIX,
   defaultJobOptions: {
     attempts: 3,
     backoff: {
@@ -201,16 +242,26 @@ const notificationWorker = new Worker<NotificationFanoutJobData>(
         select: { id: true, email: true },
       });
 
+      // Batch-fetch all prefs and subscriptions — avoids N×3 findUnique calls in the loop
+      const [eventStartPrefs, eventStartSubs] = await Promise.all([
+        prisma.userNotificationPreference.findMany({
+          where: { userId: { in: rsvpUserIds }, type: "event_start" },
+        }),
+        prisma.notificationSubscription.findMany({
+          where: { userId: { in: rsvpUserIds } },
+        }),
+      ]);
+      const eventStartPrefsMap = new Map<string, Map<string, typeof eventStartPrefs[0]>>();
+      for (const pref of eventStartPrefs) {
+        if (!eventStartPrefsMap.has(pref.userId)) eventStartPrefsMap.set(pref.userId, new Map());
+        eventStartPrefsMap.get(pref.userId)!.set(pref.channel, pref);
+      }
+      const eventStartSubsMap = new Map(eventStartSubs.map((s) => [s.userId, s]));
+
       for (const user of users) {
-        const pushPref = await prisma.userNotificationPreference.findUnique({
-          where: { userId_type_channel: { userId: user.id, type: "event_start", channel: "push" } },
-        });
-        const emailPref = await prisma.userNotificationPreference.findUnique({
-          where: { userId_type_channel: { userId: user.id, type: "event_start", channel: "email" } },
-        });
-        const inAppPref = await prisma.userNotificationPreference.findUnique({
-          where: { userId_type_channel: { userId: user.id, type: "event_start", channel: "in_app" } },
-        });
+        const pushPref = eventStartPrefsMap.get(user.id)?.get("push");
+        const emailPref = eventStartPrefsMap.get(user.id)?.get("email");
+        const inAppPref = eventStartPrefsMap.get(user.id)?.get("in_app");
 
         // Default: enabled at 15 min for all channels
         const pushEnabled = (pushPref ? pushPref.enabled : true) && (pushPref?.reminderOffsetMinutes ?? 15) === firedOffset;
@@ -240,7 +291,7 @@ const notificationWorker = new Worker<NotificationFanoutJobData>(
         }
 
         if (pushEnabled) {
-          const subscription = await prisma.notificationSubscription.findUnique({ where: { userId: user.id } });
+          const subscription = eventStartSubsMap.get(user.id);
           if (subscription && isWebPushConfigured()) {
             try {
               await sendPushNotification(
@@ -251,6 +302,7 @@ const notificationWorker = new Worker<NotificationFanoutJobData>(
               const statusCode = (error as { statusCode?: number }).statusCode;
               if (statusCode === 404 || statusCode === 410) {
                 await prisma.notificationSubscription.delete({ where: { userId: user.id } });
+                eventStartSubsMap.delete(user.id);
               }
             }
           }
@@ -328,10 +380,27 @@ const notificationWorker = new Worker<NotificationFanoutJobData>(
       }
     }
 
+    const recipientUserIds = Array.from(recipientIds);
     const users = await prisma.user.findMany({
-      where: { id: { in: Array.from(recipientIds) } },
+      where: { id: { in: recipientUserIds } },
       select: { id: true, email: true },
     });
+
+    // Batch-fetch all prefs and subscriptions — avoids N×3 findUnique calls in the loop
+    const [fanoutPrefs, fanoutSubs] = await Promise.all([
+      prisma.userNotificationPreference.findMany({
+        where: { userId: { in: recipientUserIds }, type: data.type },
+      }),
+      prisma.notificationSubscription.findMany({
+        where: { userId: { in: recipientUserIds } },
+      }),
+    ]);
+    const fanoutPrefsMap = new Map<string, Map<string, typeof fanoutPrefs[0]>>();
+    for (const pref of fanoutPrefs) {
+      if (!fanoutPrefsMap.has(pref.userId)) fanoutPrefsMap.set(pref.userId, new Map());
+      fanoutPrefsMap.get(pref.userId)!.set(pref.channel, pref);
+    }
+    const fanoutSubsMap = new Map(fanoutSubs.map((s) => [s.userId, s]));
 
     for (const user of users) {
       try {
@@ -359,22 +428,14 @@ const notificationWorker = new Worker<NotificationFanoutJobData>(
         throw error;
       }
 
-      // Check per-type notification preferences before sending
-      const pushPref = await prisma.userNotificationPreference.findUnique({
-        where: { userId_type_channel: { userId: user.id, type: data.type, channel: "push" } },
-      });
-      const pushEnabled = pushPref ? pushPref.enabled : true; // default true
+      const pushPref = fanoutPrefsMap.get(user.id)?.get("push");
+      const pushEnabled = pushPref ? pushPref.enabled : true;
 
-      const emailPref = await prisma.userNotificationPreference.findUnique({
-        where: { userId_type_channel: { userId: user.id, type: data.type, channel: "email" } },
-      });
-      const emailEnabled = emailPref ? emailPref.enabled : true; // default true
+      const emailPref = fanoutPrefsMap.get(user.id)?.get("email");
+      const emailEnabled = emailPref ? emailPref.enabled : true;
 
       if (pushEnabled) {
-        const subscription = await prisma.notificationSubscription.findUnique({
-          where: { userId: user.id },
-        });
-
+        const subscription = fanoutSubsMap.get(user.id);
         if (subscription && isWebPushConfigured()) {
           try {
             await sendPushNotification(
@@ -394,9 +455,8 @@ const notificationWorker = new Worker<NotificationFanoutJobData>(
           } catch (error) {
             const statusCode = (error as { statusCode?: number }).statusCode;
             if (statusCode === 404 || statusCode === 410) {
-              await prisma.notificationSubscription.delete({
-                where: { userId: user.id },
-              });
+              await prisma.notificationSubscription.delete({ where: { userId: user.id } });
+              fanoutSubsMap.delete(user.id);
             }
           }
         }
@@ -421,7 +481,7 @@ const notificationWorker = new Worker<NotificationFanoutJobData>(
       }
     }
   },
-  { connection: workerConnection }
+  { connection: workerConnection, prefix: QUEUE_PREFIX, concurrency: 5 }
 );
 
 notificationWorker.on("failed", (job, error) => {
@@ -431,6 +491,7 @@ notificationWorker.on("failed", (job, error) => {
       extra: { jobId: job?.id },
     });
   }
+  void reportError(error, { source: "worker", jobId: job?.id, url: "notification-fanout" });
   app.log.error({ jobId: job?.id, err: error.message }, "Notification fanout job failed");
 });
 
@@ -448,7 +509,7 @@ const calendarSyncWorker = new Worker<CalendarSyncJobData>(
       eventId: job.data.eventId ?? "",
     });
   },
-  { connection: workerConnection }
+  { connection: workerConnection, prefix: QUEUE_PREFIX, concurrency: 5 }
 );
 
 calendarSyncWorker.on("failed", (job, error) => {
@@ -458,6 +519,7 @@ calendarSyncWorker.on("failed", (job, error) => {
       extra: { jobId: job?.id },
     });
   }
+  void reportError(error, { source: "worker", jobId: job?.id, url: "calendar-sync" });
   app.log.error({ jobId: job?.id, err: error.message }, "Calendar sync job failed");
 });
 
@@ -747,6 +809,7 @@ async function seedDemoData(demoUserId: string): Promise<string[]> {
 
 const demoCleanupQueue = new Queue<DemoCleanupJobData>("demo-cleanup", {
   connection: queueConnection,
+  prefix: QUEUE_PREFIX,
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: "exponential", delay: 1000 },
@@ -761,7 +824,7 @@ const demoCleanupWorker = new Worker<DemoCleanupJobData>(
     const { sessionId, userId, deviceId } = job.data;
     await cleanupDemoSession(sessionId, userId, deviceId);
   },
-  { connection: workerConnection }
+  { connection: workerConnection, prefix: QUEUE_PREFIX, concurrency: 5 }
 );
 
 demoCleanupWorker.on("failed", (job, error) => {
@@ -1339,6 +1402,8 @@ async function getCalendarSyncMeta(groupId: string) {
 }
 
 // Register plugins
+await app.register(compress, { global: true, threshold: 1024 });
+
 await app.register(helmet, {
   contentSecurityPolicy: {
     directives: {
@@ -1351,6 +1416,21 @@ await app.register(helmet, {
       baseUri: ["'none'"],
     },
   },
+  // Explicit HSTS: 1-year max-age, not relying on helmet version defaults.
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true,
+  },
+});
+
+// P3: Permissions-Policy — helmet 8.x doesn't expose this header, so set it directly.
+// Locks down APIs the app never uses to reduce browser-side attack surface.
+app.addHook("onSend", async (_request, reply) => {
+  reply.header(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+  );
 });
 
 await app.register(cors, {
@@ -1446,8 +1526,9 @@ app.decorate("s3", s3);
 // Register error handler
 app.setErrorHandler((error, request, reply) => {
   const normalizedError = error instanceof Error ? error : new Error(String(error));
+  const statusCode = (error as { statusCode?: number }).statusCode;
 
-  if (sentryEnabled && (error as { statusCode?: number }).statusCode !== 404) {
+  if (sentryEnabled && statusCode !== 404) {
     Sentry.captureException(normalizedError, {
       tags: {
         method: request.method,
@@ -1460,6 +1541,16 @@ app.setErrorHandler((error, request, reply) => {
     });
   }
 
+  // Email alert for genuine server errors (not 4xx client errors)
+  if (!statusCode || statusCode >= 500) {
+    void reportError(normalizedError, {
+      source: "api",
+      method: request.method,
+      url: request.url,
+      userId: (request as { user?: { id?: string } }).user?.id,
+    });
+  }
+
   return errorHandler(normalizedError, request, reply);
 });
 
@@ -1468,6 +1559,40 @@ app.addHook("onResponse", async (request, reply) => {
   responseStatusBuckets[getStatusBucket(reply.statusCode)] += 1;
   pushLatencySample(reply.elapsedTime);
 });
+
+// ============================================================================
+// Client Error Reporting
+// ============================================================================
+
+// Receives unhandled errors from the React frontend (ErrorBoundary + window.onerror).
+// Rate-limited aggressively; always returns 204 so the client learns nothing.
+app.post(
+  "/internal/client-error",
+  { config: { rateLimit: { max: 10, timeWindow: "5 minutes" } } },
+  async (request, reply) => {
+    const body = request.body as Record<string, unknown>;
+
+    const message =
+      typeof body.message === "string" && body.message
+        ? body.message.slice(0, 500)
+        : "Client error";
+    const stack =
+      typeof body.stack === "string" ? body.stack.slice(0, 4000) : message;
+    const url =
+      typeof body.url === "string" ? body.url.slice(0, 500) : undefined;
+    const userAgent =
+      typeof body.userAgent === "string"
+        ? body.userAgent.slice(0, 300)
+        : request.headers["user-agent"]?.slice(0, 300);
+
+    const error = new Error(message);
+    error.stack = stack;
+
+    void reportError(error, { source: "client", url, userAgent });
+
+    return reply.status(204).send();
+  }
+);
 
 // ============================================================================
 // Health Check Routes
@@ -2655,8 +2780,17 @@ app.delete("/users/me", { config: { rateLimit: { max: 5, timeWindow: "10 minutes
 
   await redis.del(redisKey);
 
-  // Cascade deletes handle all related records via Prisma schema onDelete: Cascade.
-  // MediaAsset.uploader and a few others are SetNull — files remain but uploader ref is cleared.
+  // Delete all media files uploaded by this user before removing the DB records.
+  const userMedia = await prisma.mediaAsset.findMany({
+    where: { uploaderId: currentUser.id },
+    select: { id: true, url: true },
+  });
+  for (const asset of userMedia) {
+    deleteUploadedFile(asset.url);
+  }
+  await prisma.mediaAsset.deleteMany({ where: { uploaderId: currentUser.id } });
+
+  // Cascade deletes handle all remaining related records via onDelete: Cascade.
   await prisma.user.delete({ where: { id: currentUser.id } });
 
   return reply.status(204).send();
@@ -2667,6 +2801,7 @@ app.delete("/users/me", { config: { rateLimit: { max: 5, timeWindow: "10 minutes
 // ============================================================================
 
 app.get("/notifications/config", async (request, reply) => {
+  reply.header("Cache-Control", "private, max-age=3600, stale-while-revalidate=300");
   return reply.send({
     vapidPublicKey: process.env.VAPID_PUBLIC_KEY || null,
     pushConfigured,
@@ -3638,7 +3773,7 @@ app.get("/events/:id", async (request, reply) => {
   const { id } = request.params as { id: string };
 
   const eventCacheKey = `cache:event:${id}:${currentUser.id}`;
-  const cachedEvent = await cache.get<{ event: { groupId: string } }>(eventCacheKey);
+  const cachedEvent = await cache.get<{ event: { groupId: string; updatedAt: string } }>(eventCacheKey);
   if (cachedEvent) {
     const membership = await prisma.membership.findUnique({
       where: { userId_groupId: { userId: currentUser.id, groupId: cachedEvent.event.groupId } },
@@ -3648,6 +3783,10 @@ app.get("/events/:id", async (request, reply) => {
       await cache.del(eventCacheKey);
       return reply.status(403).send({ error: "Forbidden", code: "FORBIDDEN" });
     }
+    const etag = weakETag(cachedEvent.event.updatedAt);
+    if (request.headers["if-none-match"] === etag) return reply.status(304).send();
+    reply.header("ETag", etag);
+    reply.header("Cache-Control", "private, max-age=20, stale-while-revalidate=40");
     return reply.send(cachedEvent);
   }
 
@@ -3656,7 +3795,7 @@ app.get("/events/:id", async (request, reply) => {
     include: {
       tags: true,
       rsvps: true,
-      invites: true,
+      invites: { where: { userId: currentUser.id } },
       ratings: { select: { value: true, userId: true } },
     },
   });
@@ -3702,7 +3841,11 @@ app.get("/events/:id", async (request, reply) => {
   };
 
   const eventResult = { event: { ...event, avgRating, myRating, ratingCount: event.ratings.length }, isAdmin, isCreator, mediaUpload };
-  await cache.set(eventCacheKey, eventResult, 20);
+  const etag = weakETag(event.updatedAt);
+  if (request.headers["if-none-match"] === etag) return reply.status(304).send();
+  reply.header("ETag", etag);
+  reply.header("Cache-Control", "private, max-age=20, stale-while-revalidate=40");
+  await cache.setTracked(eventCacheKey, `cache:event:${id}:keys`, eventResult, 20);
   return reply.send(eventResult);
 });
 
@@ -3718,7 +3861,10 @@ app.get("/events", async (request, reply) => {
 
   const eventsCacheKey = `cache:events:${query.groupId}:${currentUser.id}:${query.from ?? ""}:${query.to ?? ""}`;
   const cachedEvents = await cache.get(eventsCacheKey);
-  if (cachedEvents) return reply.send(cachedEvents);
+  if (cachedEvents) {
+    reply.header("Cache-Control", "private, max-age=20, stale-while-revalidate=40");
+    return reply.send(cachedEvents);
+  }
 
   const events = await prisma.event.findMany({
     where: {
@@ -3731,9 +3877,10 @@ app.get("/events", async (request, reply) => {
     orderBy: { dateTime: "asc" },
     include: {
       tags: true,
-      rsvps: true,
-      invites: true,
-      ratings: { select: { value: true, userId: true } },
+      rsvps: { select: { status: true } },
+      invites: { where: { userId: currentUser.id }, select: { userId: true } },
+      _count: { select: { ratings: true } },
+      ratings: { where: { userId: currentUser.id }, select: { value: true } },
     },
   });
 
@@ -3749,15 +3896,13 @@ app.get("/events", async (request, reply) => {
   });
 
   const eventsWithRatings = filteredEvents.map((event) => {
-    const avgRating = event.ratings.length > 0
-      ? Math.round((event.ratings.reduce((s, r) => s + r.value, 0) / event.ratings.length) * 10) / 10
-      : null;
-    const myRating = event.ratings.find((r) => r.userId === currentUser.id)?.value ?? null;
-    return { ...event, avgRating, myRating, ratingCount: event.ratings.length };
+    const myRating = event.ratings[0]?.value ?? null;
+    return { ...event, avgRating: null, myRating, ratingCount: event._count.ratings };
   });
 
   const eventsResult = { events: eventsWithRatings };
-  await cache.set(eventsCacheKey, eventsResult, 20);
+  reply.header("Cache-Control", "private, max-age=20, stale-while-revalidate=40");
+  await cache.setTracked(eventsCacheKey, `cache:events:${query.groupId}:keys`, eventsResult, 20);
   return reply.send(eventsResult);
 });
 
@@ -3800,10 +3945,10 @@ app.post("/events", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
       title: sanitizeNotifText(`New event: ${event.title}`),
       body: sanitizeNotifText(`${currentUser.name} created an event in your group.`),
       url: `/events/${event.id}`,
-    });
+    }, { jobId: `event_created:${event.id}` });
   }
 
-  await cache.delPattern(`cache:events:${body.groupId}:*`);
+  await cache.delSet(`cache:events:${body.groupId}:keys`);
   await queueCalendarSync(body.groupId, "event_created", event.id);
   await scheduleEventStartNotification(event);
 
@@ -3876,10 +4021,10 @@ app.patch("/events/:id", async (request, reply) => {
   if (event.isPrivate) {
     const inviteeIds = event.invites.map((inv) => inv.userId);
     if (inviteeIds.length > 0) {
-      await notificationQueue.add("fanout", { ...changedFanoutBase, recipientUserIds: inviteeIds });
+      await notificationQueue.add("fanout", { ...changedFanoutBase, recipientUserIds: inviteeIds }, { jobId: `event_changed:${event.id}` });
     }
   } else {
-    await notificationQueue.add("fanout", changedFanoutBase);
+    await notificationQueue.add("fanout", changedFanoutBase, { jobId: `event_changed:${event.id}` });
   }
 
   await queueCalendarSync(access.event.groupId, "event_updated", event.id);
@@ -3888,8 +4033,8 @@ app.patch("/events/:id", async (request, reply) => {
   }
 
   await Promise.all([
-    cache.delPattern(`cache:event:${params.id}:*`),
-    cache.delPattern(`cache:events:${access.event.groupId}:*`),
+    cache.delSet(`cache:event:${params.id}:keys`),
+    cache.delSet(`cache:events:${access.event.groupId}:keys`),
   ]);
   return reply.send({ event });
 });
@@ -3910,8 +4055,8 @@ app.delete("/events/:id", async (request, reply) => {
   await cancelEventStartNotification(params.id);
   await queueCalendarSync(access.event.groupId, "event_deleted", params.id);
   await Promise.all([
-    cache.delPattern(`cache:event:${params.id}:*`),
-    cache.delPattern(`cache:events:${access.event.groupId}:*`),
+    cache.delSet(`cache:event:${params.id}:keys`),
+    cache.delSet(`cache:events:${access.event.groupId}:keys`),
   ]);
   return reply.status(204).send();
 });
@@ -3964,7 +4109,7 @@ app.post("/events/:id/rsvps", async (request, reply) => {
         title: sanitizeNotifText(`RSVP on ${access.event.title}`),
         body: sanitizeNotifText(`${currentUser.name} is going.`),
         url: `/events/${params.id}`,
-      });
+      }, { jobId: `rsvp_update:${params.id}:${currentUser.id}` });
     }
 
     return reply.status(201).send({ rsvp: created });
@@ -4005,7 +4150,7 @@ app.post("/events/:id/rsvps", async (request, reply) => {
         title: sanitizeNotifText(`RSVP updated on ${access.event.title}`),
         body: sanitizeNotifText(`${currentUser.name} is going.`),
         url: `/events/${params.id}`,
-      });
+      }, { jobId: `rsvp_update:${params.id}:${currentUser.id}` });
     }
     return reply.status(201).send({ rsvp: updated });
   }
@@ -4026,7 +4171,7 @@ app.post("/events/:id/rsvps", async (request, reply) => {
       title: sanitizeNotifText(`RSVP updated on ${access.event.title}`),
       body: sanitizeNotifText(`${currentUser.name} is going.`),
       url: `/events/${params.id}`,
-    });
+    }, { jobId: `rsvp_update:${params.id}:${currentUser.id}` });
   }
 
   return reply.status(201).send({ rsvp });
@@ -4210,7 +4355,7 @@ app.post("/events/:id/invites", { config: { rateLimit: { max: 20, timeWindow: "1
     title: sanitizeNotifText(`${currentUser.name} invited you`),
     body: sanitizeNotifText(`"${access.event.title}"`),
     url: `/events/${params.id}`,
-  });
+  }, { jobId: `invite:${params.id}:${body.userId}` });
 
   await queueCalendarSync(access.event.groupId, "event_invite_changed", params.id);
 
@@ -4724,7 +4869,10 @@ app.get("/groups", async (request, reply) => {
 
   const cacheKey = `cache:groups:${currentUser.id}`;
   const cached = await cache.get<{ groups: unknown[] }>(cacheKey);
-  if (cached) return reply.send(cached);
+  if (cached) {
+    reply.header("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
+    return reply.send(cached);
+  }
 
   const memberships = await prisma.membership.findMany({
     where: { userId: currentUser.id },
@@ -4750,6 +4898,7 @@ app.get("/groups", async (request, reply) => {
   }));
 
   const result = { groups };
+  reply.header("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
   await cache.set(cacheKey, result, 30);
   return reply.send(result);
 });
@@ -4820,8 +4969,14 @@ app.get("/groups/:groupId", async (request, reply) => {
   await requireGroupMembership(prisma, currentUser.id, params.groupId);
 
   const groupCacheKey = `cache:group:${params.groupId}`;
-  const cachedGroup = await cache.get(groupCacheKey);
-  if (cachedGroup) return reply.send(cachedGroup);
+  const cachedGroup = await cache.get<{ group: { updatedAt: string } }>(groupCacheKey);
+  if (cachedGroup) {
+    const etag = weakETag(cachedGroup.group.updatedAt);
+    if (request.headers["if-none-match"] === etag) return reply.status(304).send();
+    reply.header("ETag", etag);
+    reply.header("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
+    return reply.send(cachedGroup);
+  }
 
   const group = await prisma.group.findUnique({
     where: { id: params.groupId },
@@ -4835,6 +4990,10 @@ app.get("/groups/:groupId", async (request, reply) => {
   }
 
   const groupResult = { group };
+  const etag = weakETag(group.updatedAt);
+  if (request.headers["if-none-match"] === etag) return reply.status(304).send();
+  reply.header("ETag", etag);
+  reply.header("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
   await cache.set(groupCacheKey, groupResult, 30);
   return reply.send(groupResult);
 });
@@ -5042,6 +5201,7 @@ app.get("/groups/:groupId/members", async (request, reply) => {
     orderBy: { createdAt: "asc" },
   });
 
+  reply.header("Cache-Control", "private, max-age=30, stale-while-revalidate=60");
   return reply.send({
     members: members.map((m) => ({
       userId: m.user.id,
@@ -5201,7 +5361,7 @@ app.post("/groups/join", { config: { rateLimit: { max: 10, timeWindow: "1 minute
     });
 
     if (process.env.NODE_ENV !== "production") {
-      app.log.info({ to: owner.email, requester: currentUser.name, group: group.name }, "[DEV] Group join request email");
+      app.log.info({ to: owner.email, requester: sanitizeForLog(currentUser.name), group: sanitizeForLog(group.name) }, "[DEV] Group join request email");
     }
   }
 
@@ -5815,13 +5975,24 @@ app.post("/beta/validate", { config: { rateLimit: { max: 10, timeWindow: "1 minu
 // Admin Developer Panel Routes
 // ============================================================================
 
-// ADMIN_EMAILS is defined at module level above
+// ADMIN_EMAILS and ADMIN_ALLOWED_IPS are defined at module level above
+
+// P3: Optional IP allowlist for admin routes. Set ADMIN_ALLOWED_IPS as a comma-separated
+// list of IPs to restrict admin access beyond email-gating.
+const ADMIN_ALLOWED_IPS = (process.env.ADMIN_ALLOWED_IPS ?? "")
+  .split(",")
+  .map((ip) => ip.trim())
+  .filter(Boolean);
 
 async function requireAdminEmail(request: FastifyRequest, reply: FastifyReply, prisma: PrismaClient) {
   const currentUser = await requireAuth(request, reply, prisma);
   if (!ADMIN_EMAILS.includes(currentUser.email.toLowerCase())) {
     reply.status(403).send({ error: "Access denied. Developer panel is restricted.", code: "FORBIDDEN" });
     throw new Error("FORBIDDEN");
+  }
+  if (ADMIN_ALLOWED_IPS.length > 0 && !ADMIN_ALLOWED_IPS.includes(request.ip)) {
+    reply.status(403).send({ error: "Access denied.", code: "IP_FORBIDDEN" });
+    throw new Error("IP_FORBIDDEN");
   }
   return currentUser;
 }
@@ -6261,6 +6432,7 @@ app.get("/groups/:groupId/channels", async (request, reply) => {
     ...channels.map((ch, i) => ({ ch, unread: unreadCounts[i] })).filter(({ ch }) => !ch.isGeneral),
   ];
 
+  reply.header("Cache-Control", "private, max-age=15, stale-while-revalidate=30");
   return reply.send({
     channels: sorted.map(({ ch, unread }) => ({
       id: ch.id,
@@ -7240,3 +7412,16 @@ const gracefulShutdown = async () => {
 
 process.on("SIGTERM", gracefulShutdown);
 process.on("SIGINT", gracefulShutdown);
+
+process.on("uncaughtException", (error) => {
+  app.log.fatal({ err: error }, "Uncaught exception");
+  void reportError(error, { source: "process", url: "uncaughtException" }).finally(() =>
+    process.exit(1)
+  );
+});
+
+process.on("unhandledRejection", (reason) => {
+  const error = reason instanceof Error ? reason : new Error(String(reason));
+  app.log.error({ err: error }, "Unhandled promise rejection");
+  void reportError(error, { source: "process", url: "unhandledRejection" });
+});

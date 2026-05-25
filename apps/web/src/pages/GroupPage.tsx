@@ -33,8 +33,8 @@ import type { LightboxMedia } from '../components/MediaLightbox'
 import { useEvents, useDeleteEvent } from '../hooks/useEvents'
 import EventCard from '../components/EventCard'
 import Avatar from '../components/Avatar'
-import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
+import { EventCardSkeleton, PhotoGridSkeleton } from '../components/Skeleton'
 import { getApiErrorMessage, ApiError, apiFetch } from '../lib/api'
 import { useToast } from '../hooks/useToast'
 import { useIsOnline } from '../hooks/useIsOnline'
@@ -142,6 +142,7 @@ export default function GroupPage() {
   const [mediaSubTab, setMediaSubTab] = useState<'all' | 'albums'>('all')
   const [selectedAlbum, setSelectedAlbum] = useState<MediaAlbum | null>(null)
   const [showCreateAlbumModal, setShowCreateAlbumModal] = useState(false)
+  const [confirmDeleteAlbumId, setConfirmDeleteAlbumId] = useState<string | null>(null)
   const [newAlbumName, setNewAlbumName] = useState('')
   const [newChannelName, setNewChannelName] = useState('')
   const [newChannelInviteOnly, setNewChannelInviteOnly] = useState(false)
@@ -389,8 +390,8 @@ export default function GroupPage() {
 
   if (groupLoading) {
     return (
-      <div className="flex justify-center py-16">
-        <Spinner className="text-indigo-400" />
+      <div className="space-y-2 px-4 pt-4">
+        {Array.from({ length: 3 }).map((_, i) => <EventCardSkeleton key={i} />)}
       </div>
     )
   }
@@ -632,8 +633,8 @@ export default function GroupPage() {
             </button>
           </div>
           {eventsLoading ? (
-            <div className="flex justify-center py-8">
-              <Spinner className="text-indigo-400" />
+            <div className="space-y-2">
+              {Array.from({ length: 3 }).map((_, i) => <EventCardSkeleton key={i} />)}
             </div>
           ) : !eventsData?.events?.length ? (
             <EmptyState
@@ -1147,7 +1148,7 @@ export default function GroupPage() {
           {/* All Photos grid */}
           {mediaSubTab === 'all' && (
             photosLoading ? (
-              <div className="flex justify-center py-16"><Spinner /></div>
+              <PhotoGridSkeleton />
             ) : !photosData?.media?.length ? (
               <EmptyState title="No photos yet" description="Photos uploaded to events in this group will appear here." />
             ) : (
@@ -1174,7 +1175,7 @@ export default function GroupPage() {
           {/* Albums grid */}
           {mediaSubTab === 'albums' && !selectedAlbum && (
             albumsLoading ? (
-              <div className="flex justify-center py-16"><Spinner /></div>
+              <PhotoGridSkeleton count={6} />
             ) : !albumsData?.albums?.length ? (
               <EmptyState
                 title="No albums yet"
@@ -1191,7 +1192,7 @@ export default function GroupPage() {
                     >
                       <div className="aspect-square bg-gray-800 rounded-xl overflow-hidden mb-2">
                         {album.coverAsset ? (
-                          <img src={album.coverAsset.url} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" />
+                          <img src={album.coverAsset.url} alt={album.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200" loading="lazy" decoding="async" />
                         ) : (
                           <div className="w-full h-full flex items-center justify-center text-gray-600">
                             <svg xmlns="http://www.w3.org/2000/svg" className="w-10 h-10" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
@@ -1204,14 +1205,36 @@ export default function GroupPage() {
                       <p className="text-xs text-gray-500">{album.photoCount} photo{album.photoCount !== 1 ? 's' : ''}</p>
                     </button>
                     {isAdmin && (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); if (confirm(`Delete album "${album.name}"?`)) deleteAlbum.mutate(album.id) }}
-                        className="absolute top-2 right-2 hidden group-hover:flex items-center justify-center w-6 h-6 bg-red-600/80 hover:bg-red-600 text-white rounded-full text-xs"
-                        aria-label="Delete album"
-                      >
-                        ×
-                      </button>
+                      <div className="absolute top-2 right-2">
+                        {confirmDeleteAlbumId === album.id ? (
+                          <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              onClick={() => { deleteAlbum.mutate(album.id); setConfirmDeleteAlbumId(null) }}
+                              disabled={deleteAlbum.isPending}
+                              className="text-xs px-2 py-1 rounded-lg bg-red-900 text-red-200 hover:bg-red-800 transition-colors disabled:opacity-50"
+                            >
+                              Delete
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteAlbumId(null)}
+                              className="text-xs px-2 py-1 rounded-lg bg-gray-800 text-gray-400 hover:bg-gray-700 transition-colors"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setConfirmDeleteAlbumId(album.id) }}
+                            className="hidden group-hover:flex items-center justify-center w-6 h-6 bg-red-600/80 hover:bg-red-600 text-white rounded-full text-xs"
+                            aria-label="Delete album"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
                     )}
                   </div>
                 ))}
@@ -1227,7 +1250,7 @@ export default function GroupPage() {
                 {selectedAlbum.description && <p className="text-sm text-gray-400 mt-0.5">{selectedAlbum.description}</p>}
               </div>
               {albumPhotosLoading ? (
-                <div className="flex justify-center py-16"><Spinner /></div>
+                <PhotoGridSkeleton />
               ) : !albumPhotosData?.media?.length ? (
                 <div>
                   <EmptyState title="No photos in this album" description={isAdmin ? 'Add photos from the All Photos tab.' : 'No photos have been added yet.'} />

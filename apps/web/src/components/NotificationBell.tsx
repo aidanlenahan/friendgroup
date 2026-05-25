@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import {
   useNotificationInbox,
@@ -32,7 +32,7 @@ export default function NotificationBell() {
   const dismiss = useDismissNotification()
 
   const allNotifications = data?.notifications ?? []
-  const unread = allNotifications.filter((n) => !n.readAt)
+  const unread = useMemo(() => allNotifications.filter((n) => !n.readAt), [allNotifications])
   const preview = unread.slice(0, PREVIEW_COUNT)
   const unreadCount = unread.length
   const hasMore = unread.length > PREVIEW_COUNT

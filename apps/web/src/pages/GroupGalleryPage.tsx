@@ -124,6 +124,7 @@ export default function GroupGalleryPage() {
                   alt={photo.filename}
                   className="w-full object-cover transition-transform duration-200 group-hover:scale-105 block"
                   loading="lazy"
+                  decoding="async"
                 />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors" />
                 <div className="absolute bottom-0 inset-x-0 p-2 opacity-0 group-hover:opacity-100 transition-opacity">

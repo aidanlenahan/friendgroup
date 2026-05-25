@@ -37,17 +37,17 @@ function verifyHS256JWT(token: string, secret: string): Record<string, unknown> 
 // ---------------------------------------------------------------------------
 
 const JoinChannelSchema = z.object({
-  channelId: z.string().uuid(),
-  groupId: z.string().uuid(),
+  channelId: z.string().min(1),
+  groupId: z.string().min(1),
 }).strict();
 
 const SendMessageSchema = z.object({
-  channelId: z.string().uuid(),
+  channelId: z.string().min(1),
   content: z.string().min(1).max(2000),
-  replyToId: z.string().uuid().nullable().optional(),
+  replyToId: z.string().min(1).nullable().optional(),
 }).strict();
 
-const ChannelIdSchema = z.string().uuid();
+const ChannelIdSchema = z.string().min(1);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -273,7 +273,24 @@ export function createChatServer(
             replyTo: { select: { id: true, content: true, user: { select: { id: true, name: true } } } },
           },
         });
-        io.to(`channel:${channelId}`).emit("channel:message:new", message);
+        // Strip server-only fields before broadcast
+        io.to(`channel:${channelId}`).emit("channel:message:new", {
+          id: message.id,
+          channelId: message.channelId,
+          userId: message.userId,
+          content: message.content,
+          pinned: message.pinned,
+          replyToId: message.replyToId,
+          createdAt: message.createdAt,
+          updatedAt: message.updatedAt,
+          user: {
+            id: message.user.id,
+            name: message.user.name,
+            avatarUrl: message.user.avatarUrl ?? null,
+          },
+          replyTo: message.replyTo ?? null,
+          reactions: [],
+        });
         if (onChannelMessageCreated) {
           await onChannelMessageCreated({
             messageId: message.id,

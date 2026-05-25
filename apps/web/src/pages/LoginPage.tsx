@@ -494,6 +494,12 @@ export default function LoginPage() {
             GEM is in beta — request access
           </button>
         </p>
+        <p className="text-center text-xs text-gray-600">
+          Just browsing?{' '}
+          <Link to="/demo" className="text-indigo-500 hover:text-indigo-400 transition-colors">
+            Try the demo
+          </Link>
+        </p>
       </div>
 
       {showBetaModal && <BetaInfoModal onClose={() => setShowBetaModal(false)} />}

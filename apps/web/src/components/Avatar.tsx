@@ -1,3 +1,5 @@
+import { memo } from 'react'
+
 function getInitials(name: string): string {
   return name
     .split(' ')
@@ -20,7 +22,7 @@ const sizeClasses = {
   lg: 'w-14 h-14 text-lg',
 }
 
-export default function Avatar({ name, avatarUrl, size = 'md', title }: AvatarProps) {
+const Avatar = memo(function Avatar({ name, avatarUrl, size = 'md', title }: AvatarProps) {
   const cls = sizeClasses[size]
 
   if (avatarUrl) {
@@ -30,6 +32,7 @@ export default function Avatar({ name, avatarUrl, size = 'md', title }: AvatarPr
         alt={title ?? name}
         title={title ?? name}
         className={`${cls} rounded-full object-cover`}
+        decoding="async"
       />
     )
   }
@@ -42,4 +45,6 @@ export default function Avatar({ name, avatarUrl, size = 'md', title }: AvatarPr
       {getInitials(name)}
     </div>
   )
-}
+})
+
+export default Avatar

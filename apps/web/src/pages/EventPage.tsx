@@ -412,7 +412,15 @@ export default function EventPage() {
       setPendingUploadFile(null)
       setPendingCaption('')
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to upload photo')
+      // Provide friendly messages for the two most common upload failures.
+      const msg = err instanceof Error ? err.message : ''
+      if (msg.includes('413') || msg.includes('too large') || msg.includes('FILE_TOO_LARGE')) {
+        toast.error('Photo is too large. Maximum file size is 10 MB.')
+      } else if (msg.includes('quota') || msg.includes('QUOTA') || msg.includes('storage')) {
+        toast.error('Storage quota reached. Delete some photos to free up space.')
+      } else {
+        toast.error(getApiErrorMessage(err, 'Failed to upload photo'))
+      }
     } finally {
       setUploadingMedia(false)
     }
@@ -879,7 +887,7 @@ export default function EventPage() {
                     onClick={() => setLightboxIndex(i)}
                     className="block w-full aspect-square bg-gray-800 rounded-lg overflow-hidden"
                   >
-                    <img src={m.url} alt={m.filename} className="w-full h-full object-cover" />
+                    <img src={m.url} alt={m.filename} className="w-full h-full object-cover" loading="lazy" decoding="async" />
                   </button>
                   {/* Like button */}
                   <button

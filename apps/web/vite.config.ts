@@ -60,6 +60,33 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
+        additionalManifestEntries: [{ url: '/offline.html', revision: null }],
+        // P4: API and WebSocket traffic must never be served from the cache.
+        // Without this a second user on a shared device could see the prior
+        // user's data briefly before fresh network requests complete.
+        runtimeCaching: [
+          {
+            urlPattern: /\/api\//,
+            handler: 'NetworkOnly' as const,
+          },
+          {
+            urlPattern: /^wss?:\/\//,
+            handler: 'NetworkOnly' as const,
+          },
+          // User-uploaded images from the same origin: serve stale while revalidating in background.
+          // Safe because images are content-addressed (URL changes on update).
+          {
+            urlPattern: /\/uploads\/.*\.(jpe?g|png|gif|webp|avif|heic|heif)(\?.*)?$/i,
+            handler: 'StaleWhileRevalidate' as const,
+            options: {
+              cacheName: 'gem-images',
+              expiration: {
+                maxEntries: 200,
+                maxAgeSeconds: 7 * 24 * 60 * 60, // 7 days
+              },
+            },
+          },
+        ],
       },
     }),
   ],
@@ -77,12 +104,17 @@ export default defineConfig({
     },
   },
   build: {
+    // P3: 'hidden' generates source maps for Sentry error tracking but does not
+    // reference them in the bundle, so they are not publicly accessible via DevTools.
+    sourcemap: 'hidden',
     rollupOptions: {
+      treeshake: { moduleSideEffects: false },
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return
           if (id.includes('@sentry')) return 'vendor-sentry'
           if (id.includes('@tanstack')) return 'vendor-query'
+          if (id.includes('socket.io-client') || id.includes('engine.io-client') || id.includes('socket.io-parser')) return 'vendor-socket'
           if (id.includes('react') || id.includes('react-dom') || id.includes('react-router') || id.includes('scheduler')) return 'vendor-react'
           return 'vendor'
         },

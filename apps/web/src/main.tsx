@@ -1,5 +1,4 @@
 import { StrictMode } from 'react'
-import * as Sentry from '@sentry/react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import './index.css'
@@ -7,6 +6,7 @@ import App from './App.tsx'
 import ErrorBoundary from './components/ErrorBoundary.tsx'
 import { initTheme } from './hooks/useTheme'
 import { registerBestServiceWorker } from './lib/serviceWorker'
+import { reportClientError } from './lib/reportClientError'
 
 // Apply theme immediately to prevent flash of wrong theme on load
 initTheme()
@@ -43,30 +43,48 @@ initTheme()
   sync()
 })()
 
+// Sentry is loaded lazily after first user interaction to avoid blocking LCP.
+// The ~200 KB chunk is not needed until the user starts doing something.
 const sentryDsn = import.meta.env.VITE_SENTRY_DSN
 
 if (sentryDsn) {
-  Sentry.init({
-    dsn: sentryDsn,
-    environment: import.meta.env.MODE,
-    release: import.meta.env.VITE_SENTRY_RELEASE,
-    tracesSampleRate: Number(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE ?? 0),
-    beforeSend(event) {
-      if (event.request?.data) {
-        delete event.request.data
-      }
-      if (event.request?.cookies) {
-        delete event.request.cookies
-      }
-      if (event.request?.headers?.Authorization) {
-        event.request.headers.Authorization = '[REDACTED]'
-      }
-      if (event.request?.headers?.authorization) {
-        event.request.headers.authorization = '[REDACTED]'
-      }
-      return event
-    },
-  })
+  let sentryInitialized = false
+  const initSentry = () => {
+    if (sentryInitialized) return
+    sentryInitialized = true
+    import('@sentry/react').then((Sentry) => {
+      Sentry.init({
+        dsn: sentryDsn,
+        environment: import.meta.env.MODE,
+        release: import.meta.env.VITE_SENTRY_RELEASE,
+        tracesSampleRate: Number(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE ?? 0),
+        beforeSend(event) {
+          if (event.request?.data) {
+            delete event.request.data
+          }
+          if (event.request?.cookies) {
+            delete event.request.cookies
+          }
+          if (event.request?.headers?.Authorization) {
+            event.request.headers.Authorization = '[REDACTED]'
+          }
+          if (event.request?.headers?.authorization) {
+            event.request.headers.authorization = '[REDACTED]'
+          }
+          return event
+        },
+      })
+    })
+  }
+
+  const sentryEvents = ['click', 'keydown', 'touchstart', 'scroll'] as const
+  const onFirstInteraction = () => {
+    initSentry()
+    sentryEvents.forEach((e) => window.removeEventListener(e, onFirstInteraction))
+  }
+  sentryEvents.forEach((e) => window.addEventListener(e, onFirstInteraction, { once: true, passive: true }))
+  // Fallback: init after 5 seconds for users who never interact
+  setTimeout(initSentry, 5000)
 }
 
 async function registerServiceWorker() {
@@ -90,6 +108,20 @@ void registerServiceWorker()
 window.addEventListener('vite:preloadError', (event) => {
   event.preventDefault()
   window.location.reload()
+})
+
+// Global error hooks — catch exceptions that escape React's tree and unhandled
+// promise rejections. Both feed the same SMTP alerting pipeline as ErrorBoundary.
+window.onerror = (_msg, _src, _line, _col, error) => {
+  if (error) reportClientError(error.message, error.stack ?? '')
+}
+window.addEventListener('unhandledrejection', (event) => {
+  const reason = event.reason
+  if (reason instanceof Error) {
+    reportClientError(reason.message, reason.stack ?? '')
+  } else if (reason) {
+    reportClientError(String(reason), '')
+  }
 })
 
 createRoot(document.getElementById('root')!).render(

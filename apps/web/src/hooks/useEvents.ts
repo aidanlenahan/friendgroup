@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiFetch } from '../lib/api'
+import { apiFetch, getApiErrorMessage } from '../lib/api'
+import { useToast } from './useToast'
 
 export type EventTag = { id: string; name: string; color?: string | null }
 
@@ -124,32 +125,39 @@ export function useEventAttendance(eventId: string) {
 
 export function useCreateEvent() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (data: CreateEventInput) =>
       apiFetch<EventResponse>('/events', { method: 'POST', body: JSON.stringify(data) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to create event')),
   })
 }
 
 export function useUpdateEvent(eventId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (data: UpdateEventInput) =>
       apiFetch<EventResponse>(`/events/${eventId}`, { method: 'PATCH', body: JSON.stringify(data) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to update event')),
   })
 }
 
 export function useDeleteEvent(eventId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: () => apiFetch(`/events/${eventId}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to delete event')),
   })
 }
 
 export function useRsvp(eventId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (status: 'yes' | 'no' | 'maybe') =>
       apiFetch(`/events/${eventId}/rsvps`, { method: 'POST', body: JSON.stringify({ status }) }),
@@ -157,24 +165,29 @@ export function useRsvp(eventId: string) {
       qc.invalidateQueries({ queryKey: ['events'] })
       qc.invalidateQueries({ queryKey: ['events', eventId, 'attendance'] })
     },
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to update RSVP')),
   })
 }
 
 export function useEventRating(eventId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (value: number) =>
       apiFetch(`/events/${eventId}/ratings`, { method: 'POST', body: JSON.stringify({ value }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to save rating')),
   })
 }
 
 export function useSetEventTags(eventId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (tagIds: string[]) =>
       apiFetch(`/events/${eventId}/tags`, { method: 'PATCH', body: JSON.stringify({ tagIds }) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to update event tags')),
   })
 }
 
@@ -188,9 +201,11 @@ export function useEventMedia(eventId: string) {
 
 export function useLikeMedia(eventId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (assetId: string) =>
       apiFetch<{ liked: boolean }>(`/media/${assetId}/like`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['events', eventId, 'media'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to like photo')),
   })
 }

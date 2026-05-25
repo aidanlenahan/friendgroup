@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { useDemoStore } from '../stores/demoStore'
 import { useAuthStore } from '../stores/authStore'
 import { apiFetch } from '../lib/api'
@@ -16,26 +16,39 @@ type DemoStatusResponse =
 
 export default function DemoPage() {
   const navigate = useNavigate()
-  const { isDemoMode, demoExpiresAt, getOrCreateDeviceId, startDemo, setQueuePosition, queuePosition } = useDemoStore()
-  const { login, user } = useAuthStore()
+  const [searchParams] = useSearchParams()
+  const isDone = searchParams.get('done') === '1'
+  const isExpired = searchParams.get('expired') === '1'
+  const { isDemoMode, demoExpiresAt, getOrCreateDeviceId, startDemo, setQueuePosition, queuePosition, endDemo } = useDemoStore()
+  const { login, logout, user } = useAuthStore()
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // If already in demo and not expired, go to app
+  // When landing here after exit/expiry, clear demo + auth state now that
+  // we're safely on a public route.
   useEffect(() => {
-    if (isDemoMode && demoExpiresAt && demoExpiresAt > Date.now() && user?.isDemo) {
+    if (isDone) {
+      endDemo()
+      logout()
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isDone])
+
+  // If already in demo and not expired, go to app (skip when finishing demo)
+  useEffect(() => {
+    if (!isDone && isDemoMode && demoExpiresAt && demoExpiresAt > Date.now() && user?.isDemo) {
       navigate('/groups', { replace: true })
     }
-  }, [isDemoMode, demoExpiresAt, user, navigate])
+  }, [isDone, isDemoMode, demoExpiresAt, user, navigate])
 
   // If logged in as normal user, go to app
   useEffect(() => {
-    if (user && !user.isDemo) {
+    if (!isDone && user && !user.isDemo) {
       navigate('/groups', { replace: true })
     }
-  }, [user, navigate])
+  }, [isDone, user, navigate])
 
   const stopPolling = () => {
     if (pollRef.current) {
@@ -116,6 +129,63 @@ export default function DemoPage() {
   }, [])
 
   const isQueued = queuePosition !== null
+
+  if (isDone) {
+    return (
+      <div className="min-h-[80vh] flex items-center justify-center px-4 py-16">
+        <div className="max-w-md w-full">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 shadow-2xl">
+            <div className="flex items-center gap-2 mb-6">
+              <img src="/favicon.png" alt="" className="w-8 h-8 rounded-lg" />
+              <span className="text-xl font-bold text-indigo-400">GEM Demo</span>
+            </div>
+
+            <h1 className="text-2xl font-bold text-white mb-2">
+              {isExpired ? 'Your demo has ended' : 'Thanks for trying GEM'}
+            </h1>
+            <p className="text-gray-400 text-sm mb-8">
+              {isExpired
+                ? 'Your 5-minute session expired and all demo data has been deleted.'
+                : 'Your session has been closed and all demo data deleted.'}
+            </p>
+
+            <div className="space-y-3 mb-8">
+              <Link
+                to="/register"
+                className="block w-full py-3 rounded-xl text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white text-center transition-colors"
+              >
+                Create an account
+              </Link>
+              <Link
+                to="/login"
+                className="block w-full py-2.5 rounded-xl text-sm font-medium text-gray-300 border border-gray-700 hover:border-gray-600 hover:text-white text-center transition-colors"
+              >
+                Sign in
+              </Link>
+              <Link
+                to="/demo"
+                className="block w-full py-2.5 rounded-xl text-sm font-medium text-gray-500 hover:text-gray-400 text-center transition-colors"
+              >
+                Run another demo
+              </Link>
+            </div>
+
+            <div className="pt-5 border-t border-gray-800 text-center">
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Feedback or want an account creation code?
+              </p>
+              <a
+                href="mailto:help@gem.aidanlenahan.com"
+                className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
+              >
+                help@gem.aidanlenahan.com
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center px-4 py-16">
@@ -240,6 +310,7 @@ export default function DemoPage() {
             Sign up free
           </a>
         </p>
+
       </div>
     </div>
   )

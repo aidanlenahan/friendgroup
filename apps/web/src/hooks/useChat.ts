@@ -6,6 +6,7 @@ import type { InfiniteData } from '@tanstack/react-query'
 import { resolveApiBaseUrl } from '../lib/api'
 import { acquireSocket, releaseSocket } from '../lib/socket'
 import type { ChannelMessagesPage } from './useMessages'
+import { useToast } from './useToast'
 
 export interface ChatMessage {
   id: string
@@ -30,9 +31,12 @@ export function useChat(eventId: string) {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [typingUsers, setTypingUsers] = useState<string[]>([])
   const [connected, setConnected] = useState(false)
+  const toast = useToast()
 
   useEffect(() => {
+    const _explicit = import.meta.env.VITE_API_BASE_URL
     const socketUrl =
+      (_explicit && _explicit.startsWith('http') ? _explicit : null) ??
       import.meta.env.VITE_SOCKET_URL ??
       (typeof window !== 'undefined' ? resolveApiBaseUrl() : '')
     const socket = io(socketUrl, {
@@ -46,6 +50,9 @@ export function useChat(eventId: string) {
       socket.emit('join:event', { eventId })
     })
     socket.on('disconnect', () => setConnected(false))
+    socket.on('error', () => {
+      toast.error('Chat error. Please refresh if the problem persists.')
+    })
     socket.on('message:new', (msg: ChatMessage) =>
       setMessages((prev) => [...prev, msg]),
     )
@@ -62,10 +69,14 @@ export function useChat(eventId: string) {
     return () => {
       socket.disconnect()
     }
-  }, [eventId])
+  }, [eventId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const sendMessage = (content: string) => {
-    socketRef.current?.emit('message:send', { eventId, content })
+    if (!socketRef.current?.connected) {
+      toast.error('Not connected. Please wait and try again.')
+      return
+    }
+    socketRef.current.emit('message:send', { eventId, content })
   }
 
   const sendTyping = () => {

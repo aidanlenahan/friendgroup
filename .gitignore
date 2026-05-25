@@ -11,7 +11,6 @@ backups/
 tmp/
 notes.md
 CLAUDE.md
-phases.txt
 
 # Runtime user uploads (server-generated, not source code)
 uploads/
@@ -64,6 +63,7 @@ test-results/
 sec-todo.md
 sec-gen-todo.md
 perform.md
+experience.md
 
 calendar-todo.txt
 

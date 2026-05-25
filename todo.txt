@@ -27,6 +27,7 @@ All tasks — completed and pending. Completed entries from `tasks.txt` are incl
 - post demo page--maybe modal on login page or its own page (hidden from all navbars). have something that says 'Email all feedback or send an account creation code request to help@gem.aidanlenahan.com'
 - add informational 'i' glyph next to invite code box on account register page. when clicked, bring up modal that talks about how app is still in beta stage, and to reach out for code via email.
 
+
 =================
 ## Channel chat — implementation checklist
 

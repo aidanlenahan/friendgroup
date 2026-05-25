@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 
@@ -8,7 +8,7 @@ interface PageToolbarProps {
   title?: string
 }
 
-export default function PageToolbar({ onReload, backTo, title }: PageToolbarProps) {
+const PageToolbar = memo(function PageToolbar({ onReload, backTo, title }: PageToolbarProps) {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [spinning, setSpinning] = useState(false)
@@ -61,4 +61,6 @@ export default function PageToolbar({ onReload, backTo, title }: PageToolbarProp
       {title && <span className="ml-1 text-sm font-semibold text-white truncate">{title}</span>}
     </div>
   )
-}
+})
+
+export default PageToolbar

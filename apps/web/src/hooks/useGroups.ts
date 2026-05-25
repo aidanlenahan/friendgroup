@@ -1,5 +1,6 @@
 import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiFetch } from '../lib/api'
+import { apiFetch, getApiErrorMessage } from '../lib/api'
+import { useToast } from './useToast'
 
 export type GroupSummary = {
   id: string
@@ -88,55 +89,51 @@ export function useGroupChannels(groupId: string) {
 
 export function useCreateGroup() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (data: { name: string; description?: string; betaCode?: string }) =>
       apiFetch('/groups', { method: 'POST', body: JSON.stringify(data) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to create group')),
   })
 }
 
 export function useSubscribeGroupChannel(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (channelId: string) =>
-      apiFetch(`/groups/${groupId}/channels/${channelId}/subscribe`, {
-        method: 'POST',
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['groups', groupId, 'channels'] })
-    },
+      apiFetch(`/groups/${groupId}/channels/${channelId}/subscribe`, { method: 'POST' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'channels'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to subscribe to channel')),
   })
 }
 
 export function useUnsubscribeGroupChannel(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (channelId: string) =>
-      apiFetch(`/groups/${groupId}/channels/${channelId}/subscribe`, {
-        method: 'DELETE',
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['groups', groupId, 'channels'] })
-    },
+      apiFetch(`/groups/${groupId}/channels/${channelId}/subscribe`, { method: 'DELETE' }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'channels'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to unsubscribe from channel')),
   })
 }
 
 export function useCreateChannel(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (data: { name: string; isInviteOnly?: boolean }) =>
-      apiFetch(`/groups/${groupId}/channels`, {
-        method: 'POST',
-        body: JSON.stringify(data),
-      }),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['groups', groupId, 'channels'] })
-    },
+      apiFetch(`/groups/${groupId}/channels`, { method: 'POST', body: JSON.stringify(data) }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'channels'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to create channel')),
   })
 }
 
 export function useUpdateMemberRole(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: ({ userId, role }: { userId: string; role: 'admin' | 'member' }) =>
       apiFetch(`/groups/${groupId}/members/${userId}/role`, {
@@ -144,15 +141,18 @@ export function useUpdateMemberRole(groupId: string) {
         body: JSON.stringify({ role }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'members'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to update member role')),
   })
 }
 
 export function useRemoveMember(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (userId: string) =>
       apiFetch(`/groups/${groupId}/members/${userId}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'members'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to remove member')),
   })
 }
 
@@ -167,15 +167,18 @@ export function useGroupInviteCode(groupId: string) {
 
 export function useRegenerateInviteCode(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: () =>
       apiFetch<GroupInviteResponse>(`/groups/${groupId}/invite-code/regenerate`, { method: 'POST' }),
     onSuccess: (data) => qc.setQueryData(['groups', groupId, 'invite-code'], data),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to regenerate invite code')),
   })
 }
 
 export function useJoinGroup() {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (inviteCode: string) =>
       apiFetch<{ message: string; groupId: string; groupName: string }>('/groups/join', {
@@ -183,29 +186,35 @@ export function useJoinGroup() {
         body: JSON.stringify({ inviteCode }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to join group')),
   })
 }
 
 export function useApproveMember(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (userId: string) =>
       apiFetch(`/groups/${groupId}/members/${userId}/approve`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'members'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to approve member')),
   })
 }
 
 export function useDenyMember(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (userId: string) =>
       apiFetch(`/groups/${groupId}/members/${userId}/deny`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'members'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to deny member')),
   })
 }
 
 export function useUpdateGroup(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (data: { name?: string; description?: string; avatarUrl?: string | null; statsEnabled?: boolean }) =>
       apiFetch(`/groups/${groupId}`, { method: 'PATCH', body: JSON.stringify(data) }),
@@ -213,45 +222,55 @@ export function useUpdateGroup(groupId: string) {
       qc.invalidateQueries({ queryKey: ['groups', groupId] })
       qc.invalidateQueries({ queryKey: ['groups'] })
     },
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to update group')),
   })
 }
 
 export function useLeaveGroup(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: () => apiFetch(`/groups/${groupId}/leave`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to leave group')),
   })
 }
 
 export function useDeleteGroup(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: () => apiFetch(`/groups/${groupId}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to delete group')),
   })
 }
 
 export function useCreateTag(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (data: { name: string; color?: string }) =>
       apiFetch(`/groups/${groupId}/tags`, { method: 'POST', body: JSON.stringify(data) }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'tags'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to create tag')),
   })
 }
 
 export function useDeleteTag(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (tagId: string) =>
       apiFetch(`/groups/${groupId}/tags/${tagId}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'tags'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to delete tag')),
   })
 }
 
 export function useMuteMember(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: ({ userId, durationHours }: { userId: string; durationHours?: number }) =>
       apiFetch(`/groups/${groupId}/members/${userId}/mute`, {
@@ -259,15 +278,18 @@ export function useMuteMember(groupId: string) {
         body: JSON.stringify(durationHours !== undefined ? { durationHours } : {}),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'members'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to mute member')),
   })
 }
 
 export function useUnmuteMember(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (userId: string) =>
       apiFetch(`/groups/${groupId}/members/${userId}/unmute`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'members'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to unmute member')),
   })
 }
 
@@ -280,6 +302,7 @@ export function useUnmuteMember(groupId: string) {
  */
 export function useUpdateTag(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: ({ tagId, name, color }: { tagId: string; name?: string; color?: string }) =>
       apiFetch(`/groups/${groupId}/tags/${tagId}`, {
@@ -287,6 +310,7 @@ export function useUpdateTag(groupId: string) {
         body: JSON.stringify({ name, color }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'tags'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to update tag')),
   })
 }
 
@@ -306,6 +330,7 @@ export function useCalendarPreferences(groupId: string) {
 
 export function useUpdateCalendarPreferences(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (data: { filterMode: 'all' | 'rsvp' | 'tags'; tagIds?: string[] }) =>
       apiFetch<CalendarPreferences>(`/groups/${groupId}/calendar/preferences`, {
@@ -316,11 +341,13 @@ export function useUpdateCalendarPreferences(groupId: string) {
       qc.setQueryData(['groups', groupId, 'calendar-preferences'], data)
       qc.invalidateQueries({ queryKey: ['groups', groupId, 'calendar-preferences'] })
     },
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to update calendar preferences')),
   })
 }
 
 export function useUpdateChannelTags(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: ({ channelId, tagIds }: { channelId: string; tagIds: string[] }) =>
       apiFetch(`/groups/${groupId}/channels/${channelId}/tags`, {
@@ -328,11 +355,13 @@ export function useUpdateChannelTags(groupId: string) {
         body: JSON.stringify({ tagIds }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'channels'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to update channel tags')),
   })
 }
 
 export function useRenameChannel(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: ({ channelId, name }: { channelId: string; name: string }) =>
       apiFetch(`/groups/${groupId}/channels/${channelId}`, {
@@ -340,15 +369,18 @@ export function useRenameChannel(groupId: string) {
         body: JSON.stringify({ name }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'channels'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to rename channel')),
   })
 }
 
 export function useDeleteChannel(groupId: string) {
   const qc = useQueryClient()
+  const toast = useToast()
   return useMutation({
     mutationFn: (channelId: string) =>
       apiFetch(`/groups/${groupId}/channels/${channelId}`, { method: 'DELETE' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'channels'] }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to delete channel')),
   })
 }
 
@@ -358,13 +390,16 @@ export function useMarkChannelRead(groupId: string) {
     mutationFn: (channelId: string) =>
       apiFetch(`/groups/${groupId}/channels/${channelId}/read`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['groups', groupId, 'channels'] }),
+    // Silent — mark-read is a background operation; errors don't need to interrupt the user.
   })
 }
 
 export function useDeleteMessage(groupId: string, channelId: string) {
+  const toast = useToast()
   return useMutation({
     mutationFn: (messageId: string) =>
       apiFetch(`/groups/${groupId}/channels/${channelId}/messages/${messageId}`, { method: 'DELETE' }),
+    onError: (err) => toast.error(getApiErrorMessage(err, 'Failed to delete message')),
   })
 }
 

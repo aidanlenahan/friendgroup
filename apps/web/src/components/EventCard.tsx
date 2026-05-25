@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { Link } from 'react-router-dom'
 import TagBadge from './TagBadge'
 
@@ -53,7 +54,7 @@ function formatDateShort(iso: string): { month: string; day: string; time: strin
   }
 }
 
-export default function EventCard({ event, layout = 'grid' }: EventCardProps) {
+function EventCard({ event, layout = 'grid' }: EventCardProps) {
   const yesCount = event.rsvps?.filter((r) => r.status === 'yes').length ?? 0
   const maybeCount = event.rsvps?.filter((r) => r.status === 'maybe').length ?? 0
 
@@ -123,3 +124,5 @@ export default function EventCard({ event, layout = 'grid' }: EventCardProps) {
     </Link>
   )
 }
+
+export default memo(EventCard)

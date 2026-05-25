@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { memo, type ReactNode } from 'react'
 
 interface EmptyStateProps {
   icon?: ReactNode
@@ -7,7 +7,7 @@ interface EmptyStateProps {
   action?: ReactNode
 }
 
-export default function EmptyState({ icon, title, description, action }: EmptyStateProps) {
+const EmptyState = memo(function EmptyState({ icon, title, description, action }: EmptyStateProps) {
   return (
     <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
       {icon && <div className="text-gray-500 mb-4">{icon}</div>}
@@ -16,4 +16,6 @@ export default function EmptyState({ icon, title, description, action }: EmptySt
       {action && <div className="mt-4">{action}</div>}
     </div>
   )
-}
+})
+
+export default EmptyState

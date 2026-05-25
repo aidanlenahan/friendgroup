@@ -53,6 +53,13 @@ const releases: Release[] = [
       { type: 'new', text: 'Date of birth at sign-up — new accounts must enter a date of birth; accounts must belong to someone 13 or older' },
       { type: 'new', text: 'Date of birth in Settings — existing accounts show a one-time editable date of birth field; once saved it is locked and displayed as read-only' },
       { type: 'fixed', text: 'HTML injection in notification emails — user-supplied content (names, group names) is now properly escaped before being embedded in email bodies' },
+      { type: 'improved', text: 'Error feedback on every action — failed requests now always surface a toast with a clear message; no more silent failures when creating events, updating RSVPs, uploading photos, or managing groups' },
+      { type: 'improved', text: 'Photo upload error messages — oversized files (over 10 MB) and storage-quota errors now show specific, human-readable messages instead of a raw server error' },
+      { type: 'improved', text: 'Push notification permission denied — if you block push notifications, GEM now explains how to re-enable them in your browser settings instead of closing silently' },
+      { type: 'improved', text: 'Album deletion confirm UI — deleting an album now shows an inline Confirm / Cancel prompt instead of a browser dialog, matching the style used elsewhere in the app' },
+      { type: 'improved', text: 'Chat disconnect guard — trying to send a message when the socket is not connected now shows a clear warning instead of the message silently disappearing' },
+      { type: 'fixed', text: 'Channel pin/react/delete buttons now disable while the action is in flight, preventing double-taps from sending duplicate requests' },
+      { type: 'fixed', text: 'Security hardening — HSTS, Permissions-Policy, and Content-Security-Policy headers tightened; automatic dependency audits via Dependabot and secret scanning on every push' },
     ],
   },
   {

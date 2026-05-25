@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { useGroups, useCreateGroup, useJoinGroup } from '../hooks/useGroups'
 import type { GroupSummary } from '../hooks/useGroups'
 import Modal from '../components/Modal'
-import Spinner from '../components/Spinner'
+import { GroupCardSkeleton } from '../components/Skeleton'
 import { getApiErrorMessage, ApiError, apiFetch } from '../lib/api'
 import { useIsOnline } from '../hooks/useIsOnline'
 import { useAuthStore } from '../stores/authStore'
+import { useQueryClient } from '@tanstack/react-query'
 
 function getGreeting(name: string): string {
   const hour = new Date().getHours()
@@ -64,8 +65,17 @@ export default function GroupsPage() {
   const { data, isLoading, isError, error, refetch } = useGroups()
   const isOnline = useIsOnline()
   const { user, setUser } = useAuthStore()
+  const qc = useQueryClient()
   const createGroup = useCreateGroup()
   const joinGroup = useJoinGroup()
+
+  const prefetchGroup = useCallback((groupId: string) => {
+    qc.prefetchQuery({
+      queryKey: ['groups', groupId],
+      queryFn: () => apiFetch<{ group: unknown }>(`/groups/${groupId}`),
+      staleTime: 30_000,
+    })
+  }, [qc])
   const [showModal, setShowModal] = useState(false)
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [showOnboarding, setShowOnboarding] = useState(false)
@@ -207,8 +217,8 @@ export default function GroupsPage() {
       </div>
 
       {isLoading ? (
-        <div className="flex justify-center py-16">
-          <Spinner className="text-indigo-400" />
+        <div className="space-y-2 mt-2">
+          {Array.from({ length: 4 }).map((_, i) => <GroupCardSkeleton key={i} />)}
         </div>
       ) : isError && !data?.groups?.length ? (
         <div className="flex flex-col items-center py-16 gap-3 text-gray-400">
@@ -275,6 +285,7 @@ export default function GroupsPage() {
             <Link
               key={g.id}
               to={`/groups/${g.id}`}
+              onMouseEnter={() => prefetchGroup(g.id)}
               className="bg-gray-900 border border-gray-800 rounded-2xl p-5 hover:border-indigo-600 transition-colors group"
             >
               <div className="w-12 h-12 rounded-xl bg-indigo-900 flex items-center justify-center text-xl font-bold mb-3">

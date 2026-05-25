@@ -1,0 +1,44 @@
+version: 2
+updates:
+  # API dependencies
+  - package-ecosystem: "npm"
+    directory: "/apps/api"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      fastify:
+        patterns:
+          - "fastify"
+          - "@fastify/*"
+      security-critical:
+        patterns:
+          - "@fastify/jwt"
+          - "@fastify/cors"
+          - "@fastify/helmet"
+          - "@fastify/rate-limit"
+          - "socket.io"
+          - "nodemailer"
+          - "web-push"
+          - "bullmq"
+
+  # Web dependencies
+  - package-ecosystem: "npm"
+    directory: "/apps/web"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    groups:
+      react:
+        patterns:
+          - "react"
+          - "react-*"
+          - "@tanstack/*"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"

@@ -1388,7 +1388,7 @@ function GroupMediaSubPage({ groupId, isAdmin }: { groupId: string; isAdmin: boo
                 {/* Thumbnail */}
                 <a href={asset.url} target="_blank" rel="noopener noreferrer" className="shrink-0">
                   <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-800">
-                    <img src={asset.url} alt={asset.filename} className="w-full h-full object-cover" />
+                    <img src={asset.url} alt={asset.filename} className="w-full h-full object-cover" loading="lazy" decoding="async" />
                   </div>
                 </a>
 

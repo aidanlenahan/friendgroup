@@ -5,6 +5,20 @@ PROD_ENV="/etc/gem/gem-api.env"
 DEV_ENV="/etc/gem/gem-api-dev.env"
 PROD_API_URL="https://api-gem.aidanlenahan.com"
 DEV_API_URL="https://api-gem-dev.aidanlenahan.com"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=notify.sh
+source "$SCRIPT_DIR/notify.sh"
+
+# Pick the best available env file that has SMTP credentials.
+_gem_smtp_env() {
+  for _f in "$PROD_ENV" "$DEV_ENV" "/var/www/gem/apps/api/.env"; do
+    if [[ -f "$_f" ]] && grep -q "^SMTP_HOST=" "$_f" 2>/dev/null; then
+      echo "$_f"; return
+    fi
+  done
+  echo ""
+}
 
 # ── Colors ────────────────────────────────────────────────────────────────────
 B='\033[1m'         # bold
@@ -29,13 +43,13 @@ svc_status() {
 # ── Build & deploy primitives ─────────────────────────────────────────────────
 deps() {
   step "Installing dependencies"
-  npm install --silent
+  npm install
   ok "Dependencies ready"
 }
 
 build_api() {
   step "Building API"
-  npm run build:api --silent
+  npm run build:api
   mkdir -p apps/api/dist/generated
   cp -r apps/api/src/generated/prisma apps/api/dist/generated/
   ok "API built"
@@ -43,27 +57,34 @@ build_api() {
 
 build_web() {
   step "Building web  →  $1"
-  VITE_API_BASE_URL="$1" npm run build:web --silent
+  VITE_API_BASE_URL="$1" npm run build:web
   ok "Web built"
 }
 
 migrate() {
   step "Migrating $2 database"
   local url; url="$(db_url "$1")"
-  (cd apps/api && DATABASE_URL="$url" npx prisma migrate deploy 2>&1 \
-    | grep -E '(migration|Applying|applied|up to date)' || true)
+  (cd apps/api && DATABASE_URL="$url" npx prisma migrate deploy 2>&1) || true
   ok "Migrations applied"
 }
 
 restart_prod() {
   step "Restarting production"
   sudo systemctl restart gem-api gem-web
+  sleep 2
+  systemctl is-active --quiet gem-api && ok "gem-api : active" || echo "  gem-api : INACTIVE"
+  systemctl is-active --quiet gem-web && ok "gem-web : active" || echo "  gem-web : INACTIVE"
+  journalctl -u gem-api --since "10 seconds ago" --no-pager 2>/dev/null || true
   ok "gem.aidanlenahan.com  is live"
 }
 
 restart_dev() {
   step "Restarting dev"
   sudo systemctl restart gem-api-dev gem-web-dev
+  sleep 2
+  systemctl is-active --quiet gem-api-dev && ok "gem-api-dev : active" || echo "  gem-api-dev : INACTIVE"
+  systemctl is-active --quiet gem-web-dev && ok "gem-web-dev : active" || echo "  gem-web-dev : INACTIVE"
+  journalctl -u gem-api-dev --since "10 seconds ago" --no-pager 2>/dev/null || true
   ok "gem-dev.aidanlenahan.com  is live"
 }
 
@@ -82,6 +103,9 @@ deploy_dev() {
   [[ -f "$DEV_ENV" ]] || die "Missing $DEV_ENV — run scripts/setup-dev-env.sh first"
   deps; build_api; build_web "$DEV_API_URL"; migrate "$DEV_ENV" "dev"; restart_dev
 }
+
+# ── Sudo pre-auth ─────────────────────────────────────────────────────────────
+sudo -v || die "sudo authentication failed"
 
 # ── Menu ──────────────────────────────────────────────────────────────────────
 BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
@@ -109,24 +133,30 @@ echo
 
 case "$choice" in
   1)
+    setup_notifications "$(_gem_smtp_env)" "Deploy -> Production"
     deploy_prod
     ;;
   2)
+    setup_notifications "$(_gem_smtp_env)" "Deploy -> Production + Stop Dev"
     deploy_prod
     stop_dev
     ;;
   3)
+    setup_notifications "$(_gem_smtp_env)" "Deploy -> Dev"
     deploy_dev
     ;;
   4)
+    setup_notifications "$(_gem_smtp_env)" "Stop Dev"
     stop_dev
     ;;
   5)
     [[ -f "$PROD_ENV" ]] || die "Missing $PROD_ENV"
+    setup_notifications "$(_gem_smtp_env)" "Restart Production (no build)"
     restart_prod
     ;;
   6)
     [[ -f "$DEV_ENV" ]] || die "Missing $DEV_ENV"
+    setup_notifications "$(_gem_smtp_env)" "Restart Dev (no build)"
     restart_dev
     ;;
   q|Q|"")

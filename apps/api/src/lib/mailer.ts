@@ -53,6 +53,11 @@ export interface SendEmailOptions {
  *   never bubbles up and blocks an auth flow.
  * - In non-production: always prints the email details to stdout so developers can
  *   read OTP codes without needing a real inbox.
+ *
+ * Security: `opts` is always assembled from server-controlled code (to, subject, html,
+ * text). No user-supplied value is spread at the `sendMail` call site, so no caller
+ * can inject an `envelope` key to exploit CVE-2025-NNNN-style SMTP command injection.
+ * If you ever accept `opts` from an external source, verify no `envelope` key is present.
  */
 export async function sendTransactionalEmail(opts: SendEmailOptions): Promise<void> {
   const from = process.env.EMAIL_FROM || "GEM (Group Event Manager) <noreply@example.com>";

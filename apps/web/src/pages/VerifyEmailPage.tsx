@@ -44,16 +44,21 @@ export default function VerifyEmailPage() {
   // Auto-verify via magic link token
   useEffect(() => {
     if (!magicToken) return
+    const controller = new AbortController()
     apiFetch<VerifyResponse>('/auth/verify-email-link', {
       method: 'POST',
       body: JSON.stringify({ token: magicToken }),
+      signal: controller.signal,
     }).then((data) => {
+      if (controller.signal.aborted) return
       login({ ...data.user, avatarUrl: data.user.avatarUrl ?? undefined })
       navigate('/groups', { replace: true })
     }).catch((err) => {
+      if (controller.signal.aborted) return
       setError(err instanceof Error ? err.message : 'Verification link is invalid or has expired')
       setMagicLinkLoading(false)
     })
+    return () => controller.abort()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

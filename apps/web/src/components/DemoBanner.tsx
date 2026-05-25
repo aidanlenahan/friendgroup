@@ -1,13 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useDemoStore } from '../stores/demoStore'
-import { useAuthStore } from '../stores/authStore'
 import { apiFetch } from '../lib/api'
 
 export default function DemoBanner() {
   const navigate = useNavigate()
-  const { demoExpiresAt, endDemo } = useDemoStore()
-  const { logout } = useAuthStore()
+  const { demoExpiresAt } = useDemoStore()
   const [secondsLeft, setSecondsLeft] = useState<number>(0)
   const [exiting, setExiting] = useState(false)
 
@@ -30,18 +28,14 @@ export default function DemoBanner() {
 
   const handleExpiry = async () => {
     try { await apiFetch('/demo/end', { method: 'POST' }) } catch { /* ignore */ }
-    endDemo()
-    logout()
-    navigate('/home?demo=expired', { replace: true })
+    navigate('/demo?done=1&expired=1', { replace: true })
   }
 
   const handleExit = async () => {
     if (exiting) return
     setExiting(true)
     try { await apiFetch('/demo/end', { method: 'POST' }) } catch { /* ignore */ }
-    endDemo()
-    logout()
-    navigate('/home', { replace: true })
+    navigate('/demo?done=1', { replace: true })
   }
 
   const minutes = Math.floor(secondsLeft / 60)

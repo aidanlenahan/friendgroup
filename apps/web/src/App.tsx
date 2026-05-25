@@ -8,32 +8,35 @@ import Layout from './components/Layout'
 import MarketingLayout from './components/MarketingLayout'
 import { queryClient } from './lib/queryClient'
 
+// Auth pages share a chunk — they're always visited together (login → register → verify)
 const LoginPage = lazy(() => import('./pages/LoginPage'))
-const RegisterPage = lazy(() => import('./pages/RegisterPage'))
-const VerifyEmailPage = lazy(() => import('./pages/VerifyEmailPage'))
-const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage'))
-const ResetPasswordPage = lazy(() => import('./pages/ResetPasswordPage'))
+const RegisterPage = lazy(() => import(/* webpackChunkName: "auth-pages" */ './pages/RegisterPage'))
+const VerifyEmailPage = lazy(() => import(/* webpackChunkName: "auth-pages" */ './pages/VerifyEmailPage'))
+const ForgotPasswordPage = lazy(() => import(/* webpackChunkName: "auth-pages" */ './pages/ForgotPasswordPage'))
+const ResetPasswordPage = lazy(() => import(/* webpackChunkName: "auth-pages" */ './pages/ResetPasswordPage'))
+// Group pages share a chunk — navigation between them is predictable
 const GroupsPage = lazy(() => import('./pages/GroupsPage'))
-const GroupPage = lazy(() => import('./pages/GroupPage'))
-const GroupManagePage = lazy(() => import('./pages/GroupManagePage'))
-const EventPage = lazy(() => import('./pages/EventPage'))
-const CreateEventPage = lazy(() => import('./pages/CreateEventPage'))
+const GroupPage = lazy(() => import(/* webpackChunkName: "group-pages" */ './pages/GroupPage'))
+const GroupManagePage = lazy(() => import(/* webpackChunkName: "group-pages" */ './pages/GroupManagePage'))
+const GroupStatsPage = lazy(() => import(/* webpackChunkName: "group-pages" */ './pages/GroupStatsPage'))
+const GroupGalleryPage = lazy(() => import(/* webpackChunkName: "group-pages" */ './pages/GroupGalleryPage'))
+const EventPage = lazy(() => import(/* webpackChunkName: "group-pages" */ './pages/EventPage'))
+const CreateEventPage = lazy(() => import(/* webpackChunkName: "group-pages" */ './pages/CreateEventPage'))
+// Settings pages share a chunk
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
-const ProfilePage = lazy(() => import('./pages/ProfilePage'))
-const UserProfilePage = lazy(() => import('./pages/UserProfilePage'))
-const NotificationSettingsPage = lazy(() => import('./pages/NotificationSettingsPage'))
-const NotificationsPage = lazy(() => import('./pages/NotificationsPage'))
+const ProfilePage = lazy(() => import(/* webpackChunkName: "settings-pages" */ './pages/ProfilePage'))
+const UserProfilePage = lazy(() => import(/* webpackChunkName: "settings-pages" */ './pages/UserProfilePage'))
+const NotificationSettingsPage = lazy(() => import(/* webpackChunkName: "settings-pages" */ './pages/NotificationSettingsPage'))
+const NotificationsPage = lazy(() => import(/* webpackChunkName: "settings-pages" */ './pages/NotificationsPage'))
 const ChannelPage = lazy(() => import('./pages/ChannelPage'))
-const Phase7DebugPage = lazy(() => import('./pages/Phase7DebugPage').then(m => ({ default: m.Phase7DebugPage })))
-const Phase9DiagnosticsPage = lazy(() => import('./pages/Phase9DiagnosticsPage').then(m => ({ default: m.Phase9DiagnosticsPage })))
+const Phase7DebugPage = import.meta.env.DEV ? lazy(() => import('./pages/Phase7DebugPage').then(m => ({ default: m.Phase7DebugPage }))) : null
+const Phase9DiagnosticsPage = import.meta.env.DEV ? lazy(() => import('./pages/Phase9DiagnosticsPage').then(m => ({ default: m.Phase9DiagnosticsPage }))) : null
 const DeveloperPage = lazy(() => import('./pages/DeveloperPage'))
 const LandingPage = lazy(() => import('./pages/LandingPage'))
 const HelpPage = lazy(() => import('./pages/HelpPage'))
 const HelpArticlePage = lazy(() => import('./pages/HelpArticlePage'))
 const ContactPage = lazy(() => import('./pages/ContactPage'))
 const UpdatesPage = lazy(() => import('./pages/UpdatesPage'))
-const GroupStatsPage = lazy(() => import('./pages/GroupStatsPage'))
-const GroupGalleryPage = lazy(() => import('./pages/GroupGalleryPage'))
 const DemoPage = lazy(() => import('./pages/DemoPage'))
 const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage'))
 const TermsOfServicePage = lazy(() => import('./pages/TermsOfServicePage'))
@@ -52,37 +55,30 @@ function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const user = useAuthStore((s) => s.user)
+  const isLoggedIn = useAuthStore((s) => s.user !== null)
   const hydrated = useAuthStore((s) => s.hydrated)
   const location = useLocation()
-  if (!hydrated) {
-    return null
-  }
-  if (user) {
-    return <>{children}</>
-  }
-
+  if (!hydrated) return null
+  if (isLoggedIn) return <>{children}</>
   const next = `${location.pathname}${location.search}${location.hash}`
   return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />
 }
 
 function RedirectIfAuthed({ children }: { children: React.ReactNode }) {
-  const user = useAuthStore((s) => s.user)
+  const isLoggedIn = useAuthStore((s) => s.user !== null)
   const hydrated = useAuthStore((s) => s.hydrated)
   const location = useLocation()
-  if (!hydrated) {
-    return null
-  }
+  if (!hydrated) return null
   const next = new URLSearchParams(location.search).get('next')
   const target = next && next.startsWith('/') && !next.startsWith('//') ? next : '/groups'
-  return user ? <Navigate to={target} replace /> : <>{children}</>
+  return isLoggedIn ? <Navigate to={target} replace /> : <>{children}</>
 }
 
 function RootRedirect() {
-  const user = useAuthStore((s) => s.user)
+  const isLoggedIn = useAuthStore((s) => s.user !== null)
   const hydrated = useAuthStore((s) => s.hydrated)
   if (!hydrated) return null
-  return <Navigate to={user ? '/groups' : '/home'} replace />
+  return <Navigate to={isLoggedIn ? '/groups' : '/home'} replace />
 }
 
 export default function App() {
@@ -116,6 +112,11 @@ export default function App() {
     if (!user) return
     if (!('Notification' in window) || !('serviceWorker' in navigator)) return
     if (Notification.permission !== 'granted') return
+
+    // Skip if synced within 24 hours to avoid unnecessary API calls on every boot
+    const SYNC_TTL_MS = 24 * 60 * 60 * 1000
+    const lastSync = Number(localStorage.getItem('gem:push-sync-at') ?? 0)
+    if (Date.now() - lastSync < SYNC_TTL_MS) return
 
     let canceled = false
 
@@ -157,6 +158,7 @@ export default function App() {
             },
           }),
         })
+        localStorage.setItem('gem:push-sync-at', String(Date.now()))
       } catch {
         // best-effort reconciliation; leave explicit errors to settings UI
       }
@@ -190,9 +192,9 @@ export default function App() {
           <Route path="forgot-password" element={<ForgotPasswordPage />} />
           <Route path="reset-password" element={<ResetPasswordPage />} />
         </Route>
-        {/* Legacy debug/diagnostic routes */}
-        <Route path="/phase-7/debug" element={<Phase7DebugPage />} />
-        <Route path="/phase-9/diagnostics" element={<Phase9DiagnosticsPage />} />
+        {/* Legacy debug/diagnostic routes — dev only */}
+        {Phase7DebugPage && <Route path="/phase-7/debug" element={<Phase7DebugPage />} />}
+        {Phase9DiagnosticsPage && <Route path="/phase-9/diagnostics" element={<Phase9DiagnosticsPage />} />}
         {/* Authenticated routes — RequireAuth redirects to /login if no user */}
         <Route
           element={

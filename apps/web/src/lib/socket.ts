@@ -6,9 +6,12 @@ let _refCount = 0
 
 export function acquireSocket(): Socket {
   if (!_socket) {
-    // Resolve the socket URL the same way REST fetches do, so VITE_SOCKET_URL /
-    // VITE_API_URL / same-origin fallback all work automatically.
+    // VITE_API_BASE_URL is the canonical "which server" var set by deploy scripts
+    // and takes priority. VITE_SOCKET_URL is the fallback for cases where the
+    // socket server is on a different host than the REST API.
+    const explicit = import.meta.env.VITE_API_BASE_URL
     const socketUrl =
+      (explicit && explicit.startsWith('http') ? explicit : null) ??
       import.meta.env.VITE_SOCKET_URL ??
       (typeof window !== 'undefined' ? resolveApiBaseUrl() : '')
     _socket = io(socketUrl, {

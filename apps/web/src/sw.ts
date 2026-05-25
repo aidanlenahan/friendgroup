@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import { precacheAndRoute, cleanupOutdatedCaches } from 'workbox-precaching'
+import { precacheAndRoute, cleanupOutdatedCaches, getCacheKeyForURL } from 'workbox-precaching'
 
 declare let self: ServiceWorkerGlobalScope & {
   __WB_MANIFEST: Array<string | { url: string; revision: string | null }>
@@ -8,6 +8,7 @@ declare let self: ServiceWorkerGlobalScope & {
 
 const SW_VERSION = 'gem-sw-v1'
 const NAV_CACHE = `${SW_VERSION}-nav`
+const OFFLINE_URL = '/offline.html'
 
 // Workbox handles all hashed asset caching via precacheAndRoute.
 // The custom static cache is removed — it competed with Workbox's fetch
@@ -66,9 +67,9 @@ self.addEventListener('fetch', (event: FetchEvent) => {
   }
 
   // Navigation requests: network-first so users always get fresh HTML after deploys.
-  // Falls back to cached shell only when offline.
+  // Falls back to offline.html when no cached shell is available.
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirst(request, NAV_CACHE))
+    event.respondWith(networkFirstWithOfflineFallback(request, NAV_CACHE))
     return
   }
 
@@ -127,7 +128,7 @@ self.addEventListener('notificationclick', (event: NotificationEvent) => {
   )
 })
 
-async function networkFirst(request: Request, cacheName: string) {
+async function networkFirstWithOfflineFallback(request: Request, cacheName: string) {
   const cache = await caches.open(cacheName)
 
   try {
@@ -138,11 +139,17 @@ async function networkFirst(request: Request, cacheName: string) {
     return response
   } catch {
     const cached = await cache.match(request)
-    if (cached) {
-      return cached
-    }
+    if (cached) return cached
+
     const appShell = await cache.match('/')
-    return appShell ?? new Response('Offline', { status: 503 })
+    if (appShell) return appShell
+
+    // Last resort: serve the dedicated offline page from the Workbox precache.
+    const offlineKey = getCacheKeyForURL(OFFLINE_URL)
+    const offlinePage = offlineKey
+      ? await caches.match(offlineKey)
+      : await caches.match(OFFLINE_URL)
+    return offlinePage ?? new Response('Offline', { status: 503, headers: { 'Content-Type': 'text/plain' } })
   }
 }
 

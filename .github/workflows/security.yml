@@ -1,0 +1,138 @@
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # -----------------------------------------------------------------------
+  # P3: npm audit — blocks merges on high/critical CVEs in dependencies
+  # -----------------------------------------------------------------------
+  audit:
+    name: Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm audit --audit-level=high
+        working-directory: apps/api
+      - run: npm audit --audit-level=high
+        working-directory: apps/web
+
+  # -----------------------------------------------------------------------
+  # P3: TruffleHog — scans commits for accidentally committed secrets
+  # -----------------------------------------------------------------------
+  secrets:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: TruffleHog OSS
+        uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified
+
+  # -----------------------------------------------------------------------
+  # P3: Semgrep SAST — OWASP Top 10, Node.js, TypeScript rule sets
+  # -----------------------------------------------------------------------
+  sast:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Semgrep
+        run: >
+          semgrep
+          --config p/owasp-top-ten
+          --config p/nodejs
+          --config p/typescript
+          --error
+          --exclude "node_modules"
+          --exclude "apps/api/src/generated"
+          --exclude "apps/api/prisma"
+        env:
+          SEMGREP_APP_TOKEN: ${{ secrets.SEMGREP_APP_TOKEN }}
+
+  # -----------------------------------------------------------------------
+  # Notify on failure — emails both recipients with run details and log link
+  #
+  # Required GitHub secrets (copy values from apps/api/.env):
+  #   SMTP_HOST  — smtp.titan.email
+  #   SMTP_PORT  — 465
+  #   SMTP_USER  — noreply@gem.aidanlenahan.com
+  #   SMTP_PASS  — (value from .env)
+  # -----------------------------------------------------------------------
+  notify:
+    name: Failure Notification
+    runs-on: ubuntu-latest
+    needs: [audit, secrets, sast]
+    if: failure()
+    steps:
+      - name: Build failure summary
+        id: summary
+        run: |
+          FAILED=""
+          if [ "${{ needs.audit.result }}" = "failure" ]; then
+            FAILED="${FAILED}\n  • Dependency Audit — high/critical CVE found in npm packages"
+          fi
+          if [ "${{ needs.secrets.result }}" = "failure" ]; then
+            FAILED="${FAILED}\n  • Secret Scan — verified secret found in commit history"
+          fi
+          if [ "${{ needs.sast.result }}" = "failure" ]; then
+            FAILED="${FAILED}\n  • SAST (Semgrep) — OWASP / Node.js / TypeScript rule violation"
+          fi
+          echo "failed_jobs<<EOF" >> $GITHUB_OUTPUT
+          printf "$FAILED" >> $GITHUB_OUTPUT
+          echo "" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Send failure email
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ secrets.SMTP_HOST }}
+          server_port: ${{ secrets.SMTP_PORT }}
+          secure: true
+          username: ${{ secrets.SMTP_USER }}
+          password: ${{ secrets.SMTP_PASS }}
+          subject: "[GEM] Security check failed — ${{ github.ref_name }} (${{ github.sha }})"
+          to: aidanlenahan@gmail.com,awood4555@gmail.com
+          from: "GEM Security <${{ secrets.SMTP_USER }}>"
+          html_body: |
+            <h2 style="color:#c0392b">⚠️ GEM Security Check Failed</h2>
+
+            <table style="border-collapse:collapse;font-family:monospace;font-size:14px">
+              <tr><td style="padding:4px 12px 4px 0;color:#666">Repository</td><td>${{ github.repository }}</td></tr>
+              <tr><td style="padding:4px 12px 4px 0;color:#666">Branch</td><td>${{ github.ref_name }}</td></tr>
+              <tr><td style="padding:4px 12px 4px 0;color:#666">Commit</td><td>${{ github.sha }}</td></tr>
+              <tr><td style="padding:4px 12px 4px 0;color:#666">Triggered by</td><td>${{ github.actor }}</td></tr>
+              <tr><td style="padding:4px 12px 4px 0;color:#666">Event</td><td>${{ github.event_name }}</td></tr>
+            </table>
+
+            <h3>Failed checks</h3>
+            <pre style="background:#fdf2f2;padding:12px;border-left:4px solid #c0392b;white-space:pre-wrap">${{ steps.summary.outputs.failed_jobs }}</pre>
+
+            <h3>Full logs</h3>
+            <p>
+              <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+                 style="background:#c0392b;color:#fff;padding:8px 16px;text-decoration:none;border-radius:4px;display:inline-block">
+                View run logs →
+              </a>
+            </p>
+
+            <hr style="border:none;border-top:1px solid #eee;margin:24px 0">
+            <p style="color:#999;font-size:12px">
+              GEM · ${{ github.repository }} · Run #${{ github.run_id }}
+            </p>

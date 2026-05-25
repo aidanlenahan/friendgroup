@@ -109,6 +109,7 @@ model Membership {
   @@unique([userId, groupId])
   @@index([groupId])
   @@index([groupId, status])
+  @@index([groupId, userId])
 }
 
 // ============================================================================
@@ -255,6 +256,7 @@ model Message {
 
   @@index([eventId])
   @@index([channelId])
+  @@index([channelId, createdAt])
   @@index([userId])
   @@index([createdAt])
   @@index([replyToId])
@@ -449,6 +451,7 @@ model NotificationEvent {
   event     Event?  @relation("eventNotifications", fields: [eventId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@index([recipientId])
+  @@index([recipientId, readAt])
   @@index([type])
   @@index([createdAt])
   @@index([recipientId, createdAt(sort: Desc)])

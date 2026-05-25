@@ -12,7 +12,7 @@ export type ChannelMessage = {
   pinned?: boolean
   replyToId?: string | null
   replyTo?: { id: string; content: string; user: { id: string; name: string } } | null
-  user?: { id: string; name: string; email: string; avatarUrl?: string | null }
+  user?: { id: string; name: string; email?: string; avatarUrl?: string | null }
   reactions?: MessageReaction[]
 }
 
@@ -30,6 +30,7 @@ export function useChannelMessages(groupId: string, channelId: string) {
       ),
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.messages[0]?.id : undefined),
     initialPageParam: undefined as string | undefined,
+    maxPages: 10,
     enabled: !!groupId && !!channelId,
   })
 }

@@ -416,6 +416,8 @@ export default function SettingsPage() {
                 src={user.avatarUrl}
                 alt="Profile photo"
                 className="w-16 h-16 rounded-full object-cover flex-shrink-0"
+                loading="lazy"
+                decoding="async"
               />
             ) : (
               <div className="w-16 h-16 rounded-full bg-indigo-600 flex items-center justify-center text-white text-xl font-bold flex-shrink-0">

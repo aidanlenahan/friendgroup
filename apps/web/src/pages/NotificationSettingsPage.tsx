@@ -232,8 +232,17 @@ export default function NotificationSettingsPage() {
       await syncPushSubscriptionForPrefs(localPrefs)
       toast.success('Notification preferences saved')
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save preferences'
-      toast.error(message)
+      const raw = err instanceof Error ? err.message : 'Failed to save preferences'
+      const isDenied =
+        raw.includes('denied') || raw.includes('not granted') || Notification.permission === 'denied'
+      if (isDenied) {
+        toast.error(
+          'Push notifications are blocked. To re-enable, open your browser settings, find this site under Notifications, and set it to Allow.',
+          { duration: 8000 }
+        )
+      } else {
+        toast.error(raw)
+      }
     }
   }
 
@@ -246,6 +255,11 @@ export default function NotificationSettingsPage() {
     setPushPermission(result)
     if (result === 'granted') {
       toast.success('Push notifications enabled')
+    } else if (result === 'denied') {
+      toast.error(
+        'Notifications blocked. To enable them, open your browser settings, find this site under Notifications, and set it to Allow.',
+        { duration: 8000 }
+      )
     }
   }
 

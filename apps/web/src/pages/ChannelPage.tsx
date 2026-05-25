@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
+import { memo, useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import PageToolbar from '../components/PageToolbar'
 import NotificationBell from '../components/NotificationBell'
@@ -82,6 +82,22 @@ function renderContent(
     )
   })
 }
+
+const MessageContent = memo(function MessageContent({
+  content,
+  currentUserId,
+  members,
+  groupTags,
+  className,
+}: {
+  content: string
+  currentUserId: string
+  members: Array<{ userId: string; username?: string | null }>
+  groupTags: Array<{ name: string; color?: string | null }>
+  className?: string
+}) {
+  return <p className={className}>{renderContent(content, currentUserId, members, groupTags)}</p>
+})
 
 function formatTime(iso: string): string {
   const d = new Date(iso)
@@ -898,7 +914,8 @@ export default function ChannelPage() {
                   <div className="relative">
                     <button
                       onClick={(e) => { e.stopPropagation(); setReactionPickerForId(reactionPickerForId === msg.id ? null : msg.id) }}
-                      className="p-1 rounded text-gray-500 hover:text-yellow-400 hover:bg-gray-800 transition-colors"
+                      disabled={toggleReaction.isPending}
+                      className="p-1 rounded text-gray-500 hover:text-yellow-400 hover:bg-gray-800 transition-colors disabled:opacity-50"
                       title="React"
                     >
                       <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -939,7 +956,8 @@ export default function ChannelPage() {
                   {canPin && (
                     <button
                       onClick={() => void handlePin(msg.id)}
-                      className={`p-1 rounded transition-colors hover:bg-gray-800 ${msg.pinned ? 'text-amber-400 hover:text-amber-300' : 'text-gray-500 hover:text-amber-400'}`}
+                      disabled={pinMessage.isPending}
+                      className={`p-1 rounded transition-colors hover:bg-gray-800 disabled:opacity-50 ${msg.pinned ? 'text-amber-400 hover:text-amber-300' : 'text-gray-500 hover:text-amber-400'}`}
                       title={msg.pinned ? 'Unpin message' : 'Pin message'}
                     >
                       📌
@@ -962,7 +980,8 @@ export default function ChannelPage() {
                         </>
                       : <button
                           onClick={() => setConfirmDeleteMessageId(msg.id)}
-                          className="p-1 rounded text-gray-500 hover:text-red-400 hover:bg-gray-800 transition-colors"
+                          disabled={deleteMessage.isPending}
+                          className="p-1 rounded text-gray-500 hover:text-red-400 hover:bg-gray-800 transition-colors disabled:opacity-50"
                           title="Delete message"
                         >
                           <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
@@ -1005,7 +1024,7 @@ export default function ChannelPage() {
                 </div>
               ) : (
                 <>
-                  <p className={`text-[15px] break-words whitespace-pre-wrap ${isOwn ? 'text-white' : 'text-gray-100'}`}>{renderContent(msg.content, currentUser?.id ?? '', members, groupTags)}</p>
+                  <MessageContent content={msg.content} currentUserId={currentUser?.id ?? ''} members={members} groupTags={groupTags} className={`text-[15px] break-words whitespace-pre-wrap ${isOwn ? 'text-white' : 'text-gray-100'}`} />
                   {wasEdited && <span className={`text-[10px] ${isOwn ? 'text-indigo-200/60' : 'text-gray-600'}`}>(edited)</span>}
                   {statusIndicator}
                 </>
@@ -1512,7 +1531,7 @@ export default function ChannelPage() {
                       <span className="text-sm font-semibold text-white">{msg.user?.name ?? 'Unknown'}</span>
                       <span className="text-xs text-gray-500">{formatTime(msg.createdAt)}</span>
                     </div>
-                    <p className="text-sm text-gray-200 break-words whitespace-pre-wrap">{renderContent(msg.content, currentUser?.id ?? '', members, groupTags)}</p>
+                    <MessageContent content={msg.content} currentUserId={currentUser?.id ?? ''} members={members} groupTags={groupTags} className="text-sm text-gray-200 break-words whitespace-pre-wrap" />
                   </div>
                   {isAdminOrOwner && (
                     <button

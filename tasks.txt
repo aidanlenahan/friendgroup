@@ -155,8 +155,15 @@ focus on reliability, UX rough edges, and prep for a small group of external use
     DONE 2026-05-22: ErrorBoundary.tsx added; wraps BrowserRouter in main.tsx.
     Files: apps/web/src/components/ErrorBoundary.tsx, apps/web/src/main.tsx
 
-[ ] Error monitoring — integrate a lightweight error tracker (e.g. Sentry free tier) for
+[x] Error monitoring — integrate a lightweight error tracker (e.g. Sentry free tier) for
     both API (Fastify plugin) and web (Sentry.captureException in ErrorBoundary)
+    DONE 2026-05-25: SMTP email alerting via existing Nodemailer setup. errorReporter.ts throttles
+    by fingerprint (15 min API / 5 min client). Hooks: Fastify 5xx, BullMQ worker failures,
+    process.on(uncaughtException/unhandledRejection), POST /internal/client-error endpoint,
+    ErrorBoundary.componentDidCatch, window.onerror, window.unhandledrejection.
+    ERROR_ALERT_EMAILS=aidanlenahan@gmail.com,awood4555@gmail.com set in gem-api.env.
+    Files: apps/api/src/lib/errorReporter.ts (new), apps/web/src/lib/reportClientError.ts (new),
+    server.ts, ErrorBoundary.tsx, main.tsx, gem-api.env, notes.md
 
 --- Security & compliance ---
 
