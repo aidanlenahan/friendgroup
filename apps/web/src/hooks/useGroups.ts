@@ -66,17 +66,19 @@ export function useGroup(groupId: string) {
   })
 }
 
-export function useGroupMembers(groupId: string) {
+export function useGroupMembers(groupId: string, opts?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['groups', groupId, 'members'],
     queryFn: () => apiFetch<GroupMembersResponse>(`/groups/${groupId}/members`),
+    enabled: opts?.enabled ?? !!groupId,
   })
 }
 
-export function useGroupTags(groupId: string) {
+export function useGroupTags(groupId: string, opts?: { enabled?: boolean }) {
   return useQuery({
     queryKey: ['groups', groupId, 'tags'],
     queryFn: () => apiFetch<GroupTagsResponse>(`/groups/${groupId}/tags`),
+    enabled: opts?.enabled ?? !!groupId,
   })
 }
 

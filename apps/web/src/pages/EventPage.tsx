@@ -200,10 +200,10 @@ export default function EventPage() {
   const isCreator = eventResponse?.isCreator ?? false
   const canInvite = isAdmin || isCreator
 
-  const { data: groupMembersData } = useGroupMembers(event?.groupId ?? '')
+  const { data: groupMembersData } = useGroupMembers(event?.groupId ?? '', { enabled: !!event?.groupId })
   const isMember = (groupMembersData?.members ?? []).some((m) => m.userId === currentUser?.id && m.status === 'active')
   const canDuplicate = isAdmin || isCreator || isMember
-  const { data: groupTagsData } = useGroupTags(event?.groupId ?? '')
+  const { data: groupTagsData } = useGroupTags(event?.groupId ?? '', { enabled: !!event?.groupId })
   const { data: eventInvitesData, refetch: refetchInvites } = useQuery({
     queryKey: ['events', eventId, 'invites'],
     queryFn: () => apiFetch<{ invites: Array<{ id: string; userId: string; invitedUser: { id: string; name: string; avatarUrl?: string | null } }> }>(`/events/${eventId}/invites`),
