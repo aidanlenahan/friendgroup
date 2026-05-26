@@ -9,8 +9,7 @@ User=aidan
 Group=devs
 WorkingDirectory=/var/www/gem
 Environment=NODE_ENV=production
-Environment=VITE_API_BASE_URL=https://api-gem.aidanlenahan.com
-ExecStart=/usr/bin/npm --workspace apps/web run preview -- --host 127.0.0.1 --port 4173 --strictPort
+ExecStart=/usr/bin/npm --workspace apps/web run preview -- --outDir dist-prod --host 127.0.0.1 --port 4173 --strictPort
 Restart=always
 RestartSec=3
 NoNewPrivileges=true

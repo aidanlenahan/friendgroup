@@ -19,13 +19,11 @@ All tasks — completed and pending. Completed entries from `tasks.txt` are incl
 [x] users can add short bio
 
 - Validation failed on temp account creation link generation
-- profile vis in settings
-- blocked users implementation
 - report bug
-- sentry implementation
-- in channel chat, in channel tags modal, if it says 'No tags exist in this group yet.', have small link 'Create one' that brings you to the specific area of tag creation if user is admin. this can be done with the '#' at the end of the url to point to a specific part of the settings page. if user is not admin, say 'Ask an admin to create a tag.'
+- [x] error monitoring / alerting — errorReporter.ts (API) + reportClientError.ts (web); email alerts via existing Titan SMTP; throttled by fingerprint. DONE 2026-05-25
+- [x] security hardening P3/P4 (HSTS, Permissions-Policy, Redis TLS, DB SSL, BullMQ prefix, connection pool, log injection, CI audit/scan/SAST, Dependabot) DONE 2026-05-25
+- [x] error toasts on all mutations (useGroups, useEvents) + push denial UX + photo upload error messages + album confirm UI + chat disconnect guard DONE 2026-05-25
 - post demo page--maybe modal on login page or its own page (hidden from all navbars). have something that says 'Email all feedback or send an account creation code request to help@gem.aidanlenahan.com'
-- add informational 'i' glyph next to invite code box on account register page. when clicked, bring up modal that talks about how app is still in beta stage, and to reach out for code via email.
 
 
 =================

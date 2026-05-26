@@ -12,6 +12,8 @@
     "build": "npm run build --workspace=apps/api && npm run build --workspace=apps/web",
     "build:api": "npm --workspace apps/api run build",
     "build:web": "npm --workspace apps/web run build",
+    "build:web:prod": "npm --workspace apps/web run build:prod",
+    "build:web:dev": "npm --workspace apps/web run build:dev",
     "lint": "npm run -ws --if-present lint",
     "typecheck": "npm run -ws --if-present typecheck",
     "test": "npm run test --workspaces --if-present",

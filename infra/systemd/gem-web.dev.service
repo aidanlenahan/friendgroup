@@ -9,7 +9,7 @@ User=aidan
 Group=devs
 WorkingDirectory=/var/www/gem
 Environment=NODE_ENV=production
-ExecStart=/usr/bin/npm --workspace apps/web run preview -- --host 127.0.0.1 --port 4174 --strictPort
+ExecStart=/usr/bin/npm --workspace apps/web run preview -- --outDir dist-dev --host 127.0.0.1 --port 4174 --strictPort
 Restart=on-failure
 RestartSec=5
 NoNewPrivileges=true

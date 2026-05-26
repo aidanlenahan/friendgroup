@@ -85,12 +85,40 @@ focus on reliability, UX rough edges, and prep for a small group of external use
 
 --- UX polish ---
 
+[x] Error toasts on all mutations — added onError handlers to every mutation in useGroups.ts
+    (25+ mutations) and useEvents.ts (7 mutations); errors now always surface a toast with a
+    human-readable message via getApiErrorMessage. useToast updated to support per-call
+    duration; error toasts default to 6 s. DONE 2026-05-25.
+    Files: useGroups.ts, useEvents.ts, useToast.ts
+
+[x] Photo upload error messages — EventPage upload handler now detects 413 / FILE_TOO_LARGE
+    and quota / QUOTA errors and shows specific messages ("Photo is too large — max 10 MB",
+    "Storage quota reached — delete some photos to free up space") instead of raw server error.
+    DONE 2026-05-25. Files: EventPage.tsx
+
+[x] Push notification denial UX — NotificationSettingsPage now explains how to re-enable
+    push notifications in browser settings when permission is denied, instead of closing
+    silently. Uses an 8-second toast with browser-specific instructions. DONE 2026-05-25.
+    Files: NotificationSettingsPage.tsx
+
+[x] Album deletion confirm UI — replaced browser confirm() dialog with inline Confirm/Cancel
+    button pair (matching AdminEventCard pattern). Added confirmDeleteAlbumId state.
+    DONE 2026-05-25. Files: GroupPage.tsx
+
+[x] ChannelPage hover button disabled states — pin, react, and delete hover action buttons
+    now have disabled={mutation.isPending} + disabled:opacity-50, preventing double-tap
+    submissions while the mutation is in flight. DONE 2026-05-25. Files: ChannelPage.tsx
+
+[x] Event chat socket error handling — useChat (event chat) now listens to the socket
+    'error' event and shows a toast. sendMessage guards against disconnected socket:
+    shows "Not connected. Please wait and try again." toast instead of silently dropping.
+    DONE 2026-05-25. Files: useChat.ts
+
 [ ] Fix window sizing on desktop — inconsistent div sizing on desktop layout causes layout
     overflow in some page combinations; audit all page wrappers
 
 [ ] When keyboard opens on mobile channel view — shrink header and slide it toward the top
     border so the message input doesn't get pushed off screen
-
 
 [ ] Keyboard shortcut help modal — ? key opens an overlay listing all keyboard shortcuts
     (lightbox arrow nav, Escape, submit, etc.)
@@ -184,6 +212,21 @@ focus on reliability, UX rough edges, and prep for a small group of external use
     flips birthdateSet=true and renders disabled/greyed-out. Backend enforces lock with
     422 BIRTHDATE_ALREADY_SET. DONE 2026-05-23. Files: server.ts, authStore.ts, SettingsPage.tsx
 
+[x] Security hardening P3/P4 — HSTS (maxAge 1yr + includeSubDomains + preload), Permissions-Policy
+    header via onSend hook, Redis TLS enforced for remote connections, Postgres SSL enforced for
+    remote connections (loopback exempt so dev env still boots), BullMQ queues namespaced with
+    {gem} prefix, connection pool explicit limits (max 10, idle 30s, connect timeout 5s),
+    log injection prevention via sanitizeForLog(), admin route IP allowlist via ADMIN_ALLOWED_IPS,
+    Vite sourcemap:hidden (maps go to Sentry, not bundle), PWA service worker NetworkOnly strategy
+    for all API/socket routes. DONE 2026-05-25. Files: server.ts, vite.config.ts, sw.ts
+
+[x] CI security pipeline — GitHub Actions security.yml: npm audit (--audit-level=high),
+    TruffleHog secret scan (only-verified), Semgrep SAST (OWASP Top 10 + nodejs + typescript);
+    failure email via Titan SMTP to aidanlenahan@gmail.com + awood4555@gmail.com.
+    Dependabot: weekly npm scans for apps/api and apps/web with grouped PRs (fastify,
+    security-critical, react/tanstack). DONE 2026-05-25.
+    Files: .github/workflows/security.yml, .github/dependabot.yml
+
 [ ] Automated DB backups — nightly pg_dump cron job to a separate S3/R2 bucket;
     retention 7 days; alert on failure--how can we do this for free? how does it interact with api? different server?
 
@@ -193,6 +236,35 @@ users (~2–5 people). Not publicly advertised. Goal: validate that the app work
 for people who weren't involved in building it — real onboarding, real feedback.
 
 Audience: developers + 1–2 invited external users (friends/family) who get a beta invite code.
+
+--- Carried over from v0.9 ---
+
+[ ] Fix window sizing on desktop — inconsistent div sizing on desktop layout causes layout
+    overflow in some page combinations; audit all page wrappers
+
+[ ] Mobile keyboard UX in channel view — shrink header and slide toward top border when
+    keyboard opens so the message input stays visible
+
+[ ] Keyboard shortcut help modal — ? key opens an overlay listing shortcuts (lightbox nav,
+    Escape, submit, etc.)
+
+[ ] Offline queue for RSVPs — queue RSVP actions in localStorage while offline, replay
+    on reconnect (extends useIsOnline hook)
+
+[ ] Digest emails — daily/weekly email of upcoming RSVP-yes events; BullMQ repeatable job;
+    opt-in toggle in NotificationSettingsPage
+
+[ ] In-app notification grouping — collapse consecutive same-type notifications for the
+    same event ("5 people RSVPed to your event") into a single row
+
+[ ] Waitlist for capped events — late RSVPs join a waitlist when maxAttendees is reached;
+    auto-promote when a yes-RSVP withdraws (status: 'waitlist' on RSVP model)
+
+[ ] Event page map embed — when event.location is set, render an OpenStreetMap static tile
+    thumbnail above the directions links (no API key needed)
+
+[ ] Automated DB backups — nightly pg_dump to a separate S3/R2 bucket; 7-day retention;
+    alert on failure
 
 --- Onboarding & first-run ---
 
@@ -255,6 +327,27 @@ Audience: developers + 1–2 invited external users (friends/family) who get a b
 
 [ ] PWA update prompt — when a new service worker is waiting, show a banner asking the
     user to refresh; currently the update is silent and may confuse new users
+
+[ ] Session expired toast — when JWT refresh fails and the user is logged out, show a
+    "Session expired — please log in again" toast before redirecting to /login; currently
+    silent (api.ts:157 catches 401 and calls logout() with no user feedback)
+
+[ ] Mobile long-press message menu — no way to pin or delete messages on mobile without
+    a swipe or entering edit mode; add long-press action sheet (pin, delete, react, reply)
+    matching the desktop hover bar actions
+
+[ ] Rate-limit feedback on auth routes — API returns RATE_LIMITED on login/register/OTP
+    but the frontend catches it as a generic error; detect the code and show "Too many
+    attempts — please wait X seconds" with the retryAfterSeconds from the error body
+
+[ ] /u/:username 404 and blocked-user handling — visiting a deleted or blocked user's
+    profile likely shows a blank page or unhandled error; add explicit 404/blocked states
+
+[ ] Image loading skeleton in gallery/lightbox — photos show as blank during network load;
+    add a pulsing placeholder that matches the image aspect ratio
+
+[ ] Thread replies — parentMessageId FK already exists on the Message schema; surface reply
+    threads in the UI (reply count indicator, expandable thread view); most-missing chat feature
 
 [x] Legal / privacy basics — Privacy Policy at /privacy and Terms of Service at /terms;
     both linked from marketing navbar and footer. Contact page merged into Help as modal.

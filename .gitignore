@@ -26,6 +26,8 @@ vendor/
 
 # Build output
 dist/
+dist-prod/
+dist-dev/
 build/
 .next/
 .nuxt/
