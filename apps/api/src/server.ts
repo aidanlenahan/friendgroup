@@ -3945,7 +3945,7 @@ app.post("/events", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
       title: sanitizeNotifText(`New event: ${event.title}`),
       body: sanitizeNotifText(`${currentUser.name} created an event in your group.`),
       url: `/events/${event.id}`,
-    }, { jobId: `event_created:${event.id}` });
+    }, { jobId: `event_created_${event.id}` });
   }
 
   await cache.delSet(`cache:events:${body.groupId}:keys`);
@@ -4021,10 +4021,10 @@ app.patch("/events/:id", async (request, reply) => {
   if (event.isPrivate) {
     const inviteeIds = event.invites.map((inv) => inv.userId);
     if (inviteeIds.length > 0) {
-      await notificationQueue.add("fanout", { ...changedFanoutBase, recipientUserIds: inviteeIds }, { jobId: `event_changed:${event.id}` });
+      await notificationQueue.add("fanout", { ...changedFanoutBase, recipientUserIds: inviteeIds }, { jobId: `event_changed_${event.id}` });
     }
   } else {
-    await notificationQueue.add("fanout", changedFanoutBase, { jobId: `event_changed:${event.id}` });
+    await notificationQueue.add("fanout", changedFanoutBase, { jobId: `event_changed_${event.id}` });
   }
 
   await queueCalendarSync(access.event.groupId, "event_updated", event.id);
@@ -4109,7 +4109,7 @@ app.post("/events/:id/rsvps", async (request, reply) => {
         title: sanitizeNotifText(`RSVP on ${access.event.title}`),
         body: sanitizeNotifText(`${currentUser.name} is going.`),
         url: `/events/${params.id}`,
-      }, { jobId: `rsvp_update:${params.id}:${currentUser.id}` });
+      }, { jobId: `rsvp_update_${params.id}_${currentUser.id}` });
     }
 
     return reply.status(201).send({ rsvp: created });
@@ -4150,7 +4150,7 @@ app.post("/events/:id/rsvps", async (request, reply) => {
         title: sanitizeNotifText(`RSVP updated on ${access.event.title}`),
         body: sanitizeNotifText(`${currentUser.name} is going.`),
         url: `/events/${params.id}`,
-      }, { jobId: `rsvp_update:${params.id}:${currentUser.id}` });
+      }, { jobId: `rsvp_update_${params.id}_${currentUser.id}` });
     }
     return reply.status(201).send({ rsvp: updated });
   }
@@ -4171,7 +4171,7 @@ app.post("/events/:id/rsvps", async (request, reply) => {
       title: sanitizeNotifText(`RSVP updated on ${access.event.title}`),
       body: sanitizeNotifText(`${currentUser.name} is going.`),
       url: `/events/${params.id}`,
-    }, { jobId: `rsvp_update:${params.id}:${currentUser.id}` });
+    }, { jobId: `rsvp_update_${params.id}_${currentUser.id}` });
   }
 
   return reply.status(201).send({ rsvp });
@@ -4355,7 +4355,7 @@ app.post("/events/:id/invites", { config: { rateLimit: { max: 20, timeWindow: "1
     title: sanitizeNotifText(`${currentUser.name} invited you`),
     body: sanitizeNotifText(`"${access.event.title}"`),
     url: `/events/${params.id}`,
-  }, { jobId: `invite:${params.id}:${body.userId}` });
+  }, { jobId: `invite_${params.id}_${body.userId}` });
 
   await queueCalendarSync(access.event.groupId, "event_invite_changed", params.id);
 
