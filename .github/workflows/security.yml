@@ -83,7 +83,7 @@ jobs:
     if: ${{ needs.audit.result == 'success' && needs.secrets.result == 'success' && needs.sast.result == 'success' }}
     steps:
       - name: Send success email
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v17
         with:
           server_address: ${{ secrets.SMTP_HOST }}
           server_port: ${{ secrets.SMTP_PORT }}
@@ -171,7 +171,7 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Send failure email
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@v17
         with:
           server_address: ${{ secrets.SMTP_HOST }}
           server_port: ${{ secrets.SMTP_PORT }}
