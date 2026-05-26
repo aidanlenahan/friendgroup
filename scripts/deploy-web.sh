@@ -39,7 +39,8 @@ echo "==> Restarting gem-api..."
 sudo systemctl restart gem-api
 
 echo "==> Building web..."
-npm --workspace apps/web run build:fast
+VITE_SENTRY_DSN="$(grep -E '^SENTRY_DSN=' "${_smtp_env}" 2>/dev/null | cut -d= -f2- || true)" \
+  npm --workspace apps/web run build:fast
 
 echo "==> Restarting gem-web..."
 sudo systemctl restart gem-web

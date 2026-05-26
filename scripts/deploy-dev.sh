@@ -50,7 +50,12 @@ npm run build:api
 
 # ── 7. Build web with dev API URL ────────────────────────────────────────────
 log "Building web (targeting $DEV_API_URL)"
-VITE_API_BASE_URL="$DEV_API_URL" VITE_SOCKET_URL="$DEV_API_URL" npm run build:web
+_sentry_env="$DEV_ENV_FILE"
+grep -q "^SENTRY_DSN=" "$_sentry_env" 2>/dev/null || _sentry_env="/etc/gem/gem-api.env"
+VITE_API_BASE_URL="$DEV_API_URL" \
+  VITE_SOCKET_URL="$DEV_API_URL" \
+  VITE_SENTRY_DSN="$(grep -E '^SENTRY_DSN=' "$_sentry_env" 2>/dev/null | cut -d= -f2- || true)" \
+  npm run build:web
 
 # ── 8. Run migrations against dev database ───────────────────────────────────
 log "Running database migrations (dev)"

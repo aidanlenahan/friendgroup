@@ -24,6 +24,15 @@ export default class ErrorBoundary extends Component<Props, State> {
   componentDidCatch(error: Error, info: ErrorInfo) {
     console.error('[ErrorBoundary]', error, info.componentStack)
     reportClientError(error.message, error.stack ?? info.componentStack ?? '')
+    // React render errors bypass Sentry's global handlers — capture explicitly.
+    // Dynamic import uses the already-cached module if Sentry has been initialised.
+    import('@sentry/react')
+      .then(({ captureException }) => {
+        captureException(error, {
+          contexts: { react: { componentStack: info.componentStack ?? '' } },
+        })
+      })
+      .catch(() => { /* sentry not configured — ignore */ })
   }
 
   render() {

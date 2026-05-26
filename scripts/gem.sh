@@ -57,7 +57,8 @@ build_api() {
 
 build_web() {
   step "Building web  →  $1"
-  VITE_API_BASE_URL="$1" npm run build:web
+  local _dsn; _dsn="$(grep -E '^SENTRY_DSN=' "${2:-/dev/null}" 2>/dev/null | cut -d= -f2- || true)"
+  VITE_API_BASE_URL="$1" VITE_SENTRY_DSN="$_dsn" npm run build:web
   ok "Web built"
 }
 
@@ -96,12 +97,12 @@ stop_dev() {
 
 deploy_prod() {
   [[ -f "$PROD_ENV" ]] || die "Missing $PROD_ENV"
-  deps; build_api; build_web "$PROD_API_URL"; migrate "$PROD_ENV" "production"; restart_prod
+  deps; build_api; build_web "$PROD_API_URL" "$PROD_ENV"; migrate "$PROD_ENV" "production"; restart_prod
 }
 
 deploy_dev() {
   [[ -f "$DEV_ENV" ]] || die "Missing $DEV_ENV — run scripts/setup-dev-env.sh first"
-  deps; build_api; build_web "$DEV_API_URL"; migrate "$DEV_ENV" "dev"; restart_dev
+  deps; build_api; build_web "$DEV_API_URL" "$DEV_ENV"; migrate "$DEV_ENV" "dev"; restart_dev
 }
 
 # ── Sudo pre-auth ─────────────────────────────────────────────────────────────
