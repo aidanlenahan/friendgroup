@@ -45,7 +45,7 @@ initTheme()
 
 // Sentry is loaded lazily after first user interaction to avoid blocking LCP.
 // The ~200 KB chunk is not needed until the user starts doing something.
-const sentryDsn = import.meta.env.VITE_SENTRY_DSN
+const sentryDsn = import.meta.env.VITE_SENTRY_DSN?.trim()
 
 if (sentryDsn) {
   let sentryInitialized = false

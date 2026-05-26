@@ -54,8 +54,8 @@ _sentry_env="$DEV_ENV_FILE"
 grep -q "^SENTRY_DSN=" "$_sentry_env" 2>/dev/null || _sentry_env="/etc/gem/gem-api.env"
 VITE_API_BASE_URL="$DEV_API_URL" \
   VITE_SOCKET_URL="$DEV_API_URL" \
-  VITE_SENTRY_DSN="$(grep -E '^SENTRY_DSN=' "$_sentry_env" 2>/dev/null | cut -d= -f2- || true)" \
-  npm run build:web
+  VITE_SENTRY_DSN="$(grep -E '^SENTRY_DSN=' "$_sentry_env" 2>/dev/null | cut -d= -f2- | tr -d '\n\r ' || true)" \
+  npm run build:web:dev
 
 # ── 8. Run migrations against dev database ───────────────────────────────────
 log "Running database migrations (dev)"

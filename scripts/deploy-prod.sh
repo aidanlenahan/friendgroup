@@ -59,8 +59,8 @@ npm run build:api
 log "Building web (targeting $PROD_API_URL)"
 VITE_API_BASE_URL="$PROD_API_URL" \
   VITE_SOCKET_URL="$PROD_API_URL" \
-  VITE_SENTRY_DSN="$(grep -E '^SENTRY_DSN=' "$PROD_ENV_FILE" | cut -d= -f2-)" \
-  npm run build:web
+  VITE_SENTRY_DSN="$(grep -E '^SENTRY_DSN=' "$PROD_ENV_FILE" | cut -d= -f2- | tr -d '\n\r ')" \
+  npm run build:web:prod
 
 # ── 9. Run migrations against production database ────────────────────────────
 log "Running database migrations (prod)"
