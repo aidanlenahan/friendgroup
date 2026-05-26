@@ -4,8 +4,8 @@ All tasks — completed and pending. Completed entries from `tasks.txt` are incl
 
 ## Launch checklist
 - [x] Step 13: External end-to-end validation from non-origin device (mobile data + separate network laptop)
-- [ ] Step 14: Reboot persistence verification
-- [ ] Step 15: Uptime Kuma rollout
+- [x] Step 14: Reboot persistence verification
+- [x] Step 15: Uptime Kuma rollout
 - [ ] Step 16: PBS backup integration + restore test
 ================
 - [x] channel chat load-more / performance — already implemented: 50-msg cursor pagination + "Load older messages" button (useInfiniteQuery + before= cursor). DONE 2026-05-20
@@ -25,6 +25,14 @@ All tasks — completed and pending. Completed entries from `tasks.txt` are incl
 - [x] error toasts on all mutations (useGroups, useEvents) + push denial UX + photo upload error messages + album confirm UI + chat disconnect guard DONE 2026-05-25
 - post demo page--maybe modal on login page or its own page (hidden from all navbars). have something that says 'Email all feedback or send an account creation code request to help@gem.aidanlenahan.com'
 
+
+- [x] on mobile, on group creation or join group modal, when opened keyboard, the keyboard overlaps over the text box. use the method that the channel page is using when keyboard is clicked. read all CSS and js and tailwind and EVERYTHING to fully understand
+- [x] make ALL beta codes case insensitive. group and account creation beta codes.
+
+- [x] always have the general channel pinned to the top in channel page. also, get rid of the subscribe button on general, as everyone is auto-subscribed with no unsubscribe function.
+- [x] have it so clicking on the channel name in the desktop and mobile view on the specific channel page view, it opens up the modal to manage the channel (if user permissions allow)
+
+- fix keyboard overlap in mobile (tag edit, etc.)
 
 =================
 ## Channel chat — implementation checklist

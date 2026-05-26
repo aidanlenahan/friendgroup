@@ -105,9 +105,16 @@ void registerServiceWorker()
 // Stale chunk recovery: after a new deploy, old chunk hashes are gone from the
 // server. If any lazy-loaded chunk returns 404, reload so the new index.html
 // takes over and references the correct hashes.
-window.addEventListener('vite:preloadError', (event) => {
-  event.preventDefault()
-  window.location.reload()
+window.addEventListener('vite:preloadError', () => {
+  // After a deploy, old chunk hashes return 404. Reload once to get fresh
+  // index.html with correct hashes. Guard prevents infinite loops on genuine
+  // failures: allow only one reload per 10 s.
+  const key = 'gem:chunk-reload'
+  const last = Number(sessionStorage.getItem(key) ?? 0)
+  if (Date.now() - last > 10_000) {
+    sessionStorage.setItem(key, String(Date.now()))
+    window.location.reload()
+  }
 })
 
 // Global error hooks — catch exceptions that escape React's tree and unhandled

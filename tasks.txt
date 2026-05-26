@@ -114,6 +114,37 @@ focus on reliability, UX rough edges, and prep for a small group of external use
     shows "Not connected. Please wait and try again." toast instead of silently dropping.
     DONE 2026-05-25. Files: useChat.ts
 
+[x] Fix stale-chunk crash after deploys — vite:preloadError handler was calling
+    event.preventDefault(), which caused Vite's internal catch to resolve the lazy import
+    as undefined instead of rejecting it, making React's lazy resolver throw
+    "Cannot read properties of undefined (reading 'default')". Fix: removed preventDefault,
+    added sessionStorage reload guard (one reload per 10s), added lazyLoad() wrapper in
+    App.tsx that converts TypeError chunk failures into a never-resolving Promise so React
+    stays in Suspense instead of crashing the error boundary.
+    DONE 2026-05-26. Files: apps/web/src/main.tsx, apps/web/src/App.tsx
+
+[x] Mobile keyboard overlap in group modals — group creation and join group modals now track
+    window.visualViewport.height and set the overlay height dynamically so the modal stays
+    above the iOS soft keyboard (same method as ChannelPage). Added useState + visualViewport
+    resize listener to Modal.tsx.
+    DONE 2026-05-26. Files: apps/web/src/components/Modal.tsx
+
+[x] Beta codes case-insensitive — all three validation points in the API (account registration
+    gate, group creation gate, /beta/validate endpoint) now normalize input via
+    .trim().toUpperCase() before comparison and Prisma lookup.
+    DONE 2026-05-26. Files: apps/api/src/server.ts
+
+[x] General channel pinned to top, subscribe button hidden — channel lists on GroupPage and
+    ChannelPage sidebar now sort channels with isGeneral=true first. Subscribe/unsubscribe
+    button is hidden on the general channel (auto-subscribed, no opt-out).
+    DONE 2026-05-26. Files: apps/web/src/pages/GroupPage.tsx, apps/web/src/pages/ChannelPage.tsx
+
+[x] Clickable channel name opens settings modal — in ChannelPage header, admins/owners can
+    click the channel name (both desktop and mobile) to open a channel settings modal with:
+    rename field (non-general channels), Notification Tags button, Manage Members button
+    (invite-only only), and Delete Channel button (non-general only).
+    DONE 2026-05-26. Files: apps/web/src/pages/ChannelPage.tsx
+
 [ ] Fix window sizing on desktop — inconsistent div sizing on desktop layout causes layout
     overflow in some page combinations; audit all page wrappers
 

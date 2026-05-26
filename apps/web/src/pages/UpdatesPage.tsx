@@ -60,6 +60,11 @@ const releases: Release[] = [
       { type: 'improved', text: 'Chat disconnect guard — trying to send a message when the socket is not connected now shows a clear warning instead of the message silently disappearing' },
       { type: 'fixed', text: 'Channel pin/react/delete buttons now disable while the action is in flight, preventing double-taps from sending duplicate requests' },
       { type: 'fixed', text: 'Security hardening — HSTS, Permissions-Policy, and Content-Security-Policy headers tightened; automatic dependency audits via Dependabot and secret scanning on every push' },
+      { type: 'fixed', text: 'Stale-chunk crash after deploys — loading a page after a new deploy no longer throws to the error boundary; a sessionStorage reload guard triggers one clean reload to pick up fresh chunk hashes' },
+      { type: 'fixed', text: 'Keyboard overlap in group modals on mobile — the group creation and join group modals now track the visual viewport so the overlay stays above the soft keyboard on iOS and Android' },
+      { type: 'improved', text: 'Invite codes are now case-insensitive — account registration, group creation, and the beta code validator all normalise the code before checking, so GEMCODE, gemcode, and GemCode all work' },
+      { type: 'improved', text: 'General channel always at the top — the general channel is pinned first in every channel list and sidebar; the subscribe/unsubscribe button is hidden on it since all members are automatically subscribed' },
+      { type: 'improved', text: 'Channel name is a settings shortcut for admins — clicking the channel name in the channel header opens a settings modal with rename, notification tags, manage members, and delete channel options' },
     ],
   },
   {

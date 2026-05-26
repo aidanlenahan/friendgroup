@@ -73,7 +73,7 @@ jobs:
   # Required GitHub secrets (copy values from apps/api/.env):
   #   SMTP_HOST  — smtp.titan.email
   #   SMTP_PORT  — 465
-  #   SMTP_USER  — noreply@gem.aidanlenahan.com
+  #   SMTP_USER  — devalert@gem.aidanlenahan.com
   #   SMTP_PASS  — (value from .env)
   # -----------------------------------------------------------------------
   notify_success:

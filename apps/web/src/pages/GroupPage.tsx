@@ -1012,7 +1012,12 @@ export default function GroupPage() {
       )}
 
       {/* Channels Tab */}
-      {activeTab === 'channels' && (
+      {activeTab === 'channels' && (() => {
+        const sortedChannels = [...(channelsData?.channels ?? [])].sort(
+          (a, b) => (b.isGeneral ? 1 : 0) - (a.isGeneral ? 1 : 0)
+        )
+        const firstChannel = sortedChannels[0]
+        return (
         <div className="space-y-2">
           {isAdmin && (
             <div className="flex justify-end pb-1">
@@ -1024,7 +1029,7 @@ export default function GroupPage() {
               </button>
             </div>
           )}
-          {!channelsData?.channels?.length ? (
+          {!sortedChannels.length ? (
             <div className="flex flex-col items-center gap-3 py-12 text-center">
               <EmptyState title="No channels" description={isAdmin ? 'Create the first channel for your group.' : 'Channels are for group discussions. Ask an admin to create one.'} />
               {isAdmin && (
@@ -1037,7 +1042,7 @@ export default function GroupPage() {
               )}
             </div>
           ) : (
-            channelsData.channels.map((ch) => (
+            sortedChannels.map((ch) => (
               <div
                 key={ch.id}
                 className="flex items-center justify-between gap-3 bg-gray-900 rounded-xl p-3 border border-gray-800"
@@ -1063,35 +1068,38 @@ export default function GroupPage() {
                   >
                     {ch.isInviteOnly ? 'Invite-only' : 'Open'}
                   </span>
-                  <button
-                    onClick={() => handleChannelToggle(ch.id, Boolean(ch.isSubscribed))}
-                    disabled={subscribeChannel.isPending || unsubscribeChannel.isPending || Boolean(ch.isInviteOnly && !ch.isSubscribed)}
-                    className={`text-xs px-2 py-1 rounded-full transition-colors disabled:opacity-50 ${
-                      ch.isSubscribed
-                        ? 'bg-indigo-900 text-indigo-300 hover:bg-indigo-800'
-                        : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
-                    }`}
-                    title={ch.isInviteOnly && !ch.isSubscribed ? 'This channel requires an invite to subscribe' : undefined}
-                  >
-                    {ch.isSubscribed ? 'Subscribed' : 'Subscribe'}
-                  </button>
+                  {!ch.isGeneral && (
+                    <button
+                      onClick={() => handleChannelToggle(ch.id, Boolean(ch.isSubscribed))}
+                      disabled={subscribeChannel.isPending || unsubscribeChannel.isPending || Boolean(ch.isInviteOnly && !ch.isSubscribed)}
+                      className={`text-xs px-2 py-1 rounded-full transition-colors disabled:opacity-50 ${
+                        ch.isSubscribed
+                          ? 'bg-indigo-900 text-indigo-300 hover:bg-indigo-800'
+                          : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                      }`}
+                      title={ch.isInviteOnly && !ch.isSubscribed ? 'This channel requires an invite to subscribe' : undefined}
+                    >
+                      {ch.isSubscribed ? 'Subscribed' : 'Subscribe'}
+                    </button>
+                  )}
                 </div>
               </div>
             ))
           )}
           {/* Open channel chat button — always visible if channels exist */}
-          {channelsData?.channels && channelsData.channels.length > 0 && (
+          {firstChannel && (
             <div className="pt-2">
               <Link
-                to={`/groups/${groupId}/channels/${channelsData.channels[0].id}`}
+                to={`/groups/${groupId}/channels/${firstChannel.id}`}
                 className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-indigo-900/40 border border-indigo-800/60 text-indigo-300 hover:bg-indigo-900/60 transition-colors text-sm font-medium"
               >
-                Open #{channelsData.channels[0].name} →
+                Open #{firstChannel.name} →
               </Link>
             </div>
           )}
         </div>
-      )}
+        )
+      })()}
 
       {/* Media Tab */}
       {activeTab === 'media' && (

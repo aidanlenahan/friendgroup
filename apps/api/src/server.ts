@@ -804,6 +804,19 @@ async function seedDemoData(demoUserId: string): Promise<string[]> {
     ],
   });
 
+  // Guarantee the demo user has active owner membership in every demo group.
+  // The inline nested creates above should be sufficient, but this upsert acts
+  // as a safety net against any edge case where a membership fails to persist.
+  await Promise.all(
+    [hikeGroup.id, movieGroup.id, bookGroup.id].map((groupId) =>
+      prisma.membership.upsert({
+        where: { userId_groupId: { userId: demoUserId, groupId } },
+        update: { role: "owner", status: "active" },
+        create: { userId: demoUserId, groupId, role: "owner", status: "active" },
+      })
+    )
+  );
+
   return dummyUsers.map((u) => u.id);
 }
 
@@ -2031,11 +2044,12 @@ app.post("/auth/register", { config: { rateLimit: { max: 10, timeWindow: "1 minu
     // Check persistent code first (Redis override ?? env var)
     const redisOverride = await redis.get("admin:registration_invite_code");
     const persistentCode = redisOverride ?? process.env.REGISTRATION_INVITE_CODE;
-    const matchesPersistent = persistentCode && body.betaCode === persistentCode;
+    const normalizedBetaCode = body.betaCode.trim().toUpperCase();
+    const matchesPersistent = persistentCode && normalizedBetaCode === persistentCode.trim().toUpperCase();
 
     // Check one-time DB code
     const oneTimeCode = !matchesPersistent
-      ? await prisma.betaCode.findUnique({ where: { code: body.betaCode } })
+      ? await prisma.betaCode.findUnique({ where: { code: normalizedBetaCode } })
       : null;
     const matchesOneTime = oneTimeCode && oneTimeCode.type === "registration" && oneTimeCode.usedAt === null;
 
@@ -4915,11 +4929,12 @@ app.post("/groups", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } }
     // Check persistent code first (Redis override ?? env var)
     const redisGroupOverride = await redis.get("admin:group_creation_invite_code");
     const persistentGroupCode = redisGroupOverride ?? process.env.GROUP_CREATION_INVITE_CODE;
-    const matchesGroupPersistent = persistentGroupCode && body.betaCode === persistentGroupCode;
+    const normalizedGroupCode = body.betaCode.trim().toUpperCase();
+    const matchesGroupPersistent = persistentGroupCode && normalizedGroupCode === persistentGroupCode.trim().toUpperCase();
 
     if (!matchesGroupPersistent) {
       // Fall back to one-time DB code
-      const betaCode = await prisma.betaCode.findUnique({ where: { code: body.betaCode } });
+      const betaCode = await prisma.betaCode.findUnique({ where: { code: normalizedGroupCode } });
       if (!betaCode || betaCode.type !== "group_creation" || betaCode.usedAt !== null) {
         return reply.status(403).send({ error: "Invalid or already used invite code.", code: "INVALID_BETA_CODE" });
       }
@@ -5962,7 +5977,7 @@ app.post("/admin/beta-codes", async (request, reply) => {
 app.post("/beta/validate", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
   const body = await validateRequest(useBetaCodeBodySchema, request.body);
 
-  const betaCode = await prisma.betaCode.findUnique({ where: { code: body.code } });
+  const betaCode = await prisma.betaCode.findUnique({ where: { code: body.code.trim().toUpperCase() } });
 
   if (!betaCode || betaCode.type !== body.type || betaCode.usedAt !== null) {
     return reply.status(400).send({ error: "Invalid or already used code.", code: "INVALID_BETA_CODE" });

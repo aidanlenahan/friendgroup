@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { useEffect, lazy, Suspense } from 'react'
+import { useEffect, lazy, Suspense, type ComponentType } from 'react'
 import { useAuthStore } from './stores/authStore'
 import { ApiError, apiFetch } from './lib/api'
 import { useThemeApplier } from './hooks/useTheme'
@@ -8,39 +8,52 @@ import Layout from './components/Layout'
 import MarketingLayout from './components/MarketingLayout'
 import { queryClient } from './lib/queryClient'
 
+// Wraps React.lazy so a stale-chunk TypeError (404 after a deploy) never
+// crashes into the error boundary. The vite:preloadError handler reloads the
+// page; this keeps the component in the Suspense fallback while that happens.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function lazyLoad<T extends ComponentType<any>>(factory: () => Promise<{ default: T }>) {
+  return lazy(() =>
+    factory().catch((err: unknown) => {
+      if (err instanceof TypeError) return new Promise<{ default: T }>(() => {})
+      throw err
+    })
+  )
+}
+
 // Auth pages share a chunk — they're always visited together (login → register → verify)
-const LoginPage = lazy(() => import('./pages/LoginPage'))
-const RegisterPage = lazy(() => import(/* webpackChunkName: "auth-pages" */ './pages/RegisterPage'))
-const VerifyEmailPage = lazy(() => import(/* webpackChunkName: "auth-pages" */ './pages/VerifyEmailPage'))
-const ForgotPasswordPage = lazy(() => import(/* webpackChunkName: "auth-pages" */ './pages/ForgotPasswordPage'))
-const ResetPasswordPage = lazy(() => import(/* webpackChunkName: "auth-pages" */ './pages/ResetPasswordPage'))
+const LoginPage = lazyLoad(() => import('./pages/LoginPage'))
+const RegisterPage = lazyLoad(() => import(/* webpackChunkName: "auth-pages" */ './pages/RegisterPage'))
+const VerifyEmailPage = lazyLoad(() => import(/* webpackChunkName: "auth-pages" */ './pages/VerifyEmailPage'))
+const ForgotPasswordPage = lazyLoad(() => import(/* webpackChunkName: "auth-pages" */ './pages/ForgotPasswordPage'))
+const ResetPasswordPage = lazyLoad(() => import(/* webpackChunkName: "auth-pages" */ './pages/ResetPasswordPage'))
 // Group pages share a chunk — navigation between them is predictable
-const GroupsPage = lazy(() => import('./pages/GroupsPage'))
-const GroupPage = lazy(() => import(/* webpackChunkName: "group-pages" */ './pages/GroupPage'))
-const GroupManagePage = lazy(() => import(/* webpackChunkName: "group-pages" */ './pages/GroupManagePage'))
-const GroupStatsPage = lazy(() => import(/* webpackChunkName: "group-pages" */ './pages/GroupStatsPage'))
-const GroupGalleryPage = lazy(() => import(/* webpackChunkName: "group-pages" */ './pages/GroupGalleryPage'))
-const EventPage = lazy(() => import(/* webpackChunkName: "group-pages" */ './pages/EventPage'))
-const CreateEventPage = lazy(() => import(/* webpackChunkName: "group-pages" */ './pages/CreateEventPage'))
+const GroupsPage = lazyLoad(() => import('./pages/GroupsPage'))
+const GroupPage = lazyLoad(() => import(/* webpackChunkName: "group-pages" */ './pages/GroupPage'))
+const GroupManagePage = lazyLoad(() => import(/* webpackChunkName: "group-pages" */ './pages/GroupManagePage'))
+const GroupStatsPage = lazyLoad(() => import(/* webpackChunkName: "group-pages" */ './pages/GroupStatsPage'))
+const GroupGalleryPage = lazyLoad(() => import(/* webpackChunkName: "group-pages" */ './pages/GroupGalleryPage'))
+const EventPage = lazyLoad(() => import(/* webpackChunkName: "group-pages" */ './pages/EventPage'))
+const CreateEventPage = lazyLoad(() => import(/* webpackChunkName: "group-pages" */ './pages/CreateEventPage'))
 // Settings pages share a chunk
-const SettingsPage = lazy(() => import('./pages/SettingsPage'))
-const ProfilePage = lazy(() => import(/* webpackChunkName: "settings-pages" */ './pages/ProfilePage'))
-const UserProfilePage = lazy(() => import(/* webpackChunkName: "settings-pages" */ './pages/UserProfilePage'))
-const NotificationSettingsPage = lazy(() => import(/* webpackChunkName: "settings-pages" */ './pages/NotificationSettingsPage'))
-const NotificationsPage = lazy(() => import(/* webpackChunkName: "settings-pages" */ './pages/NotificationsPage'))
-const ChannelPage = lazy(() => import('./pages/ChannelPage'))
+const SettingsPage = lazyLoad(() => import('./pages/SettingsPage'))
+const ProfilePage = lazyLoad(() => import(/* webpackChunkName: "settings-pages" */ './pages/ProfilePage'))
+const UserProfilePage = lazyLoad(() => import(/* webpackChunkName: "settings-pages" */ './pages/UserProfilePage'))
+const NotificationSettingsPage = lazyLoad(() => import(/* webpackChunkName: "settings-pages" */ './pages/NotificationSettingsPage'))
+const NotificationsPage = lazyLoad(() => import(/* webpackChunkName: "settings-pages" */ './pages/NotificationsPage'))
+const ChannelPage = lazyLoad(() => import('./pages/ChannelPage'))
 const Phase7DebugPage = import.meta.env.DEV ? lazy(() => import('./pages/Phase7DebugPage').then(m => ({ default: m.Phase7DebugPage }))) : null
 const Phase9DiagnosticsPage = import.meta.env.DEV ? lazy(() => import('./pages/Phase9DiagnosticsPage').then(m => ({ default: m.Phase9DiagnosticsPage }))) : null
-const DeveloperPage = lazy(() => import('./pages/DeveloperPage'))
-const LandingPage = lazy(() => import('./pages/LandingPage'))
-const HelpPage = lazy(() => import('./pages/HelpPage'))
-const HelpArticlePage = lazy(() => import('./pages/HelpArticlePage'))
-const ContactPage = lazy(() => import('./pages/ContactPage'))
-const UpdatesPage = lazy(() => import('./pages/UpdatesPage'))
-const DemoPage = lazy(() => import('./pages/DemoPage'))
-const PrivacyPolicyPage = lazy(() => import('./pages/PrivacyPolicyPage'))
-const TermsOfServicePage = lazy(() => import('./pages/TermsOfServicePage'))
-const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
+const DeveloperPage = lazyLoad(() => import('./pages/DeveloperPage'))
+const LandingPage = lazyLoad(() => import('./pages/LandingPage'))
+const HelpPage = lazyLoad(() => import('./pages/HelpPage'))
+const HelpArticlePage = lazyLoad(() => import('./pages/HelpArticlePage'))
+const ContactPage = lazyLoad(() => import('./pages/ContactPage'))
+const UpdatesPage = lazyLoad(() => import('./pages/UpdatesPage'))
+const DemoPage = lazyLoad(() => import('./pages/DemoPage'))
+const PrivacyPolicyPage = lazyLoad(() => import('./pages/PrivacyPolicyPage'))
+const TermsOfServicePage = lazyLoad(() => import('./pages/TermsOfServicePage'))
+const NotFoundPage = lazyLoad(() => import('./pages/NotFoundPage'))
 
 
 function urlBase64ToArrayBuffer(base64String: string): ArrayBuffer {

@@ -684,8 +684,11 @@ export default function ChannelPage() {
     }
   }
 
+  const [showChannelSettingsModal, setShowChannelSettingsModal] = useState(false)
+  const [settingsRenameValue, setSettingsRenameValue] = useState('')
+
   const channelListProps = {
-    channels: channelsData?.channels ?? [],
+    channels: [...(channelsData?.channels ?? [])].sort((a, b) => (b.isGeneral ? 1 : 0) - (a.isGeneral ? 1 : 0)),
     groupId: groupId!,
     channelId,
     isAdminOrOwner,
@@ -793,9 +796,19 @@ export default function ChannelPage() {
             </svg>
           </button>
           <span className="text-gray-400 text-lg">#</span>
-          <h1 className="font-semibold text-white truncate">
-            {channel?.name ?? 'Channel'}
-          </h1>
+          {isAdminOrOwner ? (
+            <button
+              onClick={() => { setSettingsRenameValue(channel?.name ?? ''); setShowChannelSettingsModal(true) }}
+              className="font-semibold text-white truncate hover:text-gray-300 transition-colors"
+              title="Channel settings"
+            >
+              {channel?.name ?? 'Channel'}
+            </button>
+          ) : (
+            <h1 className="font-semibold text-white truncate">
+              {channel?.name ?? 'Channel'}
+            </h1>
+          )}
           {channel?.isInviteOnly && (
             <>
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 text-gray-500 shrink-0" aria-label="Invite-only channel">
@@ -1548,6 +1561,101 @@ export default function ChannelPage() {
                   )}
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Channel Settings Modal */}
+      {showChannelSettingsModal && channel && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
+          onClick={() => setShowChannelSettingsModal(false)}
+        >
+          <div
+            className="bg-gray-900 rounded-2xl shadow-2xl w-full max-w-sm p-6 border border-gray-700 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold text-white">#{channel.name}</h2>
+              <button
+                onClick={() => setShowChannelSettingsModal(false)}
+                className="text-gray-500 hover:text-white transition-colors"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            {!channel.isGeneral && (
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault()
+                  const name = settingsRenameValue.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+                  if (!name || name === channel.name) { setShowChannelSettingsModal(false); return }
+                  try {
+                    await renameChannel.mutateAsync({ channelId: channelId!, name })
+                    toast.success(`Renamed to #${name}`)
+                    setShowChannelSettingsModal(false)
+                  } catch (err) {
+                    toast.error(getApiErrorMessage(err, 'Failed to rename'))
+                  }
+                }}
+                className="space-y-2"
+              >
+                <label className="block text-sm text-gray-400">Rename channel</label>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2">
+                    <span className="text-gray-500 mr-1">#</span>
+                    <input
+                      value={settingsRenameValue}
+                      onChange={(e) => setSettingsRenameValue(e.target.value.toLowerCase().replace(/\s/g, '-'))}
+                      maxLength={32}
+                      className="flex-1 bg-transparent text-white placeholder-gray-500 focus:outline-none text-sm"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={renameChannel.isPending || !settingsRenameValue.trim() || settingsRenameValue === channel.name}
+                    className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-sm font-medium transition-colors"
+                  >
+                    Save
+                  </button>
+                </div>
+              </form>
+            )}
+            <div className="space-y-2">
+              <button
+                onClick={() => { setShowChannelSettingsModal(false); openTagModal(channelId!, channel.tags?.map((t) => t.id) ?? []) }}
+                className="flex items-center gap-3 w-full px-4 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 text-sm text-gray-200 transition-colors text-left"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M7 7h.01M3 11l10 10a4 4 0 005.657 0l4.343-4.343A4 4 0 0023 13.657L13 3.657A4 4 0 0010.343 3L6 3H3v3l.343.343z" />
+                </svg>
+                Notification Tags
+              </button>
+              {channel.isInviteOnly && (
+                <button
+                  onClick={() => { setShowChannelSettingsModal(false); setManageSubscribersChannelId(channelId!) }}
+                  className="flex items-center gap-3 w-full px-4 py-3 rounded-xl bg-gray-800 hover:bg-gray-700 text-sm text-gray-200 transition-colors text-left"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                  Manage Members
+                </button>
+              )}
+              {!channel.isGeneral && (
+                <button
+                  onClick={() => { setShowChannelSettingsModal(false); setConfirmDeleteChannelId(channelId!) }}
+                  className="flex items-center gap-3 w-full px-4 py-3 rounded-xl bg-gray-800 hover:bg-red-900/30 text-sm text-red-400 transition-colors text-left"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                  Delete Channel
+                </button>
+              )}
             </div>
           </div>
         </div>
