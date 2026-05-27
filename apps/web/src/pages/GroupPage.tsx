@@ -155,6 +155,9 @@ export default function GroupPage() {
   const [calendarFilterMode, setCalendarFilterMode] = useState<'all' | 'rsvp' | 'tags'>('all')
   const [calendarTagIds, setCalendarTagIds] = useState<string[]>([])
   const memberActionMenuRef = useRef<HTMLDivElement>(null)
+  const tabScrollRef = useRef<HTMLDivElement>(null)
+  const [tabCanScrollLeft, setTabCanScrollLeft] = useState(false)
+  const [tabCanScrollRight, setTabCanScrollRight] = useState(false)
   const toast = useToast()
   const isOnline = useIsOnline()
   const currentUser = useAuthStore((s) => s.user)
@@ -396,6 +399,23 @@ export default function GroupPage() {
     return () => { document.title = 'GEM — Group Event Manager' }
   }, [groupData?.group?.name])
 
+  useEffect(() => {
+    const el = tabScrollRef.current
+    if (!el) return
+    const update = () => {
+      setTabCanScrollLeft(el.scrollLeft > 0)
+      setTabCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1)
+    }
+    update()
+    el.addEventListener('scroll', update, { passive: true })
+    const ro = new ResizeObserver(update)
+    ro.observe(el)
+    return () => {
+      el.removeEventListener('scroll', update)
+      ro.disconnect()
+    }
+  }, [])
+
   if (groupLoading) {
     return (
       <div className="space-y-2 px-4 pt-4">
@@ -537,20 +557,36 @@ export default function GroupPage() {
       </div>
 
       {/* Tab Bar */}
-      <div className="flex gap-1 mb-6 border-b border-gray-800 overflow-x-auto">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`flex-shrink-0 px-4 py-2 text-sm font-medium transition-colors ${
-              activeTab === tab.key
-                ? 'text-indigo-400 border-b-2 border-indigo-400'
-                : 'text-gray-400 hover:text-gray-200'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="relative mb-6">
+        {tabCanScrollLeft && (
+          <div className="absolute left-0 top-0 bottom-[1px] w-10 bg-gradient-to-r from-gray-950 to-transparent pointer-events-none z-10 flex items-center">
+            <svg className="w-3.5 h-3.5 text-gray-500 ml-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </div>
+        )}
+        {tabCanScrollRight && (
+          <div className="absolute right-0 top-0 bottom-[1px] w-10 bg-gradient-to-l from-gray-950 to-transparent pointer-events-none z-10 flex items-center justify-end">
+            <svg className="w-3.5 h-3.5 text-gray-500 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        )}
+        <div ref={tabScrollRef} className="flex gap-1 border-b border-gray-800 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {tabs.map((tab) => (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex-shrink-0 px-4 py-2 text-sm font-medium transition-colors ${
+                activeTab === tab.key
+                  ? 'text-indigo-400 border-b-2 border-indigo-400'
+                  : 'text-gray-400 hover:text-gray-200'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Events Tab */}

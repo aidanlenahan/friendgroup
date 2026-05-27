@@ -29,7 +29,9 @@ const releases: Release[] = [
       { type: 'improved', text: 'Channel reconnect — when the WebSocket connection drops permanently the message input is replaced with a "Connection failed — tap to retry" button; tapping reconnects immediately instead of waiting for the next auto-retry window' },
       { type: 'improved', text: 'Session recovery — if local storage is cleared (private browsing switch, browser reset) but your session cookie is still valid, GEM now silently restores your session on the next page load instead of sending you to the login screen' },
       { type: 'improved', text: '"Try Demo" on the landing page — a Demo button is now visible in the hero alongside Sign up and Log in so first-time visitors can explore the app before creating an account' },
+      { type: 'improved', text: 'Tab bar scroll indicators — a chevron and gradient fade appear on either side of the group tab bar when the tabs overflow the screen width, making it clear the bar is scrollable on smaller devices' },
       { type: 'fixed', text: 'Demo username collisions — concurrent demo sessions no longer occasionally share the same generated username for dummy users, which caused seed failures' },
+      { type: 'fixed', text: 'API startup crash — polls and event-templates routes were registered after the server started listening, causing an immediate crash on every restart; routes are now fully registered before the server binds to its port' },
     ],
   },
   {

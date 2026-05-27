@@ -7389,28 +7389,6 @@ app.get("/demo/status/:deviceId", { config: { rateLimit: { max: 60, timeWindow: 
   return reply.send({ status: "none" });
 });
 
-await app.listen({ port, host });
-
-// Verify SMTP connectivity once at startup (non-blocking)
-void verifyMailTransporter();
-
-// Purge NotificationEvent records older than the inbox TTL.
-// Runs once immediately on startup, then every 24 h.
-const purgeExpiredNotifications = async () => {
-  const cutoff = new Date(Date.now() - NOTIFICATION_INBOX_TTL_DAYS * 24 * 60 * 60 * 1000);
-  const { count } = await prisma.notificationEvent.deleteMany({
-    where: { createdAt: { lt: cutoff } },
-  });
-  if (count > 0) {
-    app.log.info({ deleted: count }, "Purged expired notification events");
-  }
-};
-void purgeExpiredNotifications();
-const _notificationPurgeInterval = setInterval(
-  () => void purgeExpiredNotifications(),
-  24 * 60 * 60 * 1000
-).unref();
-
 // ─── Polls ────────────────────────────────────────────────────────────────────
 
 function formatPoll(poll: {
@@ -7809,6 +7787,28 @@ app.delete("/event-templates/:templateId", async (request, reply) => {
 });
 
 // ─── End Event Templates ──────────────────────────────────────────────────────
+
+await app.listen({ port, host });
+
+// Verify SMTP connectivity once at startup (non-blocking)
+void verifyMailTransporter();
+
+// Purge NotificationEvent records older than the inbox TTL.
+// Runs once immediately on startup, then every 24 h.
+const purgeExpiredNotifications = async () => {
+  const cutoff = new Date(Date.now() - NOTIFICATION_INBOX_TTL_DAYS * 24 * 60 * 60 * 1000);
+  const { count } = await prisma.notificationEvent.deleteMany({
+    where: { createdAt: { lt: cutoff } },
+  });
+  if (count > 0) {
+    app.log.info({ deleted: count }, "Purged expired notification events");
+  }
+};
+void purgeExpiredNotifications();
+const _notificationPurgeInterval = setInterval(
+  () => void purgeExpiredNotifications(),
+  24 * 60 * 60 * 1000
+).unref();
 
 // Graceful shutdown
 const gracefulShutdown = async () => {
