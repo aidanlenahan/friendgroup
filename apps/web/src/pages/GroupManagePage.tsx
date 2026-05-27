@@ -26,6 +26,7 @@ import {
 import { useAuthStore } from '../stores/authStore'
 import { useToast } from '../hooks/useToast'
 import { apiFetch, getApiErrorMessage } from '../lib/api'
+import { useGroupEventTemplates, useUpdateEventTemplate, useDeleteEventTemplate } from '../hooks/useEventTemplates'
 import Avatar from '../components/Avatar'
 import Spinner from '../components/Spinner'
 import EmptyState from '../components/EmptyState'
@@ -95,10 +96,25 @@ export default function GroupManagePage() {
   const updateTag = useUpdateTag(groupId!)
   const muteMember = useMuteMember(groupId!)
   const unmuteMember = useUnmuteMember(groupId!)
+  const { data: templatesData } = useGroupEventTemplates(groupId!)
+  const updateTemplate = useUpdateEventTemplate()
+  const deleteTemplate = useDeleteEventTemplate(groupId!)
 
   // Tag creation state
   const [newTagName, setNewTagName] = useState('')
   const [newTagColor, setNewTagColor] = useState('#6366f1')
+
+  // Template section state
+  const [templateDeleteConfirmId, setTemplateDeleteConfirmId] = useState<string | null>(null)
+  const [templateEditId, setTemplateEditId] = useState<string | null>(null)
+  const [tplEditName, setTplEditName] = useState('')
+  const [tplEditTitle, setTplEditTitle] = useState('')
+  const [tplEditDetails, setTplEditDetails] = useState('')
+  const [tplEditDuration, setTplEditDuration] = useState(60)
+  const [tplEditLocation, setTplEditLocation] = useState('')
+  const [tplEditMaxAttendees, setTplEditMaxAttendees] = useState('')
+  const [tplEditPrivate, setTplEditPrivate] = useState(false)
+  const [tplSaving, setTplSaving] = useState(false)
 
   /**
    * Tag action overlay state.
@@ -948,6 +964,235 @@ export default function GroupManagePage() {
           </button>
         </form>
       </section>
+
+      {/* ── Event Templates ── */}
+      {(() => {
+        const templates = templatesData?.templates ?? []
+
+        const openEdit = (tpl: NonNullable<typeof templatesData>['templates'][number]) => {
+          setTemplateEditId(tpl.id)
+          setTplEditName(tpl.name)
+          setTplEditTitle(tpl.title)
+          setTplEditDetails(tpl.details ?? '')
+          setTplEditDuration(tpl.durationMinutes ?? 60)
+          setTplEditLocation(tpl.location ?? '')
+          setTplEditMaxAttendees(tpl.maxAttendees != null ? String(tpl.maxAttendees) : '')
+          setTplEditPrivate(tpl.isPrivate)
+        }
+
+        const handleSaveTemplate = async () => {
+          if (!templateEditId || !tplEditName.trim() || !tplEditTitle.trim()) return
+          setTplSaving(true)
+          try {
+            await updateTemplate.mutateAsync({
+              templateId: templateEditId,
+              groupId: groupId!,
+              name: tplEditName.trim(),
+              title: tplEditTitle.trim(),
+              details: tplEditDetails.trim() || null,
+              durationMinutes: tplEditDuration || null,
+              location: tplEditLocation.trim() || null,
+              maxAttendees: tplEditMaxAttendees ? Number(tplEditMaxAttendees) : null,
+              isPrivate: tplEditPrivate,
+            })
+            setTemplateEditId(null)
+            toast.success('Template updated')
+          } catch (err) {
+            toast.error(getApiErrorMessage(err, 'Failed to update template'))
+          } finally {
+            setTplSaving(false)
+          }
+        }
+
+        const handleDeleteTemplate = async (templateId: string) => {
+          try {
+            await deleteTemplate.mutateAsync(templateId)
+            setTemplateDeleteConfirmId(null)
+            toast.success('Template deleted')
+          } catch (err) {
+            toast.error(getApiErrorMessage(err, 'Failed to delete template'))
+          }
+        }
+
+        return (
+          <section className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-semibold text-white">Event Templates</h3>
+                <p className="text-xs text-gray-500 mt-0.5">{templates.length}/15 templates</p>
+              </div>
+            </div>
+
+            {templates.length === 0 ? (
+              <p className="text-sm text-gray-500">No templates yet. Use "Save as template" on any event to create one.</p>
+            ) : (
+              <div className="space-y-2">
+                {templates.map((tpl) => (
+                  <div key={tpl.id} className="flex items-start gap-3 rounded-xl p-3 bg-gray-800/50 border border-gray-700/50">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">{tpl.name}</p>
+                      <p className="text-xs text-gray-400 truncate">{tpl.title}{tpl.location ? ` · ${tpl.location}` : ''}</p>
+                      {tpl.createdBy && (
+                        <p className="text-xs text-gray-600 mt-0.5">by {tpl.createdBy.name}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(tpl)}
+                        className="px-2.5 py-1.5 text-xs rounded-lg bg-gray-800 text-gray-300 hover:bg-gray-700 transition-colors border border-gray-700"
+                      >
+                        Edit
+                      </button>
+                      {templateDeleteConfirmId === tpl.id ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteTemplate(tpl.id)}
+                            disabled={deleteTemplate.isPending}
+                            className="px-2.5 py-1.5 text-xs rounded-lg bg-red-900/70 text-red-300 hover:bg-red-900 transition-colors disabled:opacity-50"
+                          >
+                            Confirm
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setTemplateDeleteConfirmId(null)}
+                            className="px-2.5 py-1.5 text-xs rounded-lg bg-gray-800 text-gray-400 hover:bg-gray-700 transition-colors"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setTemplateDeleteConfirmId(tpl.id)}
+                          className="px-2.5 py-1.5 text-xs rounded-lg bg-gray-800 text-red-400 hover:bg-red-950/50 transition-colors border border-gray-700"
+                        >
+                          Delete
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Edit template modal */}
+            {templateEditId && (() => {
+              const tpl = templates.find((t) => t.id === templateEditId)
+              if (!tpl) return null
+              return (
+                <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                  <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-lg shadow-2xl">
+                    <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-800">
+                      <h4 className="text-base font-semibold text-white">Edit Template</h4>
+                      <button
+                        type="button"
+                        onClick={() => setTemplateEditId(null)}
+                        className="text-gray-400 hover:text-gray-200 p-1"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                    <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">Template name *</label>
+                        <input
+                          value={tplEditName}
+                          onChange={(e) => setTplEditName(e.target.value)}
+                          maxLength={80}
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">Event title *</label>
+                        <input
+                          value={tplEditTitle}
+                          onChange={(e) => setTplEditTitle(e.target.value)}
+                          maxLength={100}
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">Details</label>
+                        <textarea
+                          value={tplEditDetails}
+                          onChange={(e) => setTplEditDetails(e.target.value)}
+                          rows={3}
+                          maxLength={3000}
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-400 mb-1">Duration (min)</label>
+                          <input
+                            type="number"
+                            value={tplEditDuration}
+                            onChange={(e) => setTplEditDuration(Number(e.target.value))}
+                            min={0}
+                            max={1440}
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-400 mb-1">Max attendees</label>
+                          <input
+                            type="number"
+                            value={tplEditMaxAttendees}
+                            onChange={(e) => setTplEditMaxAttendees(e.target.value)}
+                            min={1}
+                            placeholder="No limit"
+                            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-400 mb-1">Location</label>
+                        <input
+                          value={tplEditLocation}
+                          onChange={(e) => setTplEditLocation(e.target.value)}
+                          maxLength={200}
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white text-sm placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        />
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="checkbox"
+                          id="tpl-private"
+                          checked={tplEditPrivate}
+                          onChange={(e) => setTplEditPrivate(e.target.checked)}
+                          className="w-4 h-4 rounded bg-gray-800 border-gray-700 text-indigo-600 focus:ring-indigo-500"
+                        />
+                        <label htmlFor="tpl-private" className="text-sm text-gray-300">Private event template</label>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 px-5 pb-5 pt-3 border-t border-gray-800">
+                      <button
+                        type="button"
+                        onClick={() => setTemplateEditId(null)}
+                        className="px-4 py-2 text-sm text-gray-400 hover:text-white"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveTemplate}
+                        disabled={tplSaving || !tplEditName.trim() || !tplEditTitle.trim()}
+                        className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium py-2 px-4 rounded-xl transition-colors"
+                      >
+                        {tplSaving ? 'Saving...' : 'Save Changes'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
+          </section>
+        )
+      })()}
 
       {/* ── Danger Zone — owner only ── */}
       {isOwner && (

@@ -115,6 +115,12 @@ export default function LandingPage() {
                 >
                   Log in
                 </Link>
+                <Link
+                  to="/demo"
+                  className="w-full sm:w-auto px-6 py-3 rounded-xl text-sm font-semibold text-indigo-300 hover:text-white bg-indigo-950/60 hover:bg-indigo-900/80 border border-indigo-700/60 hover:border-indigo-500 transition-colors"
+                >
+                  Try Demo
+                </Link>
               </>
             )}
           </div>

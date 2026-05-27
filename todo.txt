@@ -1,151 +1,47 @@
-# Todo
+# GEM — Active Todo
+Last updated: 2026-05-27
 
-All tasks — completed and pending. Completed entries from `tasks.txt` are included here for reference.
+Pending work only. Completed items live in tasks.txt.
 
-## Launch checklist
-- [x] Step 13: External end-to-end validation from non-origin device (mobile data + separate network laptop)
-- [x] Step 14: Reboot persistence verification
-- [x] Step 15: Uptime Kuma rollout
+================
+
+## Infrastructure
+
 - [ ] Step 16: PBS backup integration + restore test
+
 ================
-- [x] channel chat load-more / performance — already implemented: 50-msg cursor pagination + "Load older messages" button (useInfiniteQuery + before= cursor). DONE 2026-05-20
-- [x] private channel members visible to non-admins — subscribers of invite-only channels can now view the member list (read-only); admins retain full add/remove access. API: opened GET /groups/:groupId/channels/:channelId/subscribers to channel subscribers. UI: members button in channel header, modal adapts to role. DONE 2026-05-20. Files: server.ts, ChannelPage.tsx
-- [x] more protections against destructive actions — message delete now requires confirmation: desktop shows inline Confirm?/✕ in hover bar; mobile action sheet opens a confirm modal before deleting. DONE 2026-05-20. Files: ChannelPage.tsx
-- end to end encrypted chats?
-- add reply function to 'slide right' action on mobile
-- confirm message pin functionality
-- mobile auto zoom issue on channel page
-[x] 'mention' all subscribers to a tag with '#', same functionality as '@' mentions
-[x] users can add short bio
 
-- Validation failed on temp account creation link generation
-- report bug
-- [x] error monitoring / alerting — errorReporter.ts (API) + reportClientError.ts (web); email alerts via existing Titan SMTP; throttled by fingerprint. DONE 2026-05-25
-- [x] security hardening P3/P4 (HSTS, Permissions-Policy, Redis TLS, DB SSL, BullMQ prefix, connection pool, log injection, CI audit/scan/SAST, Dependabot) DONE 2026-05-25
-- [x] error toasts on all mutations (useGroups, useEvents) + push denial UX + photo upload error messages + album confirm UI + chat disconnect guard DONE 2026-05-25
-- post demo page--maybe modal on login page or its own page (hidden from all navbars). have something that says 'Email all feedback or send an account creation code request to help@gem.aidanlenahan.com'
+## UX / Mobile
 
+- [ ] keyboard overlap on mobile (tag edit, group manage modals — extends Modal.tsx viewport fix already done for group creation/join)
+- [ ] mobile channel view — when keyboard opens, shrink header and slide it toward top border so message input stays visible
+- [ ] no way to pin or delete messages on mobile — add long-press action sheet (pin, delete, react, reply) matching desktop hover bar
+- [ ] desktop channel page — inconsistent div/window sizing causes layout overflow in some page combinations; audit page wrappers
+- [ ] Photos tab label clipped on mobile (390px) — 4-tab layout overflows; shorten to "Media" or use icon
 
-- [x] on mobile, on group creation or join group modal, when opened keyboard, the keyboard overlaps over the text box. use the method that the channel page is using when keyboard is clicked. read all CSS and js and tailwind and EVERYTHING to fully understand
-- [x] make ALL beta codes case insensitive. group and account creation beta codes.
+================
 
-- [x] always have the general channel pinned to the top in channel page. also, get rid of the subscribe button on general, as everyone is auto-subscribed with no unsubscribe function.
-- [x] have it so clicking on the channel name in the desktop and mobile view on the specific channel page view, it opens up the modal to manage the channel (if user permissions allow)
+## Features
 
-- fix keyboard overlap in mobile (tag edit, etc.)
+- [ ] reply function on swipe-right gesture for mobile channel messages
+- [ ] confirm message pin functionality end-to-end (edge cases: unpin, scroll-to-pinned, multi-pin ordering)
+- [ ] post demo page — accessible without an account; link from login page; note directing feedback to help@gem.aidanlenahan.com
+- [ ] PWA install guide for iOS and Android — autodetect platform, prompt if not installed (partial)
+- [ ] text sizing / accessibility settings per user
+- [ ] recurring events (RRULE support; needs recurrenceRule on Event + RRULE UI)
+- [ ] intuitive usage hints — e.g., tooltip or empty-state note that swipe-right on mobile opens chat actions
 
-=================
-## Channel chat — implementation checklist
+================
 
-### Socket / connection
-- [x] Shared socket singleton — `useChannelChat` opens a new Socket.IO connection on every mount; extract a global socket manager so one connection is reused per session
-- [x] Reconnect feedback — show a toast or top banner when the socket drops and re-connects so the user knows messages may have been missed
-- [x] Surface rate-limit error — backend emits `error` event with code `RATE_LIMITED` but the UI silently ignores it; show the retry message to the user
-- [x] Emit `channel:typing:stop` from the frontend (currently only `typing:start` is sent and the indicator fades via a 3-second client timeout)
+## Won't Fix
 
-### Message display UX
-- [x] Auto-scroll only when already at bottom — currently scrolls on every new message even if the user scrolled up to read history
-- [x] "Jump to bottom" button — appears when scrolled up, dismisses when at bottom
-- [x] Message grouping — consecutive messages from the same user collapse avatar/name into a single visual block (like Discord/Slack)
-- [x] Optimistic send — add the message to local state immediately on send, replace/remove if server echoes it back or errors
+- Google Calendar URL subscription shows feed as "Other calendars" sidebar — by-design GCal behavior for all external URL subscriptions; webcal:// is the better path. Optional: add a brief UI note so users know this is expected.
 
-### Message actions
-- [x] Emoji reactions — backend schema (`MessageReaction`) is in place; need socket events (`channel:message:react`, `channel:message:unreact`), REST fallback, and the hover-to-react UI
-- [x] Delete own message — REST `DELETE /groups/:groupId/channels/:channelId/messages/:messageId` + socket broadcast `channel:message:deleted`; remove from UI on receipt
-- [x] Edit own message — REST `PATCH` + socket broadcast `channel:message:edited`; show edited indicator
-- [x] Pin message in channel — socket event + REST endpoint; surface pinned messages in a collapsible banner at the top of the chat (schema `pinned` field already exists on `Message`)
-- [x] message reactions do not show immediately, only on reload
-- [x] pin indicator for already-pinned messages
-- [x] be able to unpin messages from the pop up on the top of the chat. have the pinned messages view toggle if click on the thumbtack button. when in hidden mode, it should only show the thumbtack on the RIGHT side. when expanded, it expands to a modal, showing the pinned 
-- [ ] when the keyboard is clicked, make the header smaller and go slightly farther up towards the top screen border on mobile.
-- [ ] there is no way to pin messages on mobile--look into making long press functionality to pin/delete messages. make the chat text slightly bigger too.
-- [x] figure out different way to pin the upper banner--everything we have tried has not worked.
+================
 
-### Channel management
-- [x] Delete channel — REST `DELETE /groups/:groupId/channels/:channelId` (admin+, non-general only); remove from sidebar on success
-- [x] Rename channel — REST `PATCH /groups/:groupId/channels/:channelId` (admin+); reflect in sidebar and header
-- [x] Manage invite-only channel members — admin UI to add/remove users from `ChannelSubscription`; currently only self-subscribe/unsubscribe exists
+## Later / Stretch
 
-### Unread / notifications
-- [x] Last-read tracking — new `ChannelReadState` model (migration 20260508120000); upserted via `POST /channels/:id/read`
-- [x] Unread badge on channel list items — unreadCount included in channel list response; badge shown in sidebar + mobile drawer
-- [x] Mark channel read on focus — called on channelId change in ChannelPage
-
-### desktop
-- [ ] fix window sizing, inconsistent sizing upon divs
-
-### Mobile
-- [x] Mobile channel drawer — hamburger button in mobile header opens slide-in drawer with full channel list
-- [x] fix auto zoom with channel page, when keyboard is clicked messes up zoom
-    - [x] pin top bar to the top when keyboard is displayed
-    - [x] get rid of webkit keyboard bar above keyboard to maximize available screen space
-    - [x] fix scroll/window issues
-
-### Later / stretch
-- [x] @mention system — parse `@name` in message content, notify the mentioned user
-=====================
-## App — pending
-- [ ] Google Calendar URL subscription shows feed as a separate calendar ("Other calendars" in sidebar, separate column in day view).
-      NOT a bug in the ICS feed — this is Google Calendar's by-design behavior for all external URL subscriptions.
-      Events can never be merged into the user's primary Google Calendar via a feed URL; that would require Google Calendar API + OAuth.
-      The webcal:// link (already in the UI) is the better path: Apple Calendar and Outlook treat subscribed feeds as part of the unified view.
-      Resolution: won't fix. Consider adding a UI note that Google Calendar shows this as a separate calendar (expected).
-- [ ] pick and update favicon for all pages
-- [ ] login links security hardening?
-- [ ] add accent color setting per user
-- [x] media upload
-    - [x] fix media upload with storage limits per user
-- [ ] recurring events (RRULE support, recurrenceRule on Event model)
-- [ ] fix sizing of event creation page on mobile
-- [x] on pages external of the app (so like /home, /contact, /help pages), top right hover dropdown hangs for 200ms when hover off
-- [/] PWA install guide for iOS and Android (autodetect) and annoying badges if detected no pwa
-- [x] if make an invite only channel chat, have the user who created that auto-join the chat. as of now i have to manually join a channel i created myself to send messages.
-- [x] in channel chat, make 'invite only' badge into the lock glyph, same glyph as the private event glyph
-- [/] add reply to a message functionality in message actions
-- [x] docs/release notes/help articles? patch notes? versions? github link?
-- [x] specify which user sent message in notifications
-- [ ] text sizing/accessibility features
-- [x] add verbose exif metadata to uploaded media
-- [x] add media tab to group page sorted by date with same info on it in event page info button
-
-## Later
-- [ ] waitinglist to make account (figure out where waitinglist is managed--developer page, email?)
-- [x] demo mode (not logged in, temp session)
-- [ ] add 'social' functionality (friends via invite link, global username search, mutual groups)
+- [ ] waitlist to make account (public landing page signup form)
+- [ ] social functionality — friends via invite link, global username search, mutual groups
 - [ ] verify account via alternative channel (WhatsApp, Telegram, SMS)
-
-================
-## Suggested features
-
-### Events
-- [x] Event reminders — `scheduleEventStartNotification` is wired and queued but never called on event create/update; hook it in so RSVP-yes members get a push/email N minutes before start (configurable per-user: 15 min, 1 hr, 1 day)
-- [ ] Waitlist — when `maxAttendees` is reached, late RSVPs join a waitlist; promote automatically when a yes-RSVP withdraws (schema field `status: "waitlist"` on RSVP, or a separate table)
-- [x] Duplicate / copy event — button on EventPage (admin/creator only) that pre-fills CreateEventPage with all fields from the current event, letting the user adjust date and save as new
-
-### Channels & messaging
-- [x] @mention notifications — parse `@username` in message content on send; resolve to a userId; emit an in-app notification to that user with a link to the message
-- [ ] Thread replies — reply to a specific message; collapse into a "3 replies" indicator; schema: add `parentMessageId` FK on `Message`
-
-### Groups & members
-- [x] Group stats page — for admins: total events, total RSVPs, most active members, storage used, top tags; all computable from existing data with no schema changes — DONE 2026-05-14: GET /groups/:groupId/stats (admin-only), GroupStatsPage.tsx, linked from GroupManagePage
-
-### Notifications & preferences
-- [x] Customisable reminder timing — per-user setting for how far in advance `event_start` push/email fires (15 min / 1 hr / 1 day / none); stored as a new `UserNotificationPreference` row with `type = "event_start_offset"`
-- [ ] Digest emails — daily or weekly email summarising upcoming events the user is RSVP-yes on; scheduled via BullMQ repeatable job
-- [ ] In-app notification grouping — the NotificationsPage shows one row per event; group consecutive notifications of the same type for the same event (e.g. "5 people RSVPed to your event")
-
-### Media
-- [/] Image captions — add an optional `caption` text field to `MediaAsset`; shown below photos in the event lightbox and media grid
-- [/] Album / media page per event — a dedicated full-page view (`/events/:id/media`) with a masonry or grid layout, download-all button, and sorting by date/likes
-- [x] Group media gallery — a `/groups/:groupId/gallery` page visible to all members (not just admins) showing all media across all events in a scrollable masonry grid; already have `GET /groups/:groupId/media` endpoint
-
-### UX / polish
-- [x] Accent colour per user — already in todo; `User.theme` is a string so it can carry `"dark:indigo"` or similar; render as CSS custom property on the root element
-- [ ] Keyboard shortcut help modal — `?` key opens an overlay listing all keyboard shortcuts (arrow nav in lightbox, Escape, etc.)
-- [x] Empty-state illustrations — replace plain text "No events yet" / "No media" placeholders with simple SVG spot illustrations
-- [ ] Event page map embed — when `event.location` is set, show an embedded static map thumbnail (Google Maps Static API or OpenStreetMap tile) above the Google/Apple/Waze links
-
-
-
-- intuitive usage help
-    - example: slide right on mobile on any chat to open up options
+- [ ] end-to-end encrypted chats

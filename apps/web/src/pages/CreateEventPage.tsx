@@ -6,6 +6,7 @@ import { useGroupTags } from '../hooks/useGroups'
 import { useToast } from '../hooks/useToast'
 import DurationPicker from '../components/DurationPicker'
 import DateTimePicker from '../components/DateTimePicker'
+import { useGroupEventTemplates } from '../hooks/useEventTemplates'
 
 type CreateEventResult = { event: { id: string } }
 
@@ -44,8 +45,11 @@ export default function CreateEventPage() {
   const [maxAttendees, setMaxAttendees] = useState(prefill?.maxAttendees ?? '')
   const [isPrivate, setIsPrivate] = useState(prefill?.isPrivate ?? false)
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>(prefill?.tagIds ?? [])
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false)
+  const [appliedTemplateName, setAppliedTemplateName] = useState<string | null>(null)
   const locationInputRef = useRef<HTMLInputElement>(null)
   const tags = tagsData?.tags ?? []
+  const { data: templatesData } = useGroupEventTemplates(groupId!)
 
   useEffect(() => {
     const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY as string | undefined
@@ -103,6 +107,21 @@ export default function CreateEventPage() {
     })
   }
 
+  const applyTemplate = (templateId: string) => {
+    const tpl = templatesData?.templates.find((t) => t.id === templateId)
+    if (!tpl) return
+    setTitle(tpl.title)
+    setDetails(tpl.details ?? '')
+    setDurationMinutes(tpl.durationMinutes ?? 60)
+    setLocation(tpl.location ?? '')
+    setMaxAttendees(tpl.maxAttendees != null ? String(tpl.maxAttendees) : '')
+    setIsPrivate(tpl.isPrivate)
+    const validTagIds = (tpl.tags ?? []).map((t) => t.id).filter((id) => tags.some((gt) => gt.id === id))
+    setSelectedTagIds(validTagIds.slice(0, MAX_EVENT_TAGS))
+    setAppliedTemplateName(tpl.name)
+    setShowTemplatePicker(false)
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     try {
@@ -130,6 +149,57 @@ export default function CreateEventPage() {
         <h2 className="text-2xl font-bold text-white">{prefill ? 'Duplicate Event' : 'Create Event'}</h2>
         <PageToolbar />
       </div>
+
+      {/* Template picker — only shown when not duplicating and templates exist */}
+      {!prefill && (templatesData?.templates.length ?? 0) > 0 && (
+        <div className="mb-4">
+          {appliedTemplateName ? (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-indigo-900/30 border border-indigo-700/50 text-sm">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-indigo-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z" />
+              </svg>
+              <span className="text-indigo-300 flex-1 truncate">Template: <span className="font-medium text-indigo-200">{appliedTemplateName}</span></span>
+              <button
+                type="button"
+                onClick={() => setAppliedTemplateName(null)}
+                className="text-indigo-400 hover:text-indigo-200 text-xs"
+              >
+                Clear
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setShowTemplatePicker((v) => !v)}
+              className="flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300 transition-colors"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25Z" />
+              </svg>
+              Start from template
+              <svg xmlns="http://www.w3.org/2000/svg" className={`h-4 w-4 transition-transform ${showTemplatePicker ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          )}
+          {showTemplatePicker && (
+            <div className="mt-2 bg-gray-900 border border-gray-800 rounded-xl overflow-hidden divide-y divide-gray-800">
+              {templatesData!.templates.map((tpl) => (
+                <button
+                  key={tpl.id}
+                  type="button"
+                  onClick={() => applyTemplate(tpl.id)}
+                  className="w-full text-left px-4 py-3 hover:bg-gray-800 transition-colors"
+                >
+                  <p className="text-sm font-medium text-white">{tpl.name}</p>
+                  <p className="text-xs text-gray-400 truncate">{tpl.title}{tpl.location ? ` · ${tpl.location}` : ''}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
           <label className="block text-sm text-gray-400 mb-1">Title *</label>
@@ -138,6 +208,7 @@ export default function CreateEventPage() {
             onChange={(e) => setTitle(e.target.value)}
             required
             maxLength={100}
+            placeholder="e.g., Team BBQ, Movie night…"
             className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
           />
         </div>

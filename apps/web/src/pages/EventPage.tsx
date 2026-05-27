@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useEvent, useEventAttendance, useRsvp, useEventRating, useEventMedia, useLikeMedia, useUpdateEvent } from '../hooks/useEvents'
 import type { EventRecord, EventTag } from '../hooks/useEvents'
 import { useGroupMembers, useGroupTags } from '../hooks/useGroups'
+import { useCreateEventTemplate } from '../hooks/useEventTemplates'
 import { useAuthStore } from '../stores/authStore'
 import { useToast } from '../hooks/useToast'
 import TagBadge from '../components/TagBadge'
@@ -127,6 +128,7 @@ export default function EventPage() {
   const rating = useEventRating(eventId!)
 
   const updateEvent = useUpdateEvent(eventId!)
+  const createTemplate = useCreateEventTemplate()
 
   const isOnline = useIsOnline()
   const mediaUploadRef = useRef<HTMLInputElement>(null)
@@ -138,6 +140,8 @@ export default function EventPage() {
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [invitingUserId, setInvitingUserId] = useState<string | null>(null)
   const [removingInviteUserId, setRemovingInviteUserId] = useState<string | null>(null)
+  const [showSaveTemplateModal, setShowSaveTemplateModal] = useState(false)
+  const [templateName, setTemplateName] = useState('')
   const [showEditModal, setShowEditModal] = useState(false)
   const [editTitle, setEditTitle] = useState('')
   const [editDetails, setEditDetails] = useState('')
@@ -266,6 +270,34 @@ export default function EventPage() {
     setEditMaxAttendees(event.maxAttendees != null ? String(event.maxAttendees) : '')
     setEditIsPrivate(event.isPrivate ?? false)
     setShowEditModal(true)
+  }
+
+  const handleSaveAsTemplate = async () => {
+    if (!event || !templateName.trim()) return
+    const durationMinutes = event.endsAt
+      ? Math.max(1, Math.round((new Date(event.endsAt).getTime() - new Date(event.dateTime).getTime()) / 60000))
+      : undefined
+    try {
+      await createTemplate.mutateAsync({
+        groupId: event.groupId,
+        name: templateName.trim(),
+        title: event.title,
+        details: event.details ?? undefined,
+        durationMinutes,
+        location: event.location ?? undefined,
+        maxAttendees: event.maxAttendees ?? undefined,
+        isPrivate: event.isPrivate ?? false,
+        tagIds: event.tags?.map((t) => t.id),
+      })
+      toast.success('Template saved')
+      setShowSaveTemplateModal(false)
+      setTemplateName('')
+    } catch (err) {
+      const msg = err instanceof Error && err.message.includes('TEMPLATE_LIMIT')
+        ? 'This group has reached the 15-template limit. Delete a template in Manage Group to add more.'
+        : 'Failed to save template'
+      toast.error(msg)
+    }
   }
 
   const handleDuplicate = () => {
@@ -459,13 +491,26 @@ export default function EventPage() {
           </h2>
           <div className="flex items-center gap-1 shrink-0">
             {canDuplicate && (
-              <button
-                onClick={handleDuplicate}
-                className="p-2 rounded-xl bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
-                aria-label="Duplicate event"
-              >
-                <CopyIcon />
-              </button>
+              <>
+                <button
+                  onClick={() => { setTemplateName(event?.title ?? ''); setShowSaveTemplateModal(true) }}
+                  className="p-2 rounded-xl bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+                  aria-label="Save as template"
+                  title="Save as template"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 5a2 2 0 012-2h8l4 4v12a2 2 0 01-2 2H7a2 2 0 01-2-2V5z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 3v4h-6V3M9 13h6M9 17h4" />
+                  </svg>
+                </button>
+                <button
+                  onClick={handleDuplicate}
+                  className="p-2 rounded-xl bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700 transition-colors"
+                  aria-label="Duplicate event"
+                >
+                  <CopyIcon />
+                </button>
+              </>
             )}
             {(isAdmin || isCreator) && (
               <button
@@ -978,6 +1023,44 @@ export default function EventPage() {
           </p>
         )}
       </div>
+
+      {/* Save as Template modal */}
+      {showSaveTemplateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-base font-bold text-white">Save as template</h3>
+            <p className="text-sm text-gray-400">
+              Give this template a name so it's easy to find when creating a new event.
+            </p>
+            <input
+              autoFocus
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              maxLength={80}
+              placeholder="e.g., Team BBQ, Movie night…"
+              className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              onKeyDown={(e) => { if (e.key === 'Enter') handleSaveAsTemplate() }}
+            />
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => { setShowSaveTemplateModal(false); setTemplateName('') }}
+                className="flex-1 py-2.5 rounded-xl border border-gray-700 text-gray-300 text-sm hover:bg-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveAsTemplate}
+                disabled={!templateName.trim() || createTemplate.isPending}
+                className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+              >
+                {createTemplate.isPending ? 'Saving…' : 'Save template'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -575,11 +575,13 @@ async function seedDemoData(demoUserId: string): Promise<string[]> {
   const hoursAgo = (h: number) => new Date(now.getTime() - h * 3_600_000);
 
   // Create 4 dummy users for this session (not real — deleted with session)
+  // Use 12 hex chars from demoUserId (48 bits) to avoid username collisions.
+  const suffix = demoUserId.replace(/-/g, "").slice(0, 12);
   const dummyProfiles = [
-    { name: "Alex Kim",    username: `alex_${demoUserId.slice(0,6)}`,   email: `dummy-alex-${demoUserId}@gem-demo.internal` },
-    { name: "Sam Rivera",  username: `sam_${demoUserId.slice(0,6)}`,    email: `dummy-sam-${demoUserId}@gem-demo.internal` },
-    { name: "Jordan Lee",  username: `jordan_${demoUserId.slice(0,6)}`, email: `dummy-jordan-${demoUserId}@gem-demo.internal` },
-    { name: "Casey Morgan",username: `casey_${demoUserId.slice(0,6)}`,  email: `dummy-casey-${demoUserId}@gem-demo.internal` },
+    { name: "Alex Kim",    username: `alex_${suffix}`,   email: `dummy-alex-${demoUserId}@gem-demo.internal` },
+    { name: "Sam Rivera",  username: `sam_${suffix}`,    email: `dummy-sam-${demoUserId}@gem-demo.internal` },
+    { name: "Jordan Lee",  username: `jordan_${suffix}`, email: `dummy-jordan-${demoUserId}@gem-demo.internal` },
+    { name: "Casey Morgan",username: `casey_${suffix}`,  email: `dummy-casey-${demoUserId}@gem-demo.internal` },
   ];
 
   const dummyUsers = await Promise.all(
@@ -1541,7 +1543,7 @@ app.setErrorHandler((error, request, reply) => {
   const normalizedError = error instanceof Error ? error : new Error(String(error));
   const statusCode = (error as { statusCode?: number }).statusCode;
 
-  if (sentryEnabled && statusCode !== 404) {
+  if (sentryEnabled && (!statusCode || statusCode >= 500)) {
     Sentry.captureException(normalizedError, {
       tags: {
         method: request.method,
@@ -6408,7 +6410,7 @@ app.get("/groups/:groupId/channels", async (request, reply) => {
   const currentUser = await requireAuth(request, reply, prisma);
   const params = await validateRequest(groupIdParamsSchema, request.params);
 
-  await requireGroupMembership(prisma, currentUser.id, params.groupId);
+  const callerMembership = await requireGroupMembership(prisma, currentUser.id, params.groupId);
 
   const channels = await prisma.channel.findMany({
     where: { groupId: params.groupId },
@@ -6449,6 +6451,7 @@ app.get("/groups/:groupId/channels", async (request, reply) => {
 
   reply.header("Cache-Control", "private, max-age=15, stale-while-revalidate=30");
   return reply.send({
+    myRole: callerMembership.role,
     channels: sorted.map(({ ch, unread }) => ({
       id: ch.id,
       name: ch.name,
@@ -7407,6 +7410,405 @@ const _notificationPurgeInterval = setInterval(
   () => void purgeExpiredNotifications(),
   24 * 60 * 60 * 1000
 ).unref();
+
+// ─── Polls ────────────────────────────────────────────────────────────────────
+
+function formatPoll(poll: {
+  id: string;
+  groupId: string;
+  question: string;
+  closedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+  createdById: string | null;
+  createdBy: { id: string; name: string; avatarUrl: string | null } | null;
+  options: Array<{
+    id: string;
+    order: number;
+    title: string;
+    dateTime: Date | null;
+    description: string | null;
+    location: string | null;
+    votes: Array<{ userId: string; answer: string }>;
+  }>;
+}, currentUserId: string, isAdmin: boolean) {
+  return {
+    id: poll.id,
+    groupId: poll.groupId,
+    question: poll.question,
+    closedAt: poll.closedAt?.toISOString() ?? null,
+    createdAt: poll.createdAt.toISOString(),
+    updatedAt: poll.updatedAt.toISOString(),
+    createdBy: poll.createdBy ? { id: poll.createdBy.id, name: poll.createdBy.name, avatarUrl: poll.createdBy.avatarUrl } : null,
+    isCreator: poll.createdById === currentUserId,
+    isAdmin,
+    options: poll.options
+      .sort((a, b) => a.order - b.order)
+      .map((opt) => {
+        const yes = opt.votes.filter((v) => v.answer === "yes").length;
+        const no = opt.votes.filter((v) => v.answer === "no").length;
+        const maybe = opt.votes.filter((v) => v.answer === "maybe").length;
+        const myVote = opt.votes.find((v) => v.userId === currentUserId);
+        return {
+          id: opt.id,
+          order: opt.order,
+          title: opt.title,
+          dateTime: opt.dateTime?.toISOString() ?? null,
+          description: opt.description,
+          location: opt.location,
+          votes: { yes, no, maybe, myAnswer: myVote?.answer ?? null },
+        };
+      }),
+  };
+}
+
+const pollInclude = {
+  createdBy: { select: { id: true, name: true, avatarUrl: true } },
+  options: {
+    include: { votes: { select: { userId: true, answer: true } } },
+  },
+} as const;
+
+// GET /groups/:groupId/polls
+app.get("/groups/:groupId/polls", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { groupId } = request.params as { groupId: string };
+  const membership = await requireGroupMembership(prisma, currentUser.id, groupId);
+  const isAdmin = ["owner", "admin"].includes(membership.role);
+
+  const polls = await prisma.poll.findMany({
+    where: { groupId },
+    orderBy: { createdAt: "desc" },
+    include: pollInclude,
+  });
+
+  return reply.send({ polls: polls.map((p) => formatPoll(p, currentUser.id, isAdmin)) });
+});
+
+// POST /groups/:groupId/polls
+app.post("/groups/:groupId/polls", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { groupId } = request.params as { groupId: string };
+  await requireGroupMembership(prisma, currentUser.id, groupId);
+
+  const body = request.body as {
+    question: string;
+    options: Array<{ title: string; dateTime?: string; description?: string; location?: string }>;
+  };
+
+  if (!body.question?.trim()) return reply.status(400).send({ error: "Question is required", code: "VALIDATION_ERROR" });
+  if (!body.options?.length || body.options.length > 5) return reply.status(400).send({ error: "1–5 options required", code: "VALIDATION_ERROR" });
+  for (const opt of body.options) {
+    if (!opt.title?.trim()) return reply.status(400).send({ error: "Each option needs a title", code: "VALIDATION_ERROR" });
+  }
+
+  const poll = await prisma.poll.create({
+    data: {
+      groupId,
+      createdById: currentUser.id,
+      question: body.question.trim().slice(0, 200),
+      options: {
+        create: body.options.map((opt, i) => ({
+          order: i + 1,
+          title: opt.title.trim().slice(0, 80),
+          dateTime: opt.dateTime ? new Date(opt.dateTime) : null,
+          description: opt.description?.trim().slice(0, 200) || null,
+          location: opt.location?.trim().slice(0, 200) || null,
+        })),
+      },
+    },
+    include: pollInclude,
+  });
+
+  return reply.status(201).send({ poll: formatPoll(poll, currentUser.id, false) });
+});
+
+// GET /polls/:pollId
+app.get("/polls/:pollId", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { pollId } = request.params as { pollId: string };
+
+  const poll = await prisma.poll.findUnique({ where: { id: pollId }, include: pollInclude });
+  if (!poll) return reply.status(404).send({ error: "Poll not found", code: "NOT_FOUND" });
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, poll.groupId);
+  const isAdmin = ["owner", "admin"].includes(membership.role);
+
+  return reply.send({ poll: formatPoll(poll, currentUser.id, isAdmin) });
+});
+
+// PATCH /polls/:pollId — creator or admin can edit
+app.patch("/polls/:pollId", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { pollId } = request.params as { pollId: string };
+
+  const existing = await prisma.poll.findUnique({ where: { id: pollId }, select: { groupId: true, createdById: true } });
+  if (!existing) return reply.status(404).send({ error: "Poll not found", code: "NOT_FOUND" });
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, existing.groupId);
+  const isAdmin = ["owner", "admin"].includes(membership.role);
+  if (existing.createdById !== currentUser.id && !isAdmin) {
+    return reply.status(403).send({ error: "Only the creator or an admin can edit this poll", code: "FORBIDDEN" });
+  }
+
+  const body = request.body as {
+    question?: string;
+    options?: Array<{ id?: string; title: string; dateTime?: string; description?: string; location?: string; order: number }>;
+  };
+
+  if (body.options !== undefined) {
+    if (!body.options.length || body.options.length > 5) return reply.status(400).send({ error: "1–5 options required", code: "VALIDATION_ERROR" });
+    for (const opt of body.options) {
+      if (!opt.title?.trim()) return reply.status(400).send({ error: "Each option needs a title", code: "VALIDATION_ERROR" });
+    }
+  }
+
+  await prisma.$transaction(async (tx) => {
+    if (body.question !== undefined) {
+      await tx.poll.update({ where: { id: pollId }, data: { question: body.question!.trim().slice(0, 200) } });
+    }
+    if (body.options !== undefined) {
+      await tx.pollOption.deleteMany({ where: { pollId } });
+      await tx.pollOption.createMany({
+        data: body.options.map((opt, i) => ({
+          pollId,
+          order: i + 1,
+          title: opt.title.trim().slice(0, 80),
+          dateTime: opt.dateTime ? new Date(opt.dateTime) : null,
+          description: opt.description?.trim().slice(0, 200) || null,
+          location: opt.location?.trim().slice(0, 200) || null,
+        })),
+      });
+    }
+  });
+
+  const updated = await prisma.poll.findUnique({ where: { id: pollId }, include: pollInclude });
+  return reply.send({ poll: formatPoll(updated!, currentUser.id, isAdmin) });
+});
+
+// DELETE /polls/:pollId — creator or admin
+app.delete("/polls/:pollId", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { pollId } = request.params as { pollId: string };
+
+  const poll = await prisma.poll.findUnique({ where: { id: pollId }, select: { groupId: true, createdById: true } });
+  if (!poll) return reply.status(404).send({ error: "Poll not found", code: "NOT_FOUND" });
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, poll.groupId);
+  const isAdmin = ["owner", "admin"].includes(membership.role);
+  if (poll.createdById !== currentUser.id && !isAdmin) {
+    return reply.status(403).send({ error: "Only the creator or an admin can delete this poll", code: "FORBIDDEN" });
+  }
+
+  await prisma.poll.delete({ where: { id: pollId } });
+  return reply.status(204).send();
+});
+
+// POST /polls/:pollId/options/:optionId/vote — upsert vote (yes / no / maybe)
+app.post("/polls/:pollId/options/:optionId/vote", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { pollId, optionId } = request.params as { pollId: string; optionId: string };
+  const body = request.body as { answer: string };
+
+  if (!["yes", "no", "maybe"].includes(body.answer)) {
+    return reply.status(400).send({ error: "answer must be yes, no, or maybe", code: "VALIDATION_ERROR" });
+  }
+
+  const option = await prisma.pollOption.findUnique({ where: { id: optionId }, select: { pollId: true } });
+  if (!option || option.pollId !== pollId) return reply.status(404).send({ error: "Option not found", code: "NOT_FOUND" });
+
+  const poll = await prisma.poll.findUnique({ where: { id: pollId }, select: { groupId: true, closedAt: true } });
+  if (!poll) return reply.status(404).send({ error: "Poll not found", code: "NOT_FOUND" });
+  if (poll.closedAt && poll.closedAt < new Date()) return reply.status(409).send({ error: "Poll is closed", code: "POLL_CLOSED" });
+
+  await requireGroupMembership(prisma, currentUser.id, poll.groupId);
+
+  await prisma.pollVote.upsert({
+    where: { optionId_userId: { optionId, userId: currentUser.id } },
+    create: { optionId, userId: currentUser.id, answer: body.answer },
+    update: { answer: body.answer },
+  });
+
+  return reply.status(204).send();
+});
+
+// DELETE /polls/:pollId/options/:optionId/vote — remove vote
+app.delete("/polls/:pollId/options/:optionId/vote", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { pollId, optionId } = request.params as { pollId: string; optionId: string };
+
+  const option = await prisma.pollOption.findUnique({ where: { id: optionId }, select: { pollId: true } });
+  if (!option || option.pollId !== pollId) return reply.status(404).send({ error: "Option not found", code: "NOT_FOUND" });
+
+  const poll = await prisma.poll.findUnique({ where: { id: pollId }, select: { groupId: true, closedAt: true } });
+  if (!poll) return reply.status(404).send({ error: "Poll not found", code: "NOT_FOUND" });
+  if (poll.closedAt && poll.closedAt < new Date()) return reply.status(409).send({ error: "Poll is closed", code: "POLL_CLOSED" });
+
+  await requireGroupMembership(prisma, currentUser.id, poll.groupId);
+
+  await prisma.pollVote.deleteMany({ where: { optionId, userId: currentUser.id } });
+  return reply.status(204).send();
+});
+
+// ─── End Polls ────────────────────────────────────────────────────────────────
+
+// ─── Event Templates ──────────────────────────────────────────────────────────
+
+const MAX_TEMPLATES_PER_GROUP = 15;
+
+const templateInclude = {
+  createdBy: { select: { id: true, name: true, avatarUrl: true } },
+  tags: { select: { id: true, name: true, color: true } },
+} as const;
+
+// GET /groups/:groupId/event-templates — any member
+app.get("/groups/:groupId/event-templates", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { groupId } = request.params as { groupId: string };
+  const membership = await requireGroupMembership(prisma, currentUser.id, groupId);
+  const isAdmin = ["owner", "admin"].includes(membership.role);
+
+  const templates = await prisma.eventTemplate.findMany({
+    where: { groupId },
+    orderBy: { createdAt: "desc" },
+    include: templateInclude,
+  });
+
+  return reply.send({
+    templates: templates.map((t) => ({
+      ...t,
+      isCreator: t.createdById === currentUser.id,
+      isAdmin,
+      createdAt: t.createdAt.toISOString(),
+      updatedAt: t.updatedAt.toISOString(),
+    })),
+  });
+});
+
+// POST /groups/:groupId/event-templates — any member (max 15)
+app.post("/groups/:groupId/event-templates", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { groupId } = request.params as { groupId: string };
+  await requireGroupMembership(prisma, currentUser.id, groupId);
+
+  const body = request.body as {
+    name: string;
+    title: string;
+    details?: string;
+    durationMinutes?: number;
+    location?: string;
+    maxAttendees?: number;
+    isPrivate?: boolean;
+    tagIds?: string[];
+  };
+
+  if (!body.name?.trim()) return reply.status(400).send({ error: "Template name is required", code: "VALIDATION_ERROR" });
+  if (!body.title?.trim()) return reply.status(400).send({ error: "Event title is required", code: "VALIDATION_ERROR" });
+
+  const existing = await prisma.eventTemplate.count({ where: { groupId } });
+  if (existing >= MAX_TEMPLATES_PER_GROUP) {
+    return reply.status(409).send({ error: `Groups can have at most ${MAX_TEMPLATES_PER_GROUP} templates. Delete one to add another.`, code: "TEMPLATE_LIMIT" });
+  }
+
+  const template = await prisma.eventTemplate.create({
+    data: {
+      groupId,
+      createdById: currentUser.id,
+      name: body.name.trim().slice(0, 80),
+      title: body.title.trim().slice(0, 100),
+      details: body.details?.trim() || null,
+      durationMinutes: body.durationMinutes ?? null,
+      location: body.location?.trim() || null,
+      maxAttendees: body.maxAttendees ?? null,
+      isPrivate: body.isPrivate ?? false,
+      tags: body.tagIds?.length ? { connect: body.tagIds.map((id) => ({ id })) } : undefined,
+    },
+    include: templateInclude,
+  });
+
+  return reply.status(201).send({
+    template: {
+      ...template,
+      isCreator: true,
+      isAdmin: false,
+      createdAt: template.createdAt.toISOString(),
+      updatedAt: template.updatedAt.toISOString(),
+    },
+  });
+});
+
+// PATCH /event-templates/:templateId — creator or admin
+app.patch("/event-templates/:templateId", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { templateId } = request.params as { templateId: string };
+
+  const existing = await prisma.eventTemplate.findUnique({ where: { id: templateId }, select: { groupId: true, createdById: true } });
+  if (!existing) return reply.status(404).send({ error: "Template not found", code: "NOT_FOUND" });
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, existing.groupId);
+  const isAdmin = ["owner", "admin"].includes(membership.role);
+  if (existing.createdById !== currentUser.id && !isAdmin) {
+    return reply.status(403).send({ error: "Only the creator or an admin can edit this template", code: "FORBIDDEN" });
+  }
+
+  const body = request.body as {
+    name?: string;
+    title?: string;
+    details?: string | null;
+    durationMinutes?: number | null;
+    location?: string | null;
+    maxAttendees?: number | null;
+    isPrivate?: boolean;
+    tagIds?: string[];
+  };
+
+  const template = await prisma.eventTemplate.update({
+    where: { id: templateId },
+    data: {
+      ...(body.name !== undefined && { name: body.name.trim().slice(0, 80) }),
+      ...(body.title !== undefined && { title: body.title.trim().slice(0, 100) }),
+      ...(body.details !== undefined && { details: body.details?.trim() || null }),
+      ...(body.durationMinutes !== undefined && { durationMinutes: body.durationMinutes }),
+      ...(body.location !== undefined && { location: body.location?.trim() || null }),
+      ...(body.maxAttendees !== undefined && { maxAttendees: body.maxAttendees }),
+      ...(body.isPrivate !== undefined && { isPrivate: body.isPrivate }),
+      ...(body.tagIds !== undefined && {
+        tags: { set: body.tagIds.map((id) => ({ id })) },
+      }),
+    },
+    include: templateInclude,
+  });
+
+  return reply.send({
+    template: {
+      ...template,
+      isCreator: template.createdById === currentUser.id,
+      isAdmin,
+      createdAt: template.createdAt.toISOString(),
+      updatedAt: template.updatedAt.toISOString(),
+    },
+  });
+});
+
+// DELETE /event-templates/:templateId — creator or admin
+app.delete("/event-templates/:templateId", async (request, reply) => {
+  const currentUser = await requireAuth(request, reply, prisma);
+  const { templateId } = request.params as { templateId: string };
+
+  const existing = await prisma.eventTemplate.findUnique({ where: { id: templateId }, select: { groupId: true, createdById: true } });
+  if (!existing) return reply.status(404).send({ error: "Template not found", code: "NOT_FOUND" });
+
+  const membership = await requireGroupMembership(prisma, currentUser.id, existing.groupId);
+  const isAdmin = ["owner", "admin"].includes(membership.role);
+  if (existing.createdById !== currentUser.id && !isAdmin) {
+    return reply.status(403).send({ error: "Only the creator or an admin can delete this template", code: "FORBIDDEN" });
+  }
+
+  await prisma.eventTemplate.delete({ where: { id: templateId } });
+  return reply.status(204).send();
+});
+
+// ─── End Event Templates ──────────────────────────────────────────────────────
 
 // Graceful shutdown
 const gracefulShutdown = async () => {

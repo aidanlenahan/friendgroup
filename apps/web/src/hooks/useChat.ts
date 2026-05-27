@@ -114,9 +114,11 @@ export function useChannelChat(groupId: string, channelId: string, currentUser?:
   const [messages, setMessages] = useState<(ChatMessage | PendingMessage)[]>([])
   const [typingUsers, setTypingUsers] = useState<string[]>([])
   const [connected, setConnected] = useState(false)
+  const [connectionFailed, setConnectionFailed] = useState(false)
   const [lastError, setLastError] = useState<SocketError | null>(null)
   const [reconnected, setReconnected] = useState(false)
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pendingTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   const everConnectedRef = useRef(false)
   const qc = useQueryClient()
@@ -144,6 +146,11 @@ export function useChannelChat(groupId: string, channelId: string, currentUser?:
 
     const onConnect = () => {
       setConnected(true)
+      setConnectionFailed(false)
+      if (connectionTimeoutRef.current) {
+        clearTimeout(connectionTimeoutRef.current)
+        connectionTimeoutRef.current = null
+      }
       socket.emit('join:channel', { channelId, groupId })
       if (everConnectedRef.current) {
         setReconnected(true)
@@ -245,7 +252,13 @@ export function useChannelChat(groupId: string, channelId: string, currentUser?:
       })
     }
 
-    if (socket.connected) onConnect()
+    if (socket.connected) {
+      onConnect()
+    } else {
+      connectionTimeoutRef.current = setTimeout(() => {
+        if (!everConnectedRef.current) setConnectionFailed(true)
+      }, 10000)
+    }
 
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
@@ -272,6 +285,7 @@ export function useChannelChat(groupId: string, channelId: string, currentUser?:
       socket.off('channel:typing:stop', onTypingStop)
       socket.off('error', onError)
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current)
+      if (connectionTimeoutRef.current) clearTimeout(connectionTimeoutRef.current)
       pendingTimers.current.forEach((t) => clearTimeout(t))
       pendingTimers.current.clear()
       socket.emit('leave:channel', channelId)
@@ -327,6 +341,16 @@ export function useChannelChat(groupId: string, channelId: string, currentUser?:
   const clearError = useCallback(() => setLastError(null), [])
   const clearReconnected = useCallback(() => setReconnected(false), [])
 
+  const reconnect = useCallback(() => {
+    setConnectionFailed(false)
+    const socket = socketRef.current
+    if (!socket) return
+    connectionTimeoutRef.current = setTimeout(() => {
+      if (!everConnectedRef.current) setConnectionFailed(true)
+    }, 10000)
+    socket.connect()
+  }, [])
+
   const retryMessage = useCallback((tempId: string) => {
     setMessages((prev) => {
       const msg = prev.find((m) => m.id === tempId)
@@ -343,6 +367,8 @@ export function useChannelChat(groupId: string, channelId: string, currentUser?:
     setMessages,
     typingUsers,
     connected,
+    connectionFailed,
+    reconnect,
     reconnected,
     clearReconnected,
     lastError,

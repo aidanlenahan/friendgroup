@@ -55,6 +55,9 @@ model User {
   mutedUsers                 UserMute[]                  @relation("MuterMutes")
   mutedBy                    UserMute[]                  @relation("MutedByOthers")
   calendarPreferences        UserCalendarPreference[]
+  pollsCreated               Poll[]                      @relation("PollsCreated")
+  pollVotes                  PollVote[]
+  eventTemplatesCreated      EventTemplate[]             @relation("EventTemplatesCreated")
 
   @@index([email])
   @@index([username])
@@ -87,6 +90,8 @@ model Group {
   auditLogs           AuditLog[]
   calendarPreferences UserCalendarPreference[]
   mediaAlbums         MediaAlbum[]
+  polls               Poll[]
+  eventTemplates      EventTemplate[]
 
   @@index([ownerId])
 }
@@ -305,6 +310,7 @@ model Tag {
   events           Event[]              @relation("EventTags")
   channels         Channel[]            @relation("ChannelTags")
   userPreferences  UserTagPreference[]
+  eventTemplates   EventTemplate[]      @relation("EventTemplateTags")
 
   @@unique([groupId, name])
   @@index([groupId])
@@ -555,4 +561,75 @@ model UserMute {
   @@unique([muterId, mutedId])
   @@index([muterId])
   @@index([mutedId])
+}
+
+model Poll {
+  id          String      @id @default(cuid())
+  groupId     String
+  createdById String?
+  question    String
+  closedAt    DateTime?
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  group     Group        @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdBy User?        @relation("PollsCreated", fields: [createdById], references: [id], onDelete: SetNull)
+  options   PollOption[]
+
+  @@index([groupId])
+  @@index([groupId, createdAt(sort: Desc)])
+}
+
+model PollOption {
+  id          String    @id @default(cuid())
+  pollId      String
+  order       Int
+  title       String
+  dateTime    DateTime?
+  description String?
+  location    String?
+
+  poll  Poll       @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  votes PollVote[]
+
+  @@index([pollId])
+  @@unique([pollId, order])
+}
+
+model PollVote {
+  id        String   @id @default(cuid())
+  optionId  String
+  userId    String
+  answer    String   // "yes" | "no" | "maybe"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  option PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([optionId, userId])
+  @@index([optionId])
+  @@index([userId])
+}
+
+model EventTemplate {
+  id              String   @id @default(cuid())
+  groupId         String
+  createdById     String?
+  name            String   // template label, e.g. "Team BBQ"
+  title           String   // event title pre-fill
+  details         String?
+  durationMinutes Int?
+  location        String?
+  maxAttendees    Int?
+  isPrivate       Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  group     Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation("EventTemplatesCreated", fields: [createdById], references: [id], onDelete: SetNull)
+  tags      Tag[]  @relation("EventTemplateTags")
+
+  @@index([groupId])
+  @@index([groupId, createdAt(sort: Desc)])
 }

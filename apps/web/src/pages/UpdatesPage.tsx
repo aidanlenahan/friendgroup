@@ -19,6 +19,20 @@ interface Release {
 
 const releases: Release[] = [
   {
+    version: '1.0',
+    date: 'May 2026',
+    label: 'Beta',
+    summary: 'Polls, event templates, channel reconnect, and a more resilient auth session.',
+    changes: [
+      { type: 'new', text: 'Polls — any group member can create a yes/no/maybe availability poll with up to 5 options; vote on each option individually; live vote counts update as members respond; creator or admin can edit or delete the poll; a Polls tab appears on every group page' },
+      { type: 'new', text: 'Event templates — save any event as a reusable template directly from the event page; pick a template when creating a new event to pre-fill title, details, location, duration, capacity, and tags; manage your group\'s templates (edit, delete) from Group Settings; groups can store up to 15 templates' },
+      { type: 'improved', text: 'Channel reconnect — when the WebSocket connection drops permanently the message input is replaced with a "Connection failed — tap to retry" button; tapping reconnects immediately instead of waiting for the next auto-retry window' },
+      { type: 'improved', text: 'Session recovery — if local storage is cleared (private browsing switch, browser reset) but your session cookie is still valid, GEM now silently restores your session on the next page load instead of sending you to the login screen' },
+      { type: 'improved', text: '"Try Demo" on the landing page — a Demo button is now visible in the hero alongside Sign up and Log in so first-time visitors can explore the app before creating an account' },
+      { type: 'fixed', text: 'Demo username collisions — concurrent demo sessions no longer occasionally share the same generated username for dummy users, which caused seed failures' },
+    ],
+  },
+  {
     version: '0.9',
     date: 'May 2026',
     label: 'Beta',

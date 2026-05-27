@@ -1,265 +1,11 @@
 ========================================================
 TASKS.TXT — GEM Feature Backlog
-Last updated: 2026-05-19
+Last updated: 2026-05-27
 Format: [x] = done, [ ] = pending, [-] = in progress / partial
 
 Tasks are grouped by the release they target.
-Only [x] items that are fully done ship in that version's release notes.1
+Only [x] items that are fully done ship in that version's release notes.
 ========================================================
-
-=== v0.8 — Done ===
-Released: 2026-05-18
-
-[x] @mention system — parse `@username` in message content on send; resolve to userId;
-    emit in-app notification to that user with a link to the message. Frontend: `@`
-    autocomplete dropdown with group member search, mention highlighting in rendered
-    messages. Backend notification fanout was already wired. DONE 2026-05-14.
-
-[x] Duplicate / copy event — button on EventPage (admin/creator only) that pre-fills
-    CreateEventPage with all fields from the current event, letting the user adjust date
-    and save as new
-
-[x] Event reminders — scheduleEventStartNotification is wired and queued but never called
-    on event create/update; hook it in so RSVP-yes members get a push/email N minutes
-    before start (configurable per-user: 15 min, 1 hr, 1 day)
-    DONE 2026-05-18: scheduleEventStartNotification wired on event create/update; queues 3 BullMQ
-    jobs per event (15m/1hr/1day); worker filters by per-user offset pref; NotificationSettingsPage
-    has "Event Reminders" chip UI per channel; reminderOffsetMinutes field added to schema + migrated.
-    Files: server.ts, schema.prisma, migrations/20260518*, useNotifications.ts, NotificationSettingsPage.tsx
-
-[x] Empty-state illustrations — replace plain text "No events yet" / "No media" placeholders
-    with simple SVG spot illustrations
-    DONE 2026-05-18: Added inline SVG spot illustrations to all 5 empty states: calendar icon for
-    "No events yet" (GroupPage), landscape photo icon for "No photos yet" (GroupGalleryPage),
-    "No media yet" (EventPage, GroupManagePage admin), and people icon for "No groups yet"
-    (GroupsPage). EventPage gained EmptyState import. Files: GroupPage.tsx, GroupGalleryPage.tsx,
-    EventPage.tsx, GroupManagePage.tsx, GroupsPage.tsx
-
-[x] pick and update favicon for all pages (browser tab, PWA icon, OG image)
-
-[x] fix media upload with storage limits per user (per-user quota enforcement)
-
-[x] fix sizing of event creation page on mobile
-
-
-[x] Group stats page — GET /groups/:groupId/stats, GroupStatsPage.tsx, linked from
-    GroupManagePage. Shows total events, RSVPs, messages, photos, storage, top members,
-    top tags. Admin-only. DONE 2026-05-14.
-
-[x] Updates page (was: Changelog) — full version history at /updates, accessible from
-    sidebar and public site. API health check button inline. DONE 2026-05-14.
-
-[x] Scroll fix on marketing pages — MarketingLayout outer div changed to h-full with
-    overflow-y-auto on main, fixing the iOS keyboard lock conflict. DONE 2026-05-14.
-
-[x] Admin photo delete in group media lightbox — trash button in carousel top bar (next to
-    info button) with two-step inline confirm. Calls DELETE /groups/:groupId/media/:assetId.
-    Available to owners/admins only; works in both All Photos and album views. DONE 2026-05-14.
-
-[x] Character limits across all major input fields — event title (100), event details (3000),
-    event location (200), group name (60), group description (500), channel message (2000),
-    channel name (32), photo caption (280). Enforced in Zod schemas (API) and maxLength
-    attrs (frontend). DONE 2026-05-14.
-
-[x] Leave group — Members tab in GroupPage now has "Leave Group" button with confirm step for
-    non-owner members. API: DELETE /groups/:groupId/leave (owner blocked). Navigates to /groups
-    on success. DONE 2026-05-19. Files: server.ts, GroupPage.tsx, useGroups.ts
-
-[x] Stats page toggle — Admin toggle in GroupManagePage (Group Info section) enables/disables
-    stats page for all group members. When enabled: Stats link shows in GroupPage header for all
-    members; GET /groups/:groupId/stats allows all members (not just admin). Schema: Group.statsEnabled.
-    DONE 2026-05-19. Files: schema.prisma, server.ts, GroupPage.tsx, GroupManagePage.tsx, useGroups.ts
-
-[x] Stats link on user profile — Mutual groups with statsEnabled show a "Stats" link button next
-    to the group card on UserProfilePage (/u/:username). API returns statsEnabled on mutual groups.
-    DONE 2026-05-19. Files: server.ts, UserProfilePage.tsx
-
-[x] Email visibility toggle — ProfilePage settings now have a toggle "Show email on profile".
-    When on, other group members can see the user's email on their public profile page. Schema:
-    User.showEmail. DONE 2026-05-19. Files: schema.prisma, server.ts, ProfilePage.tsx,
-    UserProfilePage.tsx, authStore.ts
-
-=== v0.9 — Polish & Stability ===
-Target: tighten the core experience before semi-public release; no new major features,
-focus on reliability, UX rough edges, and prep for a small group of external users.
-
---- UX polish ---
-
-[x] Error toasts on all mutations — added onError handlers to every mutation in useGroups.ts
-    (25+ mutations) and useEvents.ts (7 mutations); errors now always surface a toast with a
-    human-readable message via getApiErrorMessage. useToast updated to support per-call
-    duration; error toasts default to 6 s. DONE 2026-05-25.
-    Files: useGroups.ts, useEvents.ts, useToast.ts
-
-[x] Photo upload error messages — EventPage upload handler now detects 413 / FILE_TOO_LARGE
-    and quota / QUOTA errors and shows specific messages ("Photo is too large — max 10 MB",
-    "Storage quota reached — delete some photos to free up space") instead of raw server error.
-    DONE 2026-05-25. Files: EventPage.tsx
-
-[x] Push notification denial UX — NotificationSettingsPage now explains how to re-enable
-    push notifications in browser settings when permission is denied, instead of closing
-    silently. Uses an 8-second toast with browser-specific instructions. DONE 2026-05-25.
-    Files: NotificationSettingsPage.tsx
-
-[x] Album deletion confirm UI — replaced browser confirm() dialog with inline Confirm/Cancel
-    button pair (matching AdminEventCard pattern). Added confirmDeleteAlbumId state.
-    DONE 2026-05-25. Files: GroupPage.tsx
-
-[x] ChannelPage hover button disabled states — pin, react, and delete hover action buttons
-    now have disabled={mutation.isPending} + disabled:opacity-50, preventing double-tap
-    submissions while the mutation is in flight. DONE 2026-05-25. Files: ChannelPage.tsx
-
-[x] Event chat socket error handling — useChat (event chat) now listens to the socket
-    'error' event and shows a toast. sendMessage guards against disconnected socket:
-    shows "Not connected. Please wait and try again." toast instead of silently dropping.
-    DONE 2026-05-25. Files: useChat.ts
-
-[x] Fix stale-chunk crash after deploys — vite:preloadError handler was calling
-    event.preventDefault(), which caused Vite's internal catch to resolve the lazy import
-    as undefined instead of rejecting it, making React's lazy resolver throw
-    "Cannot read properties of undefined (reading 'default')". Fix: removed preventDefault,
-    added sessionStorage reload guard (one reload per 10s), added lazyLoad() wrapper in
-    App.tsx that converts TypeError chunk failures into a never-resolving Promise so React
-    stays in Suspense instead of crashing the error boundary.
-    DONE 2026-05-26. Files: apps/web/src/main.tsx, apps/web/src/App.tsx
-
-[x] Mobile keyboard overlap in group modals — group creation and join group modals now track
-    window.visualViewport.height and set the overlay height dynamically so the modal stays
-    above the iOS soft keyboard (same method as ChannelPage). Added useState + visualViewport
-    resize listener to Modal.tsx.
-    DONE 2026-05-26. Files: apps/web/src/components/Modal.tsx
-
-[x] Beta codes case-insensitive — all three validation points in the API (account registration
-    gate, group creation gate, /beta/validate endpoint) now normalize input via
-    .trim().toUpperCase() before comparison and Prisma lookup.
-    DONE 2026-05-26. Files: apps/api/src/server.ts
-
-[x] General channel pinned to top, subscribe button hidden — channel lists on GroupPage and
-    ChannelPage sidebar now sort channels with isGeneral=true first. Subscribe/unsubscribe
-    button is hidden on the general channel (auto-subscribed, no opt-out).
-    DONE 2026-05-26. Files: apps/web/src/pages/GroupPage.tsx, apps/web/src/pages/ChannelPage.tsx
-
-[x] Clickable channel name opens settings modal — in ChannelPage header, admins/owners can
-    click the channel name (both desktop and mobile) to open a channel settings modal with:
-    rename field (non-general channels), Notification Tags button, Manage Members button
-    (invite-only only), and Delete Channel button (non-general only).
-    DONE 2026-05-26. Files: apps/web/src/pages/ChannelPage.tsx
-
-[ ] Fix window sizing on desktop — inconsistent div sizing on desktop layout causes layout
-    overflow in some page combinations; audit all page wrappers
-
-[ ] When keyboard opens on mobile channel view — shrink header and slide it toward the top
-    border so the message input doesn't get pushed off screen
-
-[ ] Keyboard shortcut help modal — ? key opens an overlay listing all keyboard shortcuts
-    (lightbox arrow nav, Escape, submit, etc.)
-
-[ ] Offline queue for RSVPs — when user RSVPs while offline, queue action in localStorage
-    and replay on reconnect (extends existing useIsOnline hook)
-
---- Notifications & email ---
-
-[ ] Digest emails — daily or weekly email summarising upcoming events the user is
-    RSVP-yes on; scheduled via BullMQ repeatable job; opt-in toggle in NotificationSettingsPage
-
-[ ] In-app notification grouping — collapse consecutive notifications of the same type for
-    the same event (e.g. "5 people RSVPed to your event") into a single row
-
-[x] Specify sender in push/email notifications — include the acting user's display name
-    and avatar URL in fanout payload so notifications read "Alice RSVPed…" not just "New RSVP"
-    DONE 2026-05-20: chat_message title now "{sender} in #{channel}" (added name to chat.ts
-    callback payload); invite title/body now "${actor} invited you" / "${event.title}"; other
-    notification types already included actor names. EventPage edit form: date+duration grid
-    changed from grid-cols-2 to grid-cols-1 sm:grid-cols-2 so duration wraps to its own row
-    on mobile. Files: lib/chat.ts, server.ts, EventPage.tsx
-
---- Events ---
-
-[ ] Waitlist — when maxAttendees is reached, late RSVPs join a waitlist; promote
-    automatically when a yes-RSVP withdraws (add status: "waitlist" on RSVP model)
-
-
-[ ] Event page map embed — when event.location is set, render an embedded static map
-    thumbnail (OpenStreetMap tile, no API key needed) above the directions link
-
-[x] Auto-hyperlinking in channel chat — URLs typed in messages automatically become clickable
-    links opening in a new tab. Preserves @mention detection. DONE 2026-05-19. Files: ChannelPage.tsx
-
-[x] Join modal Code/URL tabs — "Join a Group" modal now has Code tab (invite code input) and
-    URL tab (paste full invite link with clipboard paste button). DONE 2026-05-19. Files: GroupsPage.tsx
-
-[x] Inline user stats on profile — replaced the "Stats" button on mutual-group cards (which
-    linked to the group-wide stats page) with per-group inline stats showing events created,
-    going/maybe RSVPs, and photos uploaded directly below each group card on the user profile
-    page. New API endpoint GET /groups/:groupId/members/:userId/stats.
-    DONE 2026-05-20. Files: server.ts, UserProfilePage.tsx, notes.md
-
-[x] #tag mentions in channel chat — typing `#tagname` in a message triggers a tag autocomplete
-    dropdown (same UX as `@` mentions). On send, server parses `#tagname` patterns, finds all
-    active group members subscribed to that tag (via UserTagPreference), and queues a "mention"
-    notification for each (excluding the sender and anyone already @mentioned). Rendered in chat
-    as a green badge with the tag's color dot. DONE 2026-05-20.
-    Files: server.ts (parseTagMentions helper + socket handler), ChannelPage.tsx
-
-[x] User bio — users can add a short bio (max 200 chars) on their profile. Stored in User.bio
-    (nullable). Editable from ProfilePage (textarea with live char counter). Shown on
-    UserProfilePage below the username/join date. DONE 2026-05-20.
-    Files: schema.prisma, migrations/20260520*, server.ts, authStore.ts, ProfilePage.tsx,
-    UserProfilePage.tsx
-
---- Infrastructure ---
-
-[x] Error boundary — React ErrorBoundary component wrapping the entire app in main.tsx;
-    renders a friendly reload-page fallback instead of a blank screen on render errors.
-    DONE 2026-05-22: ErrorBoundary.tsx added; wraps BrowserRouter in main.tsx.
-    Files: apps/web/src/components/ErrorBoundary.tsx, apps/web/src/main.tsx
-
-[x] Error monitoring — integrate a lightweight error tracker (e.g. Sentry free tier) for
-    both API (Fastify plugin) and web (Sentry.captureException in ErrorBoundary)
-    DONE 2026-05-25: SMTP email alerting via existing Nodemailer setup. errorReporter.ts throttles
-    by fingerprint (15 min API / 5 min client). Hooks: Fastify 5xx, BullMQ worker failures,
-    process.on(uncaughtException/unhandledRejection), POST /internal/client-error endpoint,
-    ErrorBoundary.componentDidCatch, window.onerror, window.unhandledrejection.
-    ERROR_ALERT_EMAILS=aidanlenahan@gmail.com,awood4555@gmail.com set in gem-api.env.
-    Files: apps/api/src/lib/errorReporter.ts (new), apps/web/src/lib/reportClientError.ts (new),
-    server.ts, ErrorBoundary.tsx, main.tsx, gem-api.env, notes.md
-
---- Security & compliance ---
-
-[x] HTML injection in email templates — user-supplied strings (display names, group names,
-    event titles) were interpolated raw into HTML email bodies. Fixed by adding escapeHtml()
-    to lib/mailer.ts and applying it at all 6 injection sites (buildNotificationEmail,
-    buildWelcomeEmail, join-request/approval/denial emails, admin email debug).
-    DONE 2026-05-23. Files: lib/mailer.ts, lib/notifications.ts, server.ts
-
-[x] Birthdate at account creation — new registration form requires date of birth; server
-    enforces 13+ age gate (400 AGE_REQUIREMENT_NOT_MET if underage); birthdate stored with
-    birthdateSet=true on creation so it cannot be changed later.
-    DONE 2026-05-23. Files: schema.prisma, migrations/20260523051721_add_birthdate,
-    server.ts, authStore.ts, RegisterPage.tsx
-
-[x] Birthdate in Settings — existing accounts backfilled with Jan 1 2000 / birthdateSet=false
-    (one edit allowed). Settings shows editable date input while birthdateSet=false; after save
-    flips birthdateSet=true and renders disabled/greyed-out. Backend enforces lock with
-    422 BIRTHDATE_ALREADY_SET. DONE 2026-05-23. Files: server.ts, authStore.ts, SettingsPage.tsx
-
-[x] Security hardening P3/P4 — HSTS (maxAge 1yr + includeSubDomains + preload), Permissions-Policy
-    header via onSend hook, Redis TLS enforced for remote connections, Postgres SSL enforced for
-    remote connections (loopback exempt so dev env still boots), BullMQ queues namespaced with
-    {gem} prefix, connection pool explicit limits (max 10, idle 30s, connect timeout 5s),
-    log injection prevention via sanitizeForLog(), admin route IP allowlist via ADMIN_ALLOWED_IPS,
-    Vite sourcemap:hidden (maps go to Sentry, not bundle), PWA service worker NetworkOnly strategy
-    for all API/socket routes. DONE 2026-05-25. Files: server.ts, vite.config.ts, sw.ts
-
-[x] CI security pipeline — GitHub Actions security.yml: npm audit (--audit-level=high),
-    TruffleHog secret scan (only-verified), Semgrep SAST (OWASP Top 10 + nodejs + typescript);
-    failure email via Titan SMTP to aidanlenahan@gmail.com + awood4555@gmail.com.
-    Dependabot: weekly npm scans for apps/api and apps/web with grouped PRs (fastify,
-    security-critical, react/tanstack). DONE 2026-05-25.
-    Files: .github/workflows/security.yml, .github/dependabot.yml
-
-[ ] Automated DB backups — nightly pg_dump cron job to a separate S3/R2 bucket;
-    retention 7 days; alert on failure--how can we do this for free? how does it interact with api? different server?
 
 === v1.0 — Semi-Public Beta ===
 Target: controlled expansion beyond the core dev team to a handful of trusted external
@@ -268,7 +14,7 @@ for people who weren't involved in building it — real onboarding, real feedbac
 
 Audience: developers + 1–2 invited external users (friends/family) who get a beta invite code.
 
---- Carried over from v0.9 ---
+--- UX polish ---
 
 [ ] Fix window sizing on desktop — inconsistent div sizing on desktop layout causes layout
     overflow in some page combinations; audit all page wrappers
@@ -276,11 +22,17 @@ Audience: developers + 1–2 invited external users (friends/family) who get a b
 [ ] Mobile keyboard UX in channel view — shrink header and slide toward top border when
     keyboard opens so the message input stays visible
 
+[ ] Mobile long-press message menu — no way to pin or delete messages on mobile without
+    a swipe; add long-press action sheet (pin, delete, react, reply) matching the desktop
+    hover bar actions
+
 [ ] Keyboard shortcut help modal — ? key opens an overlay listing shortcuts (lightbox nav,
     Escape, submit, etc.)
 
 [ ] Offline queue for RSVPs — queue RSVP actions in localStorage while offline, replay
     on reconnect (extends useIsOnline hook)
+
+--- Notifications & email ---
 
 [ ] Digest emails — daily/weekly email of upcoming RSVP-yes events; BullMQ repeatable job;
     opt-in toggle in NotificationSettingsPage
@@ -288,14 +40,13 @@ Audience: developers + 1–2 invited external users (friends/family) who get a b
 [ ] In-app notification grouping — collapse consecutive same-type notifications for the
     same event ("5 people RSVPed to your event") into a single row
 
+--- Events ---
+
 [ ] Waitlist for capped events — late RSVPs join a waitlist when maxAttendees is reached;
     auto-promote when a yes-RSVP withdraws (status: 'waitlist' on RSVP model)
 
 [ ] Event page map embed — when event.location is set, render an OpenStreetMap static tile
     thumbnail above the directions links (no API key needed)
-
-[ ] Automated DB backups — nightly pg_dump to a separate S3/R2 bucket; 7-day retention;
-    alert on failure
 
 --- Onboarding & first-run ---
 
@@ -348,6 +99,11 @@ Audience: developers + 1–2 invited external users (friends/family) who get a b
     POST /auth/change-email + POST /auth/verify-email-change. OTP stored in Redis (1hr TTL).
     DONE 2026-05-22. Files: apps/api/src/server.ts, apps/web/src/pages/SettingsPage.tsx
 
+--- Infrastructure ---
+
+[ ] Automated DB backups — nightly pg_dump to a separate S3/R2 bucket; 7-day retention;
+    alert on failure (consider free-tier options; may require a separate server/cron job)
+
 --- Polish ---
 
 [ ] Favicon and OG image audit — confirm og:image, og:title, og:description are set
@@ -361,11 +117,7 @@ Audience: developers + 1–2 invited external users (friends/family) who get a b
 
 [ ] Session expired toast — when JWT refresh fails and the user is logged out, show a
     "Session expired — please log in again" toast before redirecting to /login; currently
-    silent (api.ts:157 catches 401 and calls logout() with no user feedback)
-
-[ ] Mobile long-press message menu — no way to pin or delete messages on mobile without
-    a swipe or entering edit mode; add long-press action sheet (pin, delete, react, reply)
-    matching the desktop hover bar actions
+    silent (api.ts catches 401 and calls logout() with no user feedback)
 
 [ ] Rate-limit feedback on auth routes — API returns RATE_LIMITED on login/register/OTP
     but the frontend catches it as a generic error; detect the code and show "Too many
@@ -389,8 +141,6 @@ Audience: developers + 1–2 invited external users (friends/family) who get a b
 
 [ ] recurring events — RRULE support; needs recurrenceRule on Event + RRULE UI
 
-[ ] specify which user sent message in push/email notifications
-
 [ ] text sizing / accessibility settings per user
 
 [ ] login links security hardening (CSRF, same-site cookies review)
@@ -407,6 +157,410 @@ Audience: developers + 1–2 invited external users (friends/family) who get a b
 [ ] Google Calendar note — URL subscription shows feed as "Other calendars" sidebar
     in Google Calendar (by-design behavior for all external URL subscriptions).
     Consider adding a UI note so users understand this is expected.
+
+========================================================
+=== POTENTIAL ===
+Ideas not yet scheduled for a release. No priority order.
+========================================================
+
+--- Features ---
+
+[ ] Channel bookmarks / saved messages — star a message to a per-user "Saved" list;
+    accessible from sidebar; POST /channels/:channelId/messages/:id/bookmark
+
+[x] Event polls — before publishing, organizer can attach a date-vote poll; members vote;
+    organizer picks winning slot and it auto-fills the event datetime
+    DONE 2026-05-27: Polls tab in GroupPage; Poll/PollOption/PollVote schema + migration;
+    CRUD API routes; CreatePollPage (create + edit); per-option yes/no/maybe voting with
+    live counts; creator/admin can edit or delete; navigates back to ?tab=polls.
+    Files: schema.prisma, server.ts, usePolls.ts, CreatePollPage.tsx, GroupPage.tsx, App.tsx
+
+[x] Event templates — save any event as a reusable template (any member); CreateEventPage
+    has a "Start from template" picker that pre-fills all fields; GroupManagePage has a
+    template management section (view/edit/delete); max 15 per group
+    DONE 2026-05-27: EventTemplate schema + migration; CRUD API routes with TEMPLATE_LIMIT
+    guard; useEventTemplates.ts; "Save as template" button/modal on EventPage; template
+    picker in CreateEventPage; Event Templates section in GroupManagePage (edit modal +
+    delete confirm).
+    Files: schema.prisma, server.ts, useEventTemplates.ts, EventPage.tsx,
+    CreateEventPage.tsx, GroupManagePage.tsx, App.tsx
+
+[ ] Expanded emoji reactions
+
+[ ] Photo albums on events — event-scoped albums so event photos stay separate from the
+    group gallery; current uploads go to a default event album
+
+[ ] 2FA (TOTP) — optional TOTP second factor on login; setup in Settings; uses speakeasy
+    or otplib; backup codes generated at enrollment
+
+[ ] OAuth login — Google (and optionally Apple) sign-in as an alternative to email/password;
+    links to existing account by email; useful for new user onboarding
+
+
+--- Performance ---
+
+[ ] Redis cache for heavy GET routes — cache /groups/:id/members, /groups/:id/events, and
+    /groups/:id/stats responses with a short TTL (30–60 s); invalidate on mutation;
+    reduces DB load as group sizes grow
+
+[ ] DB index audit — run EXPLAIN ANALYZE on the 5 slowest queries (member lookup, event
+    feed, notification fan-out); add composite indexes where seq-scans show up
+
+[ ] Bundle size audit — measure JS bundle with rollup-plugin-visualizer; tree-shake unused
+    Lucide icons (import individually, not the barrel); target < 250 kB gzipped main chunk
+
+[ ] Static asset CDN — serve compiled JS/CSS from R2 or CloudFront; set long cache-control
+    headers + content-hash filenames; reduces TTFB for repeat visitors outside VPS region
+
+[ ] Notification list pagination — GET /notifications currently returns all; add cursor
+    pagination (limit 30 + before=); avoids loading hundreds of old notifications on open
+
+[ ] Compress API JSON responses — enable fastify-compress (gzip/brotli); measurable win
+    for large payloads like member lists and audit log exports
+
+[ ] Image lazy loading with IntersectionObserver — group gallery and event photo grid should
+    defer off-screen image loads; avoids fetching dozens of signed URLs on page open
+
+[ ] Socket.IO room cleanup audit — verify stale rooms are cleaned up on disconnect;
+    add a periodic sweep that emits room counts to the health endpoint
+
+--- Security ---
+
+[ ] CSP violation report endpoint — add report-uri to Content-Security-Policy header;
+    POST /internal/csp-report logs violations to the error reporter; free signal on XSS
+
+[ ] EXIF GPS scrubbing before store — strip GPS coordinates from uploaded images before
+    writing to S3 using sharp or piexifjs; privacy win especially for casual uploads
+
+[ ] Signed S3 URLs with short TTL — media presigned GET URLs should expire in minutes,
+    not hours; prevents URL sharing bypassing group membership
+
+[ ] JWT logout-all-devices — POST /auth/revoke-all stores a per-user revocation timestamp
+    in Redis; all tokens issued before that timestamp are rejected; shown in Settings
+
+[ ] Suspicious login email alert — on login from a new IP or user-agent hash not seen in
+    the last 30 days, send a "New sign-in detected" email with IP + timestamp + revoke link
+
+[ ] Password strength meter — zxcvbn score shown inline on RegisterPage and change-password
+    form; block submission if score < 2; no server changes needed
+
+[ ] Rate-limit media upload endpoint — add a separate rate limiter on POST /groups/:id/media
+    (e.g. 20 uploads / 10 min per user) to prevent storage abuse before quota kicks in
+
+[ ] Content flagging — any group member can flag a message or photo for admin review;
+    flag creates a GroupFlag record; admin sees a flag count badge in GroupManagePage
+
+--- Developer & Ops ---
+
+[ ] Structured request logging with correlation IDs — attach a random request-id to every
+    Fastify request; propagate via X-Request-ID header and log it on every line; makes
+    tracing errors across log lines trivial
+
+[ ] Metrics endpoint (Prometheus) — expose /metrics with event loop lag, heap used, active
+    socket connections, BullMQ queue depth, HTTP request rate; scrape with Grafana on VPS
+
+[ ] Uptime monitoring — configure Uptime Robot (free tier) on /health; alert aidanlenahan@gmail.com
+    and awood4555@gmail.com on > 1 min downtime
+
+[ ] BullMQ dead-letter queue + admin UI — jobs that fail maxAttempts go to a DLQ key in
+    Redis; DevPanel shows DLQ depth with a "retry all" button
+
+[ ] DevPanel enhancements — add live panels for: active socket rooms + connection count,
+    BullMQ queue depth per queue, Redis memory used, recent client errors (last 10),
+    DB pool stats; all read-only, no new API surface
+
+[ ] Zero-downtime deploy script — before cutting over, curl /health on the new process;
+    only swap nginx upstream if healthy; currently a hard cutover with ~2 s gap
+
+[ ] Log shipping to S3 — pipe stdout from PM2/systemd to a daily rotated log file; sync
+    to R2/S3 nightly; 30-day retention; allows post-mortem analysis without SSH access
+
+[ ] Alert on disk > 80% — add a daily BullMQ cron job that checks df -h and emails if
+    any mount exceeds 80% used; particularly important as media storage grows
+
+[ ] OpenAPI doc generation — use fastify-swagger with the existing Zod schemas to auto-
+    generate an OpenAPI spec at /docs (dev-only); useful for client SDK generation
+
+[ ] Playwright E2E smoke suite — register → join group → create event → RSVP → send
+    channel message; run in CI before each release tag; block tag if any step fails
+
+[ ] Staging environment — separate docker-compose stack with its own DB + Redis; deploy
+    from a `staging` branch; test migrations and new features before prod
+
+[ ] Backup restore drill — monthly cron that restores latest pg_dump to a scratch DB and
+    runs SELECT COUNT(*) on key tables; email result; proves backups are actually valid
+
+[ ] Redis persistence check — verify AOF or RDB is enabled in redis.conf; add to deploy
+    runbook; Redis data loss = lost sessions + OTP codes + BullMQ jobs
+
+[ ] PM2 memory limit restart — set --max-memory-restart 512M on the API process; prevents
+    slow memory leaks from taking down the server between deploys
+
+========================================================
+=== COMPLETED ===
+========================================================
+
+=== v0.9 — Polish & Stability (Done) ===
+Released: 2026-05-26
+
+--- UX polish ---
+
+[x] Error toasts on all mutations — added onError handlers to every mutation in useGroups.ts
+    (25+ mutations) and useEvents.ts (7 mutations); errors now always surface a toast with a
+    human-readable message via getApiErrorMessage. useToast updated to support per-call
+    duration; error toasts default to 6 s. DONE 2026-05-25.
+    Files: useGroups.ts, useEvents.ts, useToast.ts
+
+[x] Photo upload error messages — EventPage upload handler now detects 413 / FILE_TOO_LARGE
+    and quota / QUOTA errors and shows specific messages ("Photo is too large — max 10 MB",
+    "Storage quota reached — delete some photos to free up space") instead of raw server error.
+    DONE 2026-05-25. Files: EventPage.tsx
+
+[x] Push notification denial UX — NotificationSettingsPage now explains how to re-enable
+    push notifications in browser settings when permission is denied, instead of closing
+    silently. Uses an 8-second toast with browser-specific instructions. DONE 2026-05-25.
+    Files: NotificationSettingsPage.tsx
+
+[x] Album deletion confirm UI — replaced browser confirm() dialog with inline Confirm/Cancel
+    button pair (matching AdminEventCard pattern). Added confirmDeleteAlbumId state.
+    DONE 2026-05-25. Files: GroupPage.tsx
+
+[x] ChannelPage hover button disabled states — pin, react, and delete hover action buttons
+    now have disabled={mutation.isPending} + disabled:opacity-50, preventing double-tap
+    submissions while the mutation is in flight. DONE 2026-05-25. Files: ChannelPage.tsx
+
+[x] Event chat socket error handling — useChat now listens to the socket 'error' event and
+    shows a toast. sendMessage guards against disconnected socket: shows "Not connected.
+    Please wait and try again." toast instead of silently dropping.
+    DONE 2026-05-25. Files: useChat.ts
+
+[x] Fix stale-chunk crash after deploys — vite:preloadError handler was calling
+    event.preventDefault(), which caused Vite's internal catch to resolve the lazy import
+    as undefined instead of rejecting it, making React's lazy resolver throw
+    "Cannot read properties of undefined (reading 'default')". Fix: removed preventDefault,
+    added sessionStorage reload guard (one reload per 10s), added lazyLoad() wrapper in
+    App.tsx that converts TypeError chunk failures into a never-resolving Promise so React
+    stays in Suspense instead of crashing the error boundary.
+    DONE 2026-05-26. Files: apps/web/src/main.tsx, apps/web/src/App.tsx
+
+[x] Mobile keyboard overlap in group modals — group creation and join group modals now track
+    window.visualViewport.height and set the overlay height dynamically so the modal stays
+    above the iOS soft keyboard (same method as ChannelPage). Added useState + visualViewport
+    resize listener to Modal.tsx.
+    DONE 2026-05-26. Files: apps/web/src/components/Modal.tsx
+
+[x] Beta codes case-insensitive — all three validation points in the API (account registration
+    gate, group creation gate, /beta/validate endpoint) now normalize input via
+    .trim().toUpperCase() before comparison and Prisma lookup.
+    DONE 2026-05-26. Files: apps/api/src/server.ts
+
+[x] General channel pinned to top, subscribe button hidden — channel lists on GroupPage and
+    ChannelPage sidebar now sort channels with isGeneral=true first. Subscribe/unsubscribe
+    button is hidden on the general channel (auto-subscribed, no opt-out).
+    DONE 2026-05-26. Files: apps/web/src/pages/GroupPage.tsx, apps/web/src/pages/ChannelPage.tsx
+
+[x] Clickable channel name opens settings modal — in ChannelPage header, admins/owners can
+    click the channel name (both desktop and mobile) to open a channel settings modal with:
+    rename field (non-general channels), Notification Tags button, Manage Members button
+    (invite-only only), and Delete Channel button (non-general only).
+    DONE 2026-05-26. Files: apps/web/src/pages/ChannelPage.tsx
+
+[x] Fix: channel settings modal not opening — isAdminOrOwner was derived from useGroupMembers
+    which is a separate API call and could be in-flight or stale when the user clicks.
+    Fix: added myRole: callerMembership.role to GET /groups/:groupId/channels response so
+    role arrives with the channel list (same request, no race). Removed myMembership lookup.
+    DONE 2026-05-26. Files: apps/api/src/server.ts, apps/web/src/hooks/useGroups.ts,
+    apps/web/src/pages/ChannelPage.tsx
+
+[x] Private channel members visible to non-admins — subscribers of invite-only channels can
+    now view the member list (read-only); admins retain full add/remove access. API: GET
+    /groups/:groupId/channels/:channelId/subscribers opened to channel subscribers. UI:
+    members button in channel header, modal adapts to role.
+    DONE 2026-05-20. Files: server.ts, ChannelPage.tsx
+
+[x] Message delete confirmation — desktop shows inline Confirm?/✕ in the hover action bar;
+    mobile action sheet opens a confirm modal before deleting.
+    DONE 2026-05-20. Files: ChannelPage.tsx
+
+[x] Fix: flash of unauthenticated content on /groups after login — authStore
+    onRehydrateStorage now calls /users/me when no user in localStorage, recovering a valid
+    session cookie before marking hydrated.
+    DONE 2026-05-26. Files: apps/web/src/stores/authStore.ts
+
+[x] Fix: Create Event title field empty placeholder — added placeholder="e.g., Team BBQ,
+    Movie night…". DONE 2026-05-26. Files: apps/web/src/pages/CreateEventPage.tsx
+
+[x] Fix: channel message input stuck "Connecting…" — after 10 s without WebSocket
+    connection, shows "Connection failed — tap to retry" button that calls socket.connect()
+    and resets the timeout. DONE 2026-05-26. Files: apps/web/src/hooks/useChat.ts,
+    apps/web/src/pages/ChannelPage.tsx
+
+--- Notifications & email ---
+
+[x] Specify sender in push/email notifications — include the acting user's display name
+    and avatar URL in fanout payload so notifications read "Alice RSVPed…" not just "New RSVP"
+    DONE 2026-05-20: chat_message title now "{sender} in #{channel}" (added name to chat.ts
+    callback payload); invite title/body now "${actor} invited you" / "${event.title}"; other
+    notification types already included actor names. EventPage edit form: date+duration grid
+    changed from grid-cols-2 to grid-cols-1 sm:grid-cols-2 so duration wraps to its own row
+    on mobile. Files: lib/chat.ts, server.ts, EventPage.tsx
+
+--- Events & channels ---
+
+[x] Auto-hyperlinking in channel chat — URLs typed in messages automatically become clickable
+    links opening in a new tab. Preserves @mention detection. DONE 2026-05-19. Files: ChannelPage.tsx
+
+[x] Join modal Code/URL tabs — "Join a Group" modal now has Code tab (invite code input) and
+    URL tab (paste full invite link with clipboard paste button). DONE 2026-05-19. Files: GroupsPage.tsx
+
+[x] Inline user stats on profile — replaced the "Stats" button on mutual-group cards with
+    per-group inline stats showing events created, going/maybe RSVPs, and photos uploaded
+    directly below each group card. New API endpoint GET /groups/:groupId/members/:userId/stats.
+    DONE 2026-05-20. Files: server.ts, UserProfilePage.tsx, notes.md
+
+[x] #tag mentions in channel chat — typing `#tagname` triggers a tag autocomplete dropdown
+    (same UX as `@` mentions). On send, server parses `#tagname` patterns, finds all active
+    group members subscribed to that tag (via UserTagPreference), and queues a "mention"
+    notification for each (excluding sender and anyone already @mentioned). Rendered in chat
+    as a green badge with the tag's color dot. DONE 2026-05-20.
+    Files: server.ts (parseTagMentions helper + socket handler), ChannelPage.tsx
+
+[x] User bio — users can add a short bio (max 200 chars) on their profile. Stored in User.bio
+    (nullable). Editable from ProfilePage (textarea with live char counter). Shown on
+    UserProfilePage below the username/join date. DONE 2026-05-20.
+    Files: schema.prisma, migrations/20260520*, server.ts, authStore.ts, ProfilePage.tsx,
+    UserProfilePage.tsx
+
+--- Infrastructure ---
+
+[x] Error boundary — React ErrorBoundary component wrapping the entire app in main.tsx;
+    renders a friendly reload-page fallback instead of a blank screen on render errors.
+    DONE 2026-05-22: ErrorBoundary.tsx added; wraps BrowserRouter in main.tsx.
+    Files: apps/web/src/components/ErrorBoundary.tsx, apps/web/src/main.tsx
+
+[x] Error monitoring — SMTP email alerting via existing Nodemailer setup. errorReporter.ts
+    throttles by fingerprint (15 min API / 5 min client). Hooks: Fastify 5xx, BullMQ worker
+    failures, process.on(uncaughtException/unhandledRejection), POST /internal/client-error
+    endpoint, ErrorBoundary.componentDidCatch, window.onerror, window.unhandledrejection.
+    ERROR_ALERT_EMAILS=aidanlenahan@gmail.com,awood4555@gmail.com set in gem-api.env.
+    DONE 2026-05-25. Files: apps/api/src/lib/errorReporter.ts (new),
+    apps/web/src/lib/reportClientError.ts (new), server.ts, ErrorBoundary.tsx, main.tsx,
+    gem-api.env, notes.md
+
+--- Security & compliance ---
+
+[x] HTML injection in email templates — user-supplied strings (display names, group names,
+    event titles) were interpolated raw into HTML email bodies. Fixed by adding escapeHtml()
+    to lib/mailer.ts and applying it at all 6 injection sites (buildNotificationEmail,
+    buildWelcomeEmail, join-request/approval/denial emails, admin email debug).
+    DONE 2026-05-23. Files: lib/mailer.ts, lib/notifications.ts, server.ts
+
+[x] Birthdate at account creation — new registration form requires date of birth; server
+    enforces 13+ age gate (400 AGE_REQUIREMENT_NOT_MET if underage); birthdate stored with
+    birthdateSet=true on creation so it cannot be changed later.
+    DONE 2026-05-23. Files: schema.prisma, migrations/20260523051721_add_birthdate,
+    server.ts, authStore.ts, RegisterPage.tsx
+
+[x] Birthdate in Settings — existing accounts backfilled with Jan 1 2000 / birthdateSet=false
+    (one edit allowed). Settings shows editable date input while birthdateSet=false; after save
+    flips birthdateSet=true and renders disabled/greyed-out. Backend enforces lock with
+    422 BIRTHDATE_ALREADY_SET. DONE 2026-05-23. Files: server.ts, authStore.ts, SettingsPage.tsx
+
+[x] Security hardening P3/P4 — HSTS (maxAge 1yr + includeSubDomains + preload), Permissions-Policy
+    header via onSend hook, Redis TLS enforced for remote connections, Postgres SSL enforced for
+    remote connections (loopback exempt so dev env still boots), BullMQ queues namespaced with
+    {gem} prefix, connection pool explicit limits (max 10, idle 30s, connect timeout 5s),
+    log injection prevention via sanitizeForLog(), admin route IP allowlist via ADMIN_ALLOWED_IPS,
+    Vite sourcemap:hidden (maps go to Sentry, not bundle), PWA service worker NetworkOnly strategy
+    for all API/socket routes. DONE 2026-05-25. Files: server.ts, vite.config.ts, sw.ts
+
+[x] CI security pipeline — GitHub Actions security.yml: npm audit (--audit-level=high),
+    TruffleHog secret scan (only-verified), Semgrep SAST (OWASP Top 10 + nodejs + typescript);
+    failure email via Titan SMTP to aidanlenahan@gmail.com + awood4555@gmail.com.
+    Dependabot: weekly npm scans for apps/api and apps/web with grouped PRs (fastify,
+    security-critical, react/tanstack). DONE 2026-05-25.
+    Files: .github/workflows/security.yml, .github/dependabot.yml
+
+=== v0.8 — Done ===
+Released: 2026-05-18
+
+[x] @mention system — parse `@username` in message content on send; resolve to userId;
+    emit in-app notification to that user with a link to the message. Frontend: `@`
+    autocomplete dropdown with group member search, mention highlighting in rendered
+    messages. Backend notification fanout was already wired. DONE 2026-05-14.
+
+[x] Duplicate / copy event — button on EventPage (admin/creator only) that pre-fills
+    CreateEventPage with all fields from the current event, letting the user adjust date
+    and save as new
+
+[x] Event reminders — scheduleEventStartNotification wired on event create/update; queues
+    3 BullMQ jobs per event (15m/1hr/1day); worker filters by per-user offset pref;
+    NotificationSettingsPage has "Event Reminders" chip UI; reminderOffsetMinutes field
+    added to schema + migrated. DONE 2026-05-18.
+    Files: server.ts, schema.prisma, migrations/20260518*, useNotifications.ts,
+    NotificationSettingsPage.tsx
+
+[x] Empty-state illustrations — added inline SVG spot illustrations to all 5 empty states:
+    calendar icon for "No events yet" (GroupPage), landscape photo icon for "No photos yet"
+    (GroupGalleryPage), "No media yet" (EventPage, GroupManagePage admin), and people icon
+    for "No groups yet" (GroupsPage). DONE 2026-05-18.
+    Files: GroupPage.tsx, GroupGalleryPage.tsx, EventPage.tsx, GroupManagePage.tsx, GroupsPage.tsx
+
+[x] Pick and update favicon for all pages (browser tab, PWA icon, OG image)
+
+[x] Fix media upload with storage limits per user (per-user quota enforcement)
+
+[x] Fix sizing of event creation page on mobile
+
+[x] Group stats page — GET /groups/:groupId/stats, GroupStatsPage.tsx, linked from
+    GroupManagePage. Shows total events, RSVPs, messages, photos, storage, top members,
+    top tags. Admin-only. DONE 2026-05-14.
+
+[x] Updates page (was: Changelog) — full version history at /updates, accessible from
+    sidebar and public site. API health check button inline. DONE 2026-05-14.
+
+[x] Scroll fix on marketing pages — MarketingLayout outer div changed to h-full with
+    overflow-y-auto on main, fixing the iOS keyboard lock conflict. DONE 2026-05-14.
+
+[x] Admin photo delete in group media lightbox — trash button in carousel top bar (next to
+    info button) with two-step inline confirm. Calls DELETE /groups/:groupId/media/:assetId.
+    Available to owners/admins only; works in both All Photos and album views. DONE 2026-05-14.
+
+[x] Character limits across all major input fields — event title (100), event details (3000),
+    event location (200), group name (60), group description (500), channel message (2000),
+    channel name (32), photo caption (280). Enforced in Zod schemas (API) and maxLength
+    attrs (frontend). DONE 2026-05-14.
+
+[x] Leave group — Members tab in GroupPage now has "Leave Group" button with confirm step for
+    non-owner members. API: DELETE /groups/:groupId/leave (owner blocked). Navigates to /groups
+    on success. DONE 2026-05-19. Files: server.ts, GroupPage.tsx, useGroups.ts
+
+[x] Stats page toggle — Admin toggle in GroupManagePage (Group Info section) enables/disables
+    stats page for all group members. When enabled: Stats link shows in GroupPage header for all
+    members; GET /groups/:groupId/stats allows all members (not just admin). Schema: Group.statsEnabled.
+    DONE 2026-05-19. Files: schema.prisma, server.ts, GroupPage.tsx, GroupManagePage.tsx, useGroups.ts
+
+[x] Stats link on user profile — Mutual groups with statsEnabled show a "Stats" link button next
+    to the group card on UserProfilePage (/u/:username). API returns statsEnabled on mutual groups.
+    DONE 2026-05-19. Files: server.ts, UserProfilePage.tsx
+
+[x] Email visibility toggle — ProfilePage settings now have a toggle "Show email on profile".
+    When on, other group members can see the user's email on their public profile page. Schema:
+    User.showEmail. DONE 2026-05-19. Files: schema.prisma, server.ts, ProfilePage.tsx,
+    UserProfilePage.tsx, authStore.ts
+
+[x] Channel chat feature sprint — full chat UX built on top of the Socket.IO foundation:
+    shared socket singleton (one connection per session), reconnect feedback toast, RATE_LIMITED
+    error surfaced to UI, typing:stop event, auto-scroll only when at bottom, "jump to bottom"
+    button, consecutive-message grouping (collapsed avatar/name like Discord/Slack), optimistic
+    send, emoji reactions (socket events + hover-to-react UI), edit own message (PATCH + socket
+    broadcast + edited indicator), pin/unpin messages (collapsible top banner, toggle view, unpin
+    from banner), live-updating reactions, delete channel, rename channel, invite-only channel
+    member management (admin add/remove), ChannelReadState model (migration 20260508120000),
+    unread badge on channel list + sidebar, mark-read on focus, mobile slide-in channel drawer,
+    channel chat cursor pagination (50-msg + "Load older messages" via useInfiniteQuery + before=).
+    DONE ~2026-05-18 (v0.8 channel sprint). Files: server.ts, ChannelPage.tsx, useGroups.ts,
+    schema.prisma, migrations/20260508120000
 
 === Done (historical, merged from previous backlog) ===
 

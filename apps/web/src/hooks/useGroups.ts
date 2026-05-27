@@ -43,6 +43,7 @@ export type ChannelSummary = {
 }
 
 type GroupChannelsResponse = {
+  myRole: 'owner' | 'admin' | 'member'
   channels: ChannelSummary[]
 }
 

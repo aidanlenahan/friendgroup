@@ -18,6 +18,8 @@
 NOTIFY_RECIPIENTS=("awood4555@gmail.com" "aidanlenahan@gmail.com")
 NOTIFY_SEND=1
 NOTIFY_LABEL="unknown"
+NOTIFY_FROM_ADDR=""   # override display From: address (envelope sender stays as SMTP user)
+NOTIFY_FROM_NAME="GEM Deploy"  # display name in From: header
 
 _GEM_NOTIFY_LOG=""
 _GEM_NOTIFY_ENV=""
@@ -134,7 +136,9 @@ _gem_notify_send() {
   local msg_file; msg_file="$(mktemp /tmp/gem-email-XXXXXX.eml)"
   {
     printf "Date: %s\r\n"              "$(date -R)"
-    printf "From: GEM Deploy <%s>\r\n" "$_N_USER"
+    local _from_addr="${NOTIFY_FROM_ADDR:-$_N_USER}"
+    local _from_name="${NOTIFY_FROM_NAME:-GEM Deploy}"
+    printf "From: %s <%s>\r\n" "$_from_name" "$_from_addr"
     printf "To: %s\r\n"               "$to_hdr"
     printf "Subject: %s\r\n"          "$subject"
     printf "MIME-Version: 1.0\r\n"

@@ -286,8 +286,7 @@ export default function ChannelPage() {
   }, [channel?.name])
 
   const { data: membersData } = useGroupMembers(groupId!)
-  const myMembership = membersData?.members.find((m) => m.userId === currentUser?.id)
-  const isAdminOrOwner = myMembership?.role === 'owner' || myMembership?.role === 'admin'
+  const isAdminOrOwner = channelsData?.myRole === 'owner' || channelsData?.myRole === 'admin'
 
   const { data: groupTagsData } = useGroupTags(groupId!)
   const groupTags = groupTagsData?.tags ?? []
@@ -299,6 +298,8 @@ export default function ChannelPage() {
     messages: liveMessages,
     typingUsers,
     connected,
+    connectionFailed,
+    reconnect,
     lastError,
     clearError,
     sendMessage,
@@ -1206,18 +1207,28 @@ export default function ChannelPage() {
                 ))}
               </div>
             )}
-            <textarea
-              ref={textareaRef}
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              onBlur={stopTyping}
-              placeholder={connected ? `Message #${channel?.name ?? 'channel'}` : 'Connecting…'}
-              disabled={!connected}
-              rows={1}
-              className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 text-base md:text-sm touch-pan-y"
-              style={{ maxHeight: '8rem', overflowY: 'auto' }}
-            />
+            {connectionFailed ? (
+              <button
+                type="button"
+                onClick={reconnect}
+                className="flex-1 bg-gray-800 border border-red-700 rounded-xl px-4 py-3 text-red-400 text-sm text-left hover:border-red-500 hover:text-red-300 transition-colors"
+              >
+                Connection failed — tap to retry
+              </button>
+            ) : (
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                onBlur={stopTyping}
+                placeholder={connected ? `Message #${channel?.name ?? 'channel'}` : 'Connecting…'}
+                disabled={!connected}
+                rows={1}
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-white placeholder-gray-500 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 disabled:opacity-50 text-base md:text-sm touch-pan-y"
+                style={{ maxHeight: '8rem', overflowY: 'auto' }}
+              />
+            )}
             <button
               type="submit"
               disabled={!input.trim() || !connected}

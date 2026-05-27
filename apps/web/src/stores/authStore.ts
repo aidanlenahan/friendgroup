@@ -55,7 +55,18 @@ export const useAuthStore = create<AuthState>()(
       // Only persist the user object — never the token (cookie handles auth).
       partialize: (state) => ({ user: state.user }),
       onRehydrateStorage: () => (state) => {
-        state?.markHydrated()
+        if (state?.user) {
+          // Fast path: user found in localStorage, ready immediately.
+          state.markHydrated()
+        } else {
+          // No user in localStorage but a session cookie may still be valid
+          // (e.g. localStorage cleared, hard redirect from another origin).
+          // Check before deciding whether to show login.
+          apiFetch<{ user: User }>('/users/me')
+            .then((data) => { if (data.user) state?.login(data.user) })
+            .catch(() => {})
+            .finally(() => state?.markHydrated())
+        }
       },
     },
   ),

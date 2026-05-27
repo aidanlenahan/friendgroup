@@ -39,8 +39,9 @@ import { getApiErrorMessage, ApiError, apiFetch } from '../lib/api'
 import { useToast } from '../hooks/useToast'
 import { useIsOnline } from '../hooks/useIsOnline'
 import { useAuthStore } from '../stores/authStore'
+import { useGroupPolls, useDeletePoll, useVote, useRemoveVote, type Poll } from '../hooks/usePolls'
 
-type Tab = 'events' | 'members' | 'channels' | 'media'
+type Tab = 'events' | 'polls' | 'members' | 'channels' | 'media'
 
 type EventSummary = {
   id: string
@@ -126,7 +127,10 @@ function AdminEventCard({ event, canDelete, layout }: { event: EventSummary; can
 export default function GroupPage() {
   const { groupId } = useParams<{ groupId: string }>()
   const navigate = useNavigate()
-  const [activeTab, setActiveTab] = useState<Tab>('events')
+  const [activeTab, setActiveTab] = useState<Tab>(() => {
+    const tab = new URLSearchParams(window.location.search).get('tab')
+    return (tab === 'polls' ? 'polls' : 'events') as Tab
+  })
   const [eventLayout, setEventLayout] = useState<'grid' | 'list'>(() => {
     return (localStorage.getItem('gem:eventLayout') as 'grid' | 'list') ?? 'grid'
   })
@@ -165,6 +169,10 @@ export default function GroupPage() {
   const { data: membersData } = useGroupMembers(groupId!)
   const { data: channelsData } = useGroupChannels(groupId!)
   const { data: eventsData, isLoading: eventsLoading } = useEvents(groupId!)
+  const { data: pollsData } = useGroupPolls(groupId!)
+  const deletePoll = useDeletePoll(groupId!)
+  const castVote = useVote(groupId!)
+  const removeVote = useRemoveVote(groupId!)
   const { data: photosData, isLoading: photosLoading } = useGroupPhotos(groupId!)
   const { data: albumsData, isLoading: albumsLoading } = useGroupAlbums(groupId!)
   const { data: albumPhotosData, isLoading: albumPhotosLoading } = useAlbumPhotos(groupId!, selectedAlbum?.id ?? null)
@@ -421,8 +429,10 @@ export default function GroupPage() {
   }
 
   const photoCount = photosData?.media?.length ?? 0
+  const pollCount = pollsData?.polls.length ?? 0
   const tabs: { key: Tab; label: string }[] = [
     { key: 'events', label: 'Events' },
+    { key: 'polls', label: pollCount > 0 ? `Polls (${pollCount})` : 'Polls' },
     { key: 'members', label: `Members (${group._count?.memberships ?? 0})` },
     { key: 'channels', label: 'Channels' },
     { key: 'media', label: photoCount > 0 ? `Photos (${photoCount})` : 'Photos' },
@@ -713,6 +723,39 @@ export default function GroupPage() {
         </div>
         )
       })()}
+
+      {/* Polls Tab */}
+      {activeTab === 'polls' && (
+        <PollsTab
+          groupId={groupId!}
+          polls={pollsData?.polls ?? []}
+          currentUserId={currentUser?.id ?? ''}
+          onCreatePoll={() => navigate(`/groups/${groupId}/polls/new`)}
+          onEditPoll={(poll) => navigate(`/groups/${groupId}/polls/new`, { state: { poll } })}
+          onDeletePoll={async (pollId) => {
+            try {
+              await deletePoll.mutateAsync(pollId)
+              toast.success('Poll deleted')
+            } catch {
+              toast.error('Failed to delete poll')
+            }
+          }}
+          onVote={async (pollId, optionId, answer) => {
+            try {
+              await castVote.mutateAsync({ pollId, optionId, answer })
+            } catch {
+              toast.error('Failed to save vote')
+            }
+          }}
+          onRemoveVote={async (pollId, optionId) => {
+            try {
+              await removeVote.mutateAsync({ pollId, optionId })
+            } catch {
+              toast.error('Failed to remove vote')
+            }
+          }}
+        />
+      )}
 
       {/* Members Tab */}
       {activeTab === 'members' && (
@@ -1511,6 +1554,216 @@ export default function GroupPage() {
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-xl text-sm font-medium transition-colors"
               >
                 {updateCalendarPrefs.isPending ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── PollsTab ──────────────────────────────────────────────────────────────
+
+type PollsTabProps = {
+  groupId: string
+  polls: Poll[]
+  currentUserId: string
+  onCreatePoll: () => void
+  onEditPoll: (poll: Poll) => void
+  onDeletePoll: (pollId: string) => void
+  onVote: (pollId: string, optionId: string, answer: 'yes' | 'no' | 'maybe') => void
+  onRemoveVote: (pollId: string, optionId: string) => void
+}
+
+function PollsTab({ groupId: _g, polls, currentUserId, onCreatePoll, onEditPoll, onDeletePoll, onVote, onRemoveVote }: PollsTabProps) {
+  const [confirmDeletePollId, setConfirmDeletePollId] = useState<string | null>(null)
+  const [expandedPollIds, setExpandedPollIds] = useState<Set<string>>(new Set())
+
+  const toggleExpand = (id: string) => {
+    setExpandedPollIds((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide">Polls</h3>
+        <button
+          onClick={onCreatePoll}
+          className="bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+        >
+          + Create Poll
+        </button>
+      </div>
+
+      {polls.length === 0 ? (
+        <EmptyState
+          icon={
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-10 w-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+            </svg>
+          }
+          title="No polls yet"
+          description="Create a poll to help the group decide on a time, place, or option."
+        />
+      ) : (
+        <div className="space-y-3">
+          {polls.map((poll) => {
+            const isExpanded = expandedPollIds.has(poll.id)
+            const canManage = poll.isCreator || poll.isAdmin
+            const totalVoters = poll.options.length > 0
+              ? Math.max(...poll.options.map((o) => o.votes.yes + o.votes.no + o.votes.maybe))
+              : 0
+
+            return (
+              <div key={poll.id} className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+                {/* Poll header */}
+                <button
+                  type="button"
+                  onClick={() => toggleExpand(poll.id)}
+                  className="w-full text-left px-4 py-4 flex items-start gap-3"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white font-medium leading-snug">{poll.question}</p>
+                    <p className="text-xs text-gray-500 mt-1">
+                      {poll.createdBy ? `by ${poll.createdBy.name}` : 'Deleted user'} ·{' '}
+                      {new Date(poll.createdAt).toLocaleDateString()} ·{' '}
+                      {poll.options.length} option{poll.options.length !== 1 ? 's' : ''}
+                      {totalVoters > 0 && ` · ${totalVoters} response${totalVoters !== 1 ? 's' : ''}`}
+                    </p>
+                  </div>
+                  <svg
+                    xmlns="http://www.w3.org/2000/svg"
+                    className={`h-4 w-4 text-gray-500 shrink-0 mt-0.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+                    viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+
+                {/* Options (expanded) */}
+                {isExpanded && (
+                  <div className="border-t border-gray-800 px-4 pb-4 pt-3 space-y-3">
+                    {poll.options.map((opt) => {
+                      const my = opt.votes.myAnswer
+                      const total = opt.votes.yes + opt.votes.no + opt.votes.maybe
+
+                      const handleVoteClick = (answer: 'yes' | 'no' | 'maybe') => {
+                        if (my === answer) {
+                          onRemoveVote(poll.id, opt.id)
+                        } else {
+                          onVote(poll.id, opt.id, answer)
+                        }
+                      }
+
+                      return (
+                        <div key={opt.id} className="bg-gray-800/50 rounded-xl p-3 space-y-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-white">{opt.title}</p>
+                            {opt.dateTime && (
+                              <p className="text-xs text-indigo-400 mt-0.5">
+                                {new Date(opt.dateTime).toLocaleString(undefined, {
+                                  weekday: 'short', month: 'short', day: 'numeric',
+                                  hour: 'numeric', minute: '2-digit',
+                                })}
+                              </p>
+                            )}
+                            {opt.location && (
+                              <p className="text-xs text-gray-500 mt-0.5">📍 {opt.location}</p>
+                            )}
+                            {opt.description && (
+                              <p className="text-xs text-gray-400 mt-0.5">{opt.description}</p>
+                            )}
+                          </div>
+
+                          {/* Vote buttons */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {(['yes', 'no', 'maybe'] as const).map((answer) => {
+                              const count = opt.votes[answer]
+                              const isActive = my === answer
+                              const colors: Record<string, string> = {
+                                yes: isActive ? 'bg-green-700 border-green-600 text-green-100' : 'bg-gray-900 border-gray-700 text-gray-400 hover:border-green-700 hover:text-green-400',
+                                no: isActive ? 'bg-red-900 border-red-700 text-red-100' : 'bg-gray-900 border-gray-700 text-gray-400 hover:border-red-700 hover:text-red-400',
+                                maybe: isActive ? 'bg-yellow-800 border-yellow-600 text-yellow-100' : 'bg-gray-900 border-gray-700 text-gray-400 hover:border-yellow-600 hover:text-yellow-400',
+                              }
+                              const labels: Record<string, string> = { yes: '✓ Yes', no: '✗ No', maybe: '? Maybe' }
+                              return (
+                                <button
+                                  key={answer}
+                                  type="button"
+                                  onClick={() => handleVoteClick(answer)}
+                                  disabled={!currentUserId}
+                                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${colors[answer]}`}
+                                >
+                                  {labels[answer]}
+                                  {count > 0 && (
+                                    <span className={`font-bold ${isActive ? 'opacity-100' : 'opacity-70'}`}>{count}</span>
+                                  )}
+                                </button>
+                              )
+                            })}
+                            {total > 0 && (
+                              <span className="text-xs text-gray-600 ml-auto">{total} vote{total !== 1 ? 's' : ''}</span>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+
+                    {/* Poll actions */}
+                    {canManage && (
+                      <div className="flex items-center gap-3 pt-1 border-t border-gray-800">
+                        <button
+                          type="button"
+                          onClick={() => onEditPoll(poll)}
+                          className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeletePollId(poll.id)}
+                          className="text-xs text-red-500 hover:text-red-400 transition-colors"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {confirmDeletePollId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm p-6 space-y-4">
+            <h3 className="text-base font-bold text-white">Delete poll?</h3>
+            <p className="text-sm text-gray-400">All votes will be lost. This can't be undone.</p>
+            <div className="flex gap-3 pt-1">
+              <button
+                type="button"
+                onClick={() => setConfirmDeletePollId(null)}
+                className="flex-1 py-2.5 rounded-xl border border-gray-700 text-gray-300 text-sm hover:bg-gray-800 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeletePoll(confirmDeletePollId)
+                  setConfirmDeletePollId(null)
+                }}
+                className="flex-1 py-2.5 rounded-xl bg-red-700 hover:bg-red-600 text-white text-sm font-semibold transition-colors"
+              >
+                Delete
               </button>
             </div>
           </div>

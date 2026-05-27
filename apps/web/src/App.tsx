@@ -8,16 +8,35 @@ import Layout from './components/Layout'
 import MarketingLayout from './components/MarketingLayout'
 import { queryClient } from './lib/queryClient'
 
-// Wraps React.lazy so a stale-chunk TypeError (404 after a deploy) never
-// crashes into the error boundary. The vite:preloadError handler reloads the
-// page; this keeps the component in the Suspense fallback while that happens.
+// Wraps React.lazy so chunk-load failures never crash into the error boundary.
+// Two failure modes need guarding:
+//   1. Rejected import (TypeError from stale 404) — caught below, stays Suspended.
+//   2. Resolved-to-undefined import — happens when Vite's __vite_preload__ error
+//      handler returns undefined (old code called event.preventDefault() which
+//      silenced the rethrow), or on Safari/WebKit where import() can resolve to
+//      undefined instead of rejecting. React then crashes on payload._result.default.
+// In both cases we stay Suspended and fire the same rate-limited reload used by
+// the vite:preloadError handler in main.tsx so the page recovers automatically.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function lazyLoad<T extends ComponentType<any>>(factory: () => Promise<{ default: T }>) {
   return lazy(() =>
-    factory().catch((err: unknown) => {
-      if (err instanceof TypeError) return new Promise<{ default: T }>(() => {})
-      throw err
-    })
+    factory()
+      .then((mod) => {
+        if (!mod?.default) {
+          const key = 'gem:chunk-reload'
+          const last = Number(sessionStorage.getItem(key) ?? 0)
+          if (Date.now() - last > 10_000) {
+            sessionStorage.setItem(key, String(Date.now()))
+            window.location.reload()
+          }
+          return new Promise<{ default: T }>(() => {})
+        }
+        return mod
+      })
+      .catch((err: unknown) => {
+        if (err instanceof TypeError) return new Promise<{ default: T }>(() => {})
+        throw err
+      })
   )
 }
 
@@ -35,6 +54,7 @@ const GroupStatsPage = lazyLoad(() => import(/* webpackChunkName: "group-pages" 
 const GroupGalleryPage = lazyLoad(() => import(/* webpackChunkName: "group-pages" */ './pages/GroupGalleryPage'))
 const EventPage = lazyLoad(() => import(/* webpackChunkName: "group-pages" */ './pages/EventPage'))
 const CreateEventPage = lazyLoad(() => import(/* webpackChunkName: "group-pages" */ './pages/CreateEventPage'))
+const CreatePollPage = lazyLoad(() => import(/* webpackChunkName: "group-pages" */ './pages/CreatePollPage'))
 // Settings pages share a chunk
 const SettingsPage = lazyLoad(() => import('./pages/SettingsPage'))
 const ProfilePage = lazyLoad(() => import(/* webpackChunkName: "settings-pages" */ './pages/ProfilePage'))
@@ -222,6 +242,7 @@ export default function App() {
           <Route path="/groups/:groupId/stats" element={<GroupStatsPage />} />
           <Route path="/groups/:groupId/gallery" element={<GroupGalleryPage />} />
           <Route path="/groups/:groupId/events/new" element={<CreateEventPage />} />
+          <Route path="/groups/:groupId/polls/new" element={<CreatePollPage />} />
           <Route path="/events/:eventId" element={<EventPage />} />
           <Route path="/groups/:groupId/channels/:channelId" element={<ChannelPage />} />
           <Route path="/settings" element={<SettingsPage />} />
